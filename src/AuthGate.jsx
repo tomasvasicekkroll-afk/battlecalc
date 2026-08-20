@@ -163,6 +163,54 @@ function PasswordForm() {
   );
 }
 
+function GoogleButton() {
+  const [loading, setLoading] = useState(false);
+
+  const signInWithGoogle = async () => {
+    if (!supabase) return;
+    setLoading(true);
+    await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo: window.location.origin },
+    });
+    // Browser navigates away to Google immediately on success; only reachable
+    // on failure to start the redirect, so it's safe to always clear loading.
+    setLoading(false);
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={signInWithGoogle}
+      disabled={loading}
+      style={{
+        width: "100%",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 8,
+        border: "1px solid var(--field-border)",
+        background: "var(--field-bg)",
+        color: "var(--text)",
+        borderRadius: 6,
+        padding: 10,
+        fontSize: 13.5,
+        fontWeight: 600,
+        cursor: loading ? "default" : "pointer",
+        opacity: loading ? 0.7 : 1,
+      }}
+    >
+      <svg width="16" height="16" viewBox="0 0 48 48" aria-hidden="true">
+        <path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.4 29.3 35 24 35c-6.1 0-11-4.9-11-11s4.9-11 11-11c2.8 0 5.3 1 7.3 2.8l5.7-5.7C33.6 6.5 29 4.5 24 4.5 13.2 4.5 4.5 13.2 4.5 24S13.2 43.5 24 43.5 43.5 34.8 43.5 24c0-1.2-.1-2.4-.4-3.5z" />
+        <path fill="#FF3D00" d="m6.3 14.7 6.6 4.8C14.6 15.9 18.9 13 24 13c2.8 0 5.3 1 7.3 2.8l5.7-5.7C33.6 6.5 29 4.5 24 4.5c-7.7 0-14.4 4.4-17.7 10.2z" />
+        <path fill="#4CAF50" d="M24 43.5c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 34.9 26.7 35.8 24 35.8c-5.3 0-9.7-3.4-11.3-8.1l-6.5 5C9.5 39 16.2 43.5 24 43.5z" />
+        <path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.3-2.3 4.2-4.2 5.6l6.2 5.2C40.5 36 43.5 30.5 43.5 24c0-1.2-.1-2.4-.4-3.5z" />
+      </svg>
+      {loading ? "Přesměrovávám…" : "Pokračovat s Google"}
+    </button>
+  );
+}
+
 function LoginScreen() {
   const [mode, setMode] = useState("magic"); // magic | password
 
@@ -196,6 +244,13 @@ function LoginScreen() {
         </div>
 
         {mode === "magic" ? <MagicLinkForm /> : <PasswordForm />}
+
+        <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "16px 0" }}>
+          <div style={{ flex: 1, height: 1, background: "var(--field-border)" }} />
+          <span style={{ fontSize: 10.5, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.5 }}>nebo</span>
+          <div style={{ flex: 1, height: 1, background: "var(--field-border)" }} />
+        </div>
+        <GoogleButton />
       </div>
     </div>
   );
