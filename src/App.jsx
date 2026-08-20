@@ -26,6 +26,7 @@ import {
   Swords as SwordsAlt,
 } from "lucide-react";
 import { storage } from "./lib/storage";
+import { supabase } from "./lib/supabaseClient";
 
 const REROLL_OPTIONS = [
   { value: "none", label: "Žádný" },
@@ -2024,7 +2025,7 @@ function StepDots({ steps, current }) {
 // ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
-export default function Wh40kCalculator() {
+export default function Wh40kCalculator({ session }) {
   const [library, setLibrary] = useState([]);
   const [loaded, setLoaded] = useState(false);
   const [libraryOpen, setLibraryOpen] = useState(false);
@@ -2795,6 +2796,11 @@ export default function Wh40kCalculator() {
         )}
         {settingsOpen && (
           <div style={{ position: "absolute", top: "100%", right: 10, background: "var(--panel)", border: "1px solid var(--field-border)", borderRadius: 10, padding: 6, zIndex: 30, minWidth: 200, boxShadow: "0 10px 28px rgba(0,0,0,0.5)" }}>
+            {session?.user?.email && (
+              <div style={{ fontSize: 10.5, color: "var(--muted)", padding: "6px 10px 8px", borderBottom: "1px solid var(--field-border)", marginBottom: 4, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                {session.user.email}
+              </div>
+            )}
             <button
               onClick={() => {
                 setSettingsOpen(false);
@@ -2812,6 +2818,15 @@ export default function Wh40kCalculator() {
               style={{ display: "flex", alignItems: "center", gap: 6, width: "100%", textAlign: "left", background: "transparent", border: "none", color: "#e0857c", fontSize: 12.5, padding: "8px 10px", borderRadius: 6, cursor: "pointer" }}
             >
               <Trash2 size={13} /> Vymazat historii
+            </button>
+            <button
+              onClick={() => {
+                setSettingsOpen(false);
+                askConfirm("Odhlásit se?", () => supabase && supabase.auth.signOut());
+              }}
+              style={{ display: "flex", alignItems: "center", gap: 6, width: "100%", textAlign: "left", background: "transparent", border: "none", color: "var(--muted)", fontSize: 12.5, padding: "8px 10px", borderRadius: 6, cursor: "pointer" }}
+            >
+              <ArrowLeft size={13} /> Odhlásit se
             </button>
           </div>
         )}

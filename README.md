@@ -6,12 +6,19 @@ Vite + React projekt.
 ## Stav migrace
 
 - [x] Cíl 1: appka běží jako samostatný Vite projekt, mimo Claude.ai sandbox
-- [ ] Cíl 2: uživatelské účty + Supabase (zatím data v `localStorage` prohlížeče)
+- [x] Cíl 2: uživatelské účty + Supabase — přihlášení (magic link i email/heslo),
+      data uložená per-uživatel v Supabase Postgres
 - [ ] Cíl 3: komunitní knihovna jednotek
 
 `window.storage` bylo nahrazeno vrstvou v [`src/lib/storage.js`](src/lib/storage.js)
-se stejným API (`get`/`set`/`delete`/`list`), zatím napojenou na `localStorage`.
-Až budou hotové Supabase účty, mění se jen tenhle jeden soubor.
+se stejným API (`get`/`set`/`delete`/`list`), napojenou na Supabase (tabulka
+`user_data`, viz [`supabase/schema.sql`](supabase/schema.sql)) — data jsou vázaná
+na přihlášeného uživatele a chráněná row-level security politikami.
+
+Appka je za přihlašovací branou ([`src/AuthGate.jsx`](src/AuthGate.jsx)) — bez
+přihlášení se nezobrazí. Vyžaduje `.env.local` s `VITE_SUPABASE_URL` a
+`VITE_SUPABASE_ANON_KEY` (viz `.env.example`); na Vercelu jsou nastavené jako
+Environment Variables projektu.
 
 ## Lokální vývoj
 

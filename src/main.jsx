@@ -1,6 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import Wh40kCalculator from "./App.jsx";
+import AuthGate from "./AuthGate.jsx";
 
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
@@ -14,7 +15,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(
         background: "#070c14",
       }}
     >
-      <Wh40kCalculator />
+      <AuthGate>{(session) => <Wh40kCalculator session={session} />}</AuthGate>
     </div>
   </React.StrictMode>
 );
