@@ -24,6 +24,8 @@ import {
   List,
   ArrowLeft,
   Swords as SwordsAlt,
+  Maximize2,
+  Minimize2,
 } from "lucide-react";
 import { storage } from "./lib/storage";
 import { supabase } from "./lib/supabaseClient";
@@ -39,6 +41,17 @@ const WEAPON_TYPE_OPTIONS = [
   { value: "melee", label: "Na blízko" },
 ];
 
+// Anti-X Y+: against a unit with keyword X, an unmodified wound roll of Y+
+// always counts as a Critical Wound (auto-wounds), regardless of the normal
+// S vs T table. Modeled as taking the better (lower) of the two thresholds —
+// see computeWeapon.
+const ANTI_KEYWORD_OPTIONS = [
+  { value: "none", label: "Žádné" },
+  { value: "monster", label: "MONSTER" },
+  { value: "vehicle", label: "VEHICLE" },
+  { value: "character", label: "CHARACTER" },
+];
+
 const emptyWeapon = () => ({
   id: crypto.randomUUID(),
   name: "Zbraň",
@@ -51,6 +64,8 @@ const emptyWeapon = () => ({
   lethalHits: false,
   sustained: 0,
   melta: 0,
+  antiKeyword: "none",
+  antiValue: 4,
   rerollHit: "none",
   rerollWound: "none",
   copies: 1,
@@ -77,6 +92,7 @@ const emptyUnit = () => ({
   fnp: 0,
   woundDebuff: false,
   damageReduction: 0,
+  keywords: { monster: false, vehicle: false, character: false },
   members: [emptyMember()],
   needsStats: false,
   isLeader: false,
@@ -156,6 +172,8 @@ function computeWeapon(weapon, modelCount, def, bonus) {
     damage: weapon.damage,
     lethalHits: weapon.lethalHits || b.lethalHits,
     sustained: Math.max(weapon.sustained, b.sustained),
+    antiKeyword: weapon.antiKeyword || "none",
+    antiValue: weapon.antiValue || 0,
     rerollHit: betterReroll(weapon.rerollHit || "none", b.rerollHit),
     rerollWound: betterReroll(weapon.rerollWound || "none", b.rerollWound),
   };
@@ -195,6 +213,11 @@ function computeWeapon(weapon, modelCount, def, bonus) {
   // attacking weapon's Strength is greater than this unit's Toughness.
   if (def.woundDebuff && S > T) woundNeed += 1;
   woundNeed = Math.max(2, Math.min(6, woundNeed - (b.woundMod || 0)));
+  // Anti-X Y+: against a defender with keyword X, a wound roll of Y+ always
+  // counts as a Critical Wound — take whichever threshold is easier to hit.
+  if (att.antiKeyword !== "none" && att.antiValue > 0 && def.keywords && def.keywords[att.antiKeyword]) {
+    woundNeed = Math.min(woundNeed, att.antiValue);
+  }
 
   const pWoundBase = (7 - woundNeed) / 6;
   const pWoundAdj =
@@ -323,6 +346,7 @@ function defenderProfile(unit, overrides) {
     fnp: clampSave(o.fnp !== undefined && o.fnp !== null ? o.fnp : unit.fnp, 0),
     woundDebuff: o.woundDebuff !== undefined && o.woundDebuff !== null ? !!o.woundDebuff : !!unit.woundDebuff,
     damageReduction: Math.max(0, clampNum(o.damageReduction !== undefined && o.damageReduction !== null ? o.damageReduction : unit.damageReduction, 0)),
+    keywords: o.keywords || unit.keywords || {},
   };
 }
 
@@ -460,6 +484,17 @@ function parseWeaponCharacteristics(wc) {
   // Twin-linked: re-roll the wound roll for this weapon.
   const twinLinked = /twin-linked/i.test(keywords);
 
+  // Anti-X Y+ (e.g. "Anti-Monster 3+") — only the keywords the app has a
+  // toggle for on the defender side are recognized; anything else is left
+  // as "none" for the person to set up manually if it matters.
+  let antiKeyword = "none";
+  let antiValue = 0;
+  const antiMatch = keywords.match(/anti-(monster|vehicle|character)\s*(\d)\+?/i);
+  if (antiMatch) {
+    antiKeyword = antiMatch[1].toLowerCase();
+    antiValue = parseInt(antiMatch[2], 10) || 0;
+  }
+
   const isMelee = wc && wc.Range && String(wc.Range).trim().toLowerCase() === "melee";
   const hitText = wc ? (isMelee ? wc.WS : wc.BS) : null;
   const strengthParsed = wc ? parseIntSafe(wc.S, 4) : { value: 4, ok: true };
@@ -474,6 +509,8 @@ function parseWeaponCharacteristics(wc) {
     lethalHits,
     sustained,
     melta,
+    antiKeyword,
+    antiValue,
     twinLinked,
     rerollHit: "none",
     rerollWound: twinLinked ? "all" : "none",
@@ -651,6 +688,12 @@ function parseBattleScribeJSON(text) {
 
       const needsStats = members.some((m) => m.weapons.some((w) => w.needsStats));
       const isLeader = (topSel.categories || []).some((c) => (c.name || "").trim().toLowerCase() === "leader");
+      const categoryNames = (topSel.categories || []).map((c) => (c.name || "").trim().toLowerCase());
+      const keywords = {
+        monster: categoryNames.includes("monster"),
+        vehicle: categoryNames.includes("vehicle"),
+        character: categoryNames.includes("character"),
+      };
       const ptsCost = (topSel.costs || []).find((c) => c.name === "pts");
       const points = ptsCost ? String(ptsCost.value) : "";
       const defensiveAbilities = detectDefensiveAbilities(topSel);
@@ -665,6 +708,7 @@ function parseBattleScribeJSON(text) {
         members, // still carrying .chars per member at this point — stripped after merge below
         needsStats,
         isLeader,
+        keywords,
         fnp: defensiveAbilities.fnp,
         damageReduction: defensiveAbilities.damageReduction,
       });
@@ -732,6 +776,7 @@ function parseBattleScribeJSON(text) {
         fnp: combinedFnp,
         woundDebuff: false,
         damageReduction: u.damageReduction || 0,
+        keywords: u.keywords || { monster: false, vehicle: false, character: false },
         members: u.members.map((m) => ({ id: m.id, name: m.name, count: m.count, weapons: m.weapons })),
         needsStats: u.needsStats,
         isLeader: u.isLeader,
@@ -915,6 +960,23 @@ function WeaponEditor({ weapon, onChange, onRemove }) {
         />
         <div />
       </Row>
+      <Row cols={2}>
+        <SelectField
+          label="Anti- klíčové slovo"
+          value={weapon.antiKeyword || "none"}
+          onChange={set("antiKeyword")}
+          options={ANTI_KEYWORD_OPTIONS}
+          small
+        />
+        <NumberField
+          label="Anti- práh (X+)"
+          value={weapon.antiValue || 0}
+          onChange={set("antiValue")}
+          min={2}
+          hint="proti tomuto klíč. slovu automaticky zraní na tento hod"
+          small
+        />
+      </Row>
       {weapon.note && <div style={{ fontSize: 10.5, color: "var(--muted)", marginTop: 2 }}>{weapon.note}</div>}
     </div>
   );
@@ -971,6 +1033,7 @@ function MemberEditor({ member, onChange, onRemove }) {
 function UnitForm({ initial, onSave, onCancel }) {
   const [u, setU] = useState(initial);
   const set = (k) => (v) => setU((s) => ({ ...s, [k]: v }));
+  const setKeyword = (k) => (v) => setU((s) => ({ ...s, keywords: { ...(s.keywords || {}), [k]: v } }));
 
   const setMember = (idx) => (m) => {
     const members = u.members.slice();
@@ -1037,6 +1100,11 @@ function UnitForm({ initial, onSave, onCancel }) {
         <div style={{ display: "flex", flexDirection: "column", justifyContent: "flex-end", fontSize: 12, color: "var(--muted)" }}>
           Celkem modelů v jednotce: <b style={{ color: "var(--text)" }}>{totalModels(u)}</b>
         </div>
+      </Row>
+      <Row cols={3}>
+        <ToggleField label="Klíčové slovo: MONSTER" value={!!(u.keywords || {}).monster} onChange={setKeyword("monster")} hint="pro Anti-MONSTER X+ u útočníkových zbraní" small />
+        <ToggleField label="Klíčové slovo: VEHICLE" value={!!(u.keywords || {}).vehicle} onChange={setKeyword("vehicle")} hint="pro Anti-VEHICLE X+ u útočníkových zbraní" small />
+        <ToggleField label="Klíčové slovo: CHARACTER" value={!!(u.keywords || {}).character} onChange={setKeyword("character")} hint="pro Anti-CHARACTER X+ u útočníkových zbraní" small />
       </Row>
 
       <SectionLabel>Modely a jejich zbraně</SectionLabel>
@@ -2097,6 +2165,21 @@ export default function Wh40kCalculator({ session }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [defenderModifiersOpen, setDefenderModifiersOpen] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(!!document.fullscreenElement);
+
+  useEffect(() => {
+    const onChange = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener("fullscreenchange", onChange);
+    return () => document.removeEventListener("fullscreenchange", onChange);
+  }, []);
+
+  const toggleFullscreen = () => {
+    if (document.fullscreenElement) {
+      document.exitFullscreen();
+    } else {
+      document.documentElement.requestFullscreen().catch(() => {});
+    }
+  };
 
   const [history, setHistory] = useState([]);
   const [historyLoaded, setHistoryLoaded] = useState(false);
@@ -2683,6 +2766,7 @@ export default function Wh40kCalculator({ session }) {
 
   return (
     <div
+      className="wh40k-shell"
       style={{
         "--bg": "#070c14",
         "--panel": "#0f1826",
@@ -2713,8 +2797,27 @@ export default function Wh40kCalculator({ session }) {
     >
       <style>{`
         @media print {
+          @page { size: landscape; margin: 10mm; }
           .no-print { display: none !important; }
           .print-area { display: block !important; }
+          .wh40k-shell {
+            max-width: none !important;
+            width: 100% !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            border: none !important;
+            border-radius: 0 !important;
+            background: #fff !important;
+          }
+          .print-area {
+            margin: 0 !important;
+            padding: 0 !important;
+            border-radius: 0 !important;
+            overflow: visible !important;
+          }
+          .print-area table { table-layout: fixed; width: 100%; }
+          .print-area tr { break-inside: avoid; }
+          .print-area th, .print-area td { word-break: break-word; }
         }
         @keyframes wh40k-pulse {
           0%, 100% { box-shadow: 0 0 14px rgba(47,143,232,0.5), 0 0 0 rgba(47,143,232,0); }
@@ -2773,6 +2876,15 @@ export default function Wh40kCalculator({ session }) {
           <Settings size={19} />
         </button>
 
+        {(menuOpen || settingsOpen) && (
+          <div
+            onClick={() => {
+              setMenuOpen(false);
+              setSettingsOpen(false);
+            }}
+            style={{ position: "fixed", inset: 0, zIndex: 25 }}
+          />
+        )}
         {menuOpen && (
           <div style={{ position: "absolute", top: "100%", left: 10, background: "var(--panel)", border: "1px solid var(--field-border)", borderRadius: 10, padding: 6, zIndex: 30, minWidth: 200, boxShadow: "0 10px 28px rgba(0,0,0,0.5)" }}>
             {[
@@ -2780,6 +2892,7 @@ export default function Wh40kCalculator({ session }) {
               ["Knihovna jednotek", () => setView("library")],
               ["Moje armády a cheat sheet", () => setView("lists")],
               ["Historie výpočtů", () => setView("history")],
+              [isFullscreen ? "Ukončit celou obrazovku" : "Celá obrazovka", () => toggleFullscreen()],
             ].map(([label, fn]) => (
               <button
                 key={label}
@@ -2787,8 +2900,11 @@ export default function Wh40kCalculator({ session }) {
                   fn();
                   setMenuOpen(false);
                 }}
-                style={{ display: "block", width: "100%", textAlign: "left", background: "transparent", border: "none", color: "var(--text)", fontSize: 12.5, padding: "8px 10px", borderRadius: 6, cursor: "pointer" }}
+                style={{ display: "flex", alignItems: "center", gap: 6, width: "100%", textAlign: "left", background: "transparent", border: "none", color: "var(--text)", fontSize: 12.5, padding: "8px 10px", borderRadius: 6, cursor: "pointer" }}
               >
+                {label === "Celá obrazovka" || label === "Ukončit celou obrazovku" ? (
+                  isFullscreen ? <Minimize2 size={13} /> : <Maximize2 size={13} />
+                ) : null}
                 {label}
               </button>
             ))}
