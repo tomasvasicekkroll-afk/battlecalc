@@ -66,7 +66,7 @@ const emptyWeapon = () => ({
   melta: 0,
   antiKeyword: "none",
   antiValue: 4,
-  rerollVsKeyword: "none",
+  rerollVsKeywords: { monster: false, vehicle: false, character: false },
   rerollHit: "none",
   rerollWound: "none",
   copies: 1,
@@ -168,7 +168,9 @@ function computeWeapon(weapon, modelCount, def, bonus) {
   // against a keyword like MONSTER/VEHICLE — distinct from Anti-X, which
   // instead lowers the auto-wound threshold.
   const rerollKeywordActive =
-    weapon.rerollVsKeyword && weapon.rerollVsKeyword !== "none" && def.keywords && def.keywords[weapon.rerollVsKeyword];
+    !!weapon.rerollVsKeywords &&
+    !!def.keywords &&
+    Object.keys(weapon.rerollVsKeywords).some((k) => weapon.rerollVsKeywords[k] && def.keywords[k]);
   const att = {
     models: modelCount * (weapon.copies || 1),
     attacks: weapon.attacks,
@@ -922,6 +924,7 @@ function SectionLabel({ children }) {
 // ---------------------------------------------------------------------------
 function WeaponEditor({ weapon, onChange, onRemove }) {
   const set = (k) => (v) => onChange({ ...weapon, [k]: v });
+  const setRerollKw = (k) => (v) => onChange({ ...weapon, rerollVsKeywords: { ...(weapon.rerollVsKeywords || {}), [k]: v } });
   return (
     <div style={{ background: "var(--field-bg)", border: "1px solid var(--field-border)", borderRadius: 8, padding: 10, marginTop: 6 }}>
       <div style={{ display: "flex", gap: 8, alignItems: "flex-end", marginBottom: 6 }}>
@@ -983,18 +986,15 @@ function WeaponEditor({ weapon, onChange, onRemove }) {
           small
         />
       </Row>
-      <Row cols={2}>
-        <SelectField
-          label="Přehoz vše proti klíč. slovu"
-          value={weapon.rerollVsKeyword || "none"}
-          onChange={set("rerollVsKeyword")}
-          options={ANTI_KEYWORD_OPTIONS}
-          small
-        />
-        <div style={{ display: "flex", alignItems: "flex-end", fontSize: 10.5, color: "var(--muted)", paddingBottom: 6 }}>
-          přehoz zásahu i zranění (vše), např. GMNDK proti MONSTER/VEHICLE
-        </div>
-      </Row>
+      <div style={{ marginTop: 2 }}>
+        <div style={{ fontSize: 11, color: "var(--label)", fontWeight: 600, marginBottom: 4 }}>Přehoz vše (zásah i zranění) proti klíč. slovu</div>
+        <Row cols={3}>
+          <ToggleField label="vs MONSTER" value={!!(weapon.rerollVsKeywords || {}).monster} onChange={setRerollKw("monster")} small />
+          <ToggleField label="vs VEHICLE" value={!!(weapon.rerollVsKeywords || {}).vehicle} onChange={setRerollKw("vehicle")} small />
+          <ToggleField label="vs CHARACTER" value={!!(weapon.rerollVsKeywords || {}).character} onChange={setRerollKw("character")} small />
+        </Row>
+        <div style={{ fontSize: 10.5, color: "var(--muted)", marginTop: -2, marginBottom: 6 }}>např. GMNDK proti MONSTER i VEHICLE zároveň</div>
+      </div>
       {weapon.note && <div style={{ fontSize: 10.5, color: "var(--muted)", marginTop: 2 }}>{weapon.note}</div>}
     </div>
   );
@@ -2811,7 +2811,9 @@ export default function Wh40kCalculator({ session }) {
         background: "radial-gradient(ellipse 120% 60% at 50% -10%, #102338 0%, #070c14 55%)",
         color: "var(--text)",
         borderRadius: 18,
-        maxWidth: 460,
+        width: 460,
+        maxWidth: "100%",
+        flexShrink: 0,
         margin: "0 auto",
         border: "1px solid #16233a",
         overflow: "hidden",
