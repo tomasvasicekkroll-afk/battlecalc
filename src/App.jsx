@@ -600,6 +600,43 @@ function detectDefensiveAbilities(topSel) {
   return { fnp, damageReduction };
 }
 
+// Scans a unit's own ability text for offensive "re-roll Hit/Wound rolls
+// against a keyword" abilities (e.g. a Grand Master in Nemesis Dreadknight:
+// "Each time this model makes a melee attack that targets a Monster or
+// Vehicle unit, you can re-roll the Hit roll [and] Wound roll") — applied
+// automatically to every matching weapon on import instead of needing to be
+// ticked by hand. Scoped to melee/ranged/both depending on the ability text;
+// the Damage-roll part of such abilities isn't modeled (Damage here is
+// already an averaged value, not a live per-attack die roll).
+function detectOffensiveRerollAbilities(topSel) {
+  const result = { melee: { monster: false, vehicle: false, character: false }, ranged: { monster: false, vehicle: false, character: false } };
+  const checkText = (text) => {
+    if (!/re-?roll/i.test(text)) return;
+    if (!/hit roll/i.test(text) && !/wound roll/i.test(text)) return;
+    const scopes = [];
+    if (/melee attack/i.test(text)) scopes.push("melee");
+    if (/ranged attack/i.test(text)) scopes.push("ranged");
+    if (scopes.length === 0) scopes.push("melee", "ranged");
+    const kws = [];
+    if (/\bmonster\b/i.test(text)) kws.push("monster");
+    if (/\bvehicle\b/i.test(text)) kws.push("vehicle");
+    if (/\bcharacter\b/i.test(text)) kws.push("character");
+    if (kws.length === 0) return;
+    scopes.forEach((s) => kws.forEach((k) => (result[s][k] = true)));
+  };
+  const scan = (node) => {
+    (node.rules || []).forEach((r) => checkText(`${r.name || ""} ${r.description || ""}`));
+    (node.profiles || []).forEach((p) => {
+      const nameText = p.name || "";
+      const bodyText = (p.characteristics || []).map((c) => c["$text"] || "").join(" ");
+      checkText(`${nameText} ${bodyText}`);
+    });
+    (node.selections || []).forEach(scan);
+  };
+  scan(topSel);
+  return result;
+}
+
 function extractUnitChars(up) {
   const uc = {};
   (up.characteristics || []).forEach((c) => {
@@ -705,6 +742,21 @@ function parseBattleScribeJSON(text) {
       const ptsCost = (topSel.costs || []).find((c) => c.name === "pts");
       const points = ptsCost ? String(ptsCost.value) : "";
       const defensiveAbilities = detectDefensiveAbilities(topSel);
+
+      const offensiveRerolls = detectOffensiveRerollAbilities(topSel);
+      members.forEach((m) => {
+        m.weapons.forEach((w) => {
+          const scope = w.type === "melee" ? offensiveRerolls.melee : offensiveRerolls.ranged;
+          if (scope.monster || scope.vehicle || scope.character) {
+            const existing = w.rerollVsKeywords || {};
+            w.rerollVsKeywords = {
+              monster: existing.monster || scope.monster,
+              vehicle: existing.vehicle || scope.vehicle,
+              character: existing.character || scope.character,
+            };
+          }
+        });
+      });
 
       armyUnits.push({
         id: crypto.randomUUID(),
@@ -2834,6 +2886,7 @@ export default function Wh40kCalculator({ session }) {
             border: none !important;
             border-radius: 0 !important;
             background: #fff !important;
+            overflow: visible !important;
           }
           .print-area {
             margin: 0 !important;
@@ -2841,9 +2894,9 @@ export default function Wh40kCalculator({ session }) {
             border-radius: 0 !important;
             overflow: visible !important;
           }
-          .print-area table { table-layout: fixed; width: 100%; }
+          .print-area table { table-layout: auto; width: 100%; font-size: 8px; }
           .print-area tr { break-inside: avoid; }
-          .print-area th, .print-area td { word-break: break-word; }
+          .print-area th, .print-area td { word-break: break-word; padding: 2px 3px !important; }
         }
         @keyframes wh40k-pulse {
           0%, 100% { box-shadow: 0 0 14px rgba(47,143,232,0.5), 0 0 0 rgba(47,143,232,0); }
@@ -3932,9 +3985,10 @@ export default function Wh40kCalculator({ session }) {
                       const el = document.getElementById("army-select-att");
                       if (el && el.value) addArmyToAttackers(el.value);
                     }}
-                    style={{ display: "flex", alignItems: "center", gap: 3, border: "1px solid var(--accent)", background: "transparent", color: "var(--accent-text)", borderRadius: 6, padding: "4px 8px", fontSize: 11, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}
+                    title="Zaškrtnout celou vybranou armádu"
+                    style={{ display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, border: "1px solid var(--accent)", background: "transparent", color: "var(--accent-text)", borderRadius: 6, width: 26, height: 26, cursor: "pointer" }}
                   >
-                    <Plus size={11} /> Přidat
+                    <Plus size={13} />
                   </button>
                 </div>
               )}
@@ -3981,9 +4035,10 @@ export default function Wh40kCalculator({ session }) {
                       const el = document.getElementById("army-select-tgt");
                       if (el && el.value) addArmyToTargets(el.value);
                     }}
-                    style={{ display: "flex", alignItems: "center", gap: 3, border: "1px solid var(--blue)", background: "transparent", color: "#a9c6e5", borderRadius: 6, padding: "4px 8px", fontSize: 11, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}
+                    title="Zaškrtnout celou vybranou armádu"
+                    style={{ display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, border: "1px solid var(--blue)", background: "transparent", color: "#a9c6e5", borderRadius: 6, width: 26, height: 26, cursor: "pointer" }}
                   >
-                    <Plus size={11} /> Přidat
+                    <Plus size={13} />
                   </button>
                 </div>
               )}
