@@ -66,6 +66,7 @@ const emptyWeapon = () => ({
   melta: 0,
   antiKeyword: "none",
   antiValue: 4,
+  rerollVsKeyword: "none",
   rerollHit: "none",
   rerollWound: "none",
   copies: 1,
@@ -163,6 +164,11 @@ function autoDetectBonus(unit) {
 // ---------------------------------------------------------------------------
 function computeWeapon(weapon, modelCount, def, bonus) {
   const b = bonus || emptyBonus();
+  // Some units (e.g. GMNDK) can re-roll all hit and wound rolls specifically
+  // against a keyword like MONSTER/VEHICLE — distinct from Anti-X, which
+  // instead lowers the auto-wound threshold.
+  const rerollKeywordActive =
+    weapon.rerollVsKeyword && weapon.rerollVsKeyword !== "none" && def.keywords && def.keywords[weapon.rerollVsKeyword];
   const att = {
     models: modelCount * (weapon.copies || 1),
     attacks: weapon.attacks,
@@ -174,8 +180,8 @@ function computeWeapon(weapon, modelCount, def, bonus) {
     sustained: Math.max(weapon.sustained, b.sustained),
     antiKeyword: weapon.antiKeyword || "none",
     antiValue: weapon.antiValue || 0,
-    rerollHit: betterReroll(weapon.rerollHit || "none", b.rerollHit),
-    rerollWound: betterReroll(weapon.rerollWound || "none", b.rerollWound),
+    rerollHit: betterReroll(betterReroll(weapon.rerollHit || "none", b.rerollHit), rerollKeywordActive ? "all" : "none"),
+    rerollWound: betterReroll(betterReroll(weapon.rerollWound || "none", b.rerollWound), rerollKeywordActive ? "all" : "none"),
   };
 
   // Hit-roll modifier: weapons that auto-hit (hitX === 1, e.g. Torrent) ignore modifiers.
@@ -977,6 +983,18 @@ function WeaponEditor({ weapon, onChange, onRemove }) {
           small
         />
       </Row>
+      <Row cols={2}>
+        <SelectField
+          label="Přehoz vše proti klíč. slovu"
+          value={weapon.rerollVsKeyword || "none"}
+          onChange={set("rerollVsKeyword")}
+          options={ANTI_KEYWORD_OPTIONS}
+          small
+        />
+        <div style={{ display: "flex", alignItems: "flex-end", fontSize: 10.5, color: "var(--muted)", paddingBottom: 6 }}>
+          přehoz zásahu i zranění (vše), např. GMNDK proti MONSTER/VEHICLE
+        </div>
+      </Row>
       {weapon.note && <div style={{ fontSize: 10.5, color: "var(--muted)", marginTop: 2 }}>{weapon.note}</div>}
     </div>
   );
@@ -1198,6 +1216,12 @@ function ImportBox({ onImport }) {
         rosterName = (parsed && parsed.roster && parsed.roster.name) || "";
       } catch (e) {
         rosterName = "";
+      }
+      // Roster export often has no name set in New Recruit — fall back to
+      // something so this import always ends up selectable as one army in
+      // the cheat sheet, instead of silently skipping army creation.
+      if (!rosterName.trim()) {
+        rosterName = `${units[0]?.faction || "Import"} ${new Date().toLocaleDateString("cs-CZ")}`;
       }
       const flagged = units.filter((u) => u.needsStats).length;
       const { added, skipped } = onImport(units, rosterName);
@@ -3893,11 +3917,11 @@ export default function Wh40kCalculator({ session }) {
                     defaultValue=""
                   >
                     <option value="" disabled>
-                      Přidat armádu…
+                      Zaškrtnout celou armádu…
                     </option>
                     {armies.map((a) => (
                       <option key={a.id} value={a.id}>
-                        {a.name}
+                        {a.name} ({a.unitIds.length}x)
                       </option>
                     ))}
                   </select>
@@ -3906,9 +3930,9 @@ export default function Wh40kCalculator({ session }) {
                       const el = document.getElementById("army-select-att");
                       if (el && el.value) addArmyToAttackers(el.value);
                     }}
-                    style={{ border: "1px solid var(--accent)", background: "transparent", color: "var(--accent-text)", borderRadius: 6, padding: "4px 8px", fontSize: 11, cursor: "pointer" }}
+                    style={{ display: "flex", alignItems: "center", gap: 3, border: "1px solid var(--accent)", background: "transparent", color: "var(--accent-text)", borderRadius: 6, padding: "4px 8px", fontSize: 11, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}
                   >
-                    <Plus size={11} />
+                    <Plus size={11} /> Přidat
                   </button>
                 </div>
               )}
@@ -3942,11 +3966,11 @@ export default function Wh40kCalculator({ session }) {
                     defaultValue=""
                   >
                     <option value="" disabled>
-                      Přidat armádu…
+                      Zaškrtnout celou armádu…
                     </option>
                     {armies.map((a) => (
                       <option key={a.id} value={a.id}>
-                        {a.name}
+                        {a.name} ({a.unitIds.length}x)
                       </option>
                     ))}
                   </select>
@@ -3955,9 +3979,9 @@ export default function Wh40kCalculator({ session }) {
                       const el = document.getElementById("army-select-tgt");
                       if (el && el.value) addArmyToTargets(el.value);
                     }}
-                    style={{ border: "1px solid var(--blue)", background: "transparent", color: "#a9c6e5", borderRadius: 6, padding: "4px 8px", fontSize: 11, cursor: "pointer" }}
+                    style={{ display: "flex", alignItems: "center", gap: 3, border: "1px solid var(--blue)", background: "transparent", color: "#a9c6e5", borderRadius: 6, padding: "4px 8px", fontSize: 11, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}
                   >
-                    <Plus size={11} />
+                    <Plus size={11} /> Přidat
                   </button>
                 </div>
               )}
