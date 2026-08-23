@@ -2354,10 +2354,16 @@ export default function Wh40kCalculator({ session }) {
     persistLibrary(library.filter((u) => u.id !== id));
     if (attackerUnitId === id) setAttackerUnitId(null);
     if (defenderUnitId === id) setDefenderUnitId(null);
+    // Drop the unit from any saved armies too, and drop armies that end up
+    // empty as a result — otherwise a deleted unit leaves a dangling
+    // reference and the army looks selectable but produces nothing.
+    const nextArmies = armies.map((a) => ({ ...a, unitIds: a.unitIds.filter((uid) => uid !== id) })).filter((a) => a.unitIds.length > 0);
+    persistArmies(nextArmies);
   };
 
   const clearLibrary = () => {
     persistLibrary([]);
+    persistArmies([]);
     setAttackerUnitId(null);
     setDefenderUnitId(null);
     setCheatAttackerIds(new Set());
@@ -3512,7 +3518,7 @@ export default function Wh40kCalculator({ session }) {
 
                 <div className="wh40k-row wh40k-row-2" style={{ marginTop: 16, marginBottom: 0 }}>
                   <div style={{ background: "var(--field-bg)", borderRadius: 10, padding: "10px 12px" }}>
-                    <div style={{ fontSize: 9.5, color: "var(--muted)", marginBottom: 3, textTransform: "uppercase" }}>Průměrný damage</div>
+                    <div style={{ fontSize: 9.5, color: "var(--muted)", marginBottom: 3, textTransform: "uppercase" }}>Průměrné poškození</div>
                     <div style={{ fontSize: 17, fontWeight: 700, fontFamily: "var(--mono)" }}>{fmt(result.totalDamage)}</div>
                   </div>
                   <div style={{ background: "var(--field-bg)", borderRadius: 10, padding: "10px 12px" }}>
@@ -4218,7 +4224,7 @@ export default function Wh40kCalculator({ session }) {
         <div
           className="no-print"
           style={{
-            position: "absolute",
+            position: "fixed",
             inset: 0,
             background: "rgba(0,0,0,0.55)",
             display: "flex",
