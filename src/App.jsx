@@ -524,14 +524,43 @@ function parseArmyTextForMatching(text) {
 
   const unitLineRegex = /^(.+?)\s*\((\d+)\s*points?\)$/i;
   const entries = [];
+  // Units listed under the same "Attached Unit N" heading (a leader + the
+  // unit it's leading) get merged into a single library entry on JSON import
+  // — combined points, combined name. The plain text still lists them as
+  // separate lines though, so each entry here also remembers which group
+  // (if any) it belongs to, letting the matcher try the group's combined
+  // points as a fallback against that merged entry.
+  let groupIndex = 0;
+  let inGroup = false;
   for (let i = 1; i < rawLines.length; i++) {
     const line = rawLines[i];
+    if (/^attached unit\b/i.test(line)) {
+      groupIndex += 1;
+      inGroup = true;
+      continue;
+    }
+    if (/^(characters|other datasheets|attached units)$/i.test(line)) {
+      inGroup = false;
+      continue;
+    }
     if (line.startsWith("•")) continue;
     if (ARMY_TEXT_SKIP_PATTERNS.test(line)) continue;
     const m = line.match(unitLineRegex);
     if (!m) continue;
-    entries.push({ name: m[1].trim(), points: m[2] });
+    entries.push({ name: m[1].trim(), points: m[2], group: inGroup ? groupIndex : null });
   }
+
+  const groupTotals = {};
+  entries.forEach((e) => {
+    if (e.group === null) return;
+    groupTotals[e.group] = (groupTotals[e.group] || 0) + parseInt(e.points, 10);
+  });
+  entries.forEach((e) => {
+    if (e.group !== null && groupTotals[e.group] !== undefined) {
+      e.altPoints = String(groupTotals[e.group]);
+    }
+  });
+
   return { listName, entries };
 }
 
@@ -547,10 +576,24 @@ function matchArmyEntriesToLibrary(entries, library) {
 
   entries.forEach((entry) => {
     const nameLower = entry.name.toLowerCase();
-    const exact = library.filter((u) => u.name.toLowerCase() === nameLower && String(u.points) === String(entry.points));
-    if (exact.length > 0) {
-      matchedIds.add(exact[0].id);
-      return;
+    const pointsToTry = entry.altPoints ? [entry.points, entry.altPoints] : [entry.points];
+    for (const pts of pointsToTry) {
+      const exact = library.filter((u) => u.name.toLowerCase() === nameLower && String(u.points) === String(pts));
+      if (exact.length > 0) {
+        matchedIds.add(exact[0].id);
+        return;
+      }
+    }
+    // The group's combined points might also show up on a library entry
+    // whose name is the *other* member of the pair with a "(vede X)"-style
+    // suffix (the leader's own name never survives the merge) — try a
+    // prefix match at the combined points before giving up on that tier.
+    if (entry.altPoints) {
+      const byPrefixAndPoints = library.filter((u) => u.name.toLowerCase().startsWith(nameLower) && String(u.points) === String(entry.altPoints));
+      if (byPrefixAndPoints.length === 1) {
+        matchedIds.add(byPrefixAndPoints[0].id);
+        return;
+      }
     }
     const byNameOnly = library.filter((u) => u.name.toLowerCase() === nameLower);
     if (byNameOnly.length === 1) {
