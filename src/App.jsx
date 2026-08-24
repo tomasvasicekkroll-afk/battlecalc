@@ -41,6 +41,11 @@ const WEAPON_TYPE_OPTIONS = [
   { value: "melee", label: "Na blízko" },
 ];
 
+// Shared -3..+3 modifier dropdown options. Positive = better for the
+// attacker (lower target number to hit/wound), negative = worse — matches
+// how hitMod/woundMod are subtracted from the target number in computeWeapon.
+const MOD_OPTIONS_3 = [-3, -2, -1, 0, 1, 2, 3].map((n) => ({ value: String(n), label: n > 0 ? `+${n}` : String(n) }));
+
 // Anti-X Y+: against a unit with keyword X, an unmodified wound roll of Y+
 // always counts as a Critical Wound (auto-wounds), regardless of the normal
 // S vs T table. Modeled as taking the better (lower) of the two thresholds —
@@ -66,6 +71,7 @@ const emptyWeapon = () => ({
   melta: 0,
   antiKeyword: "none",
   antiValue: 4,
+  isPsychic: false,
   rerollVsKeywords: { monster: false, vehicle: false, character: false },
   rerollHit: "none",
   rerollWound: "none",
@@ -93,6 +99,7 @@ const emptyUnit = () => ({
   invul: 0,
   wounds: 2,
   fnp: 0,
+  psychicFnp: 0,
   woundDebuff: false,
   damageReduction: 0,
   keywords: { monster: false, vehicle: false, character: false },
@@ -226,7 +233,8 @@ function computeWeapon(weapon, modelCount, def, bonus) {
   else woundNeed = 5;
   // Defensive ability some units have: worsen the wound roll by 1 whenever the
   // attacking weapon's Strength is greater than this unit's Toughness.
-  if (def.woundDebuff && S > T) woundNeed += 1;
+  const woundDebuffApplied = !!(def.woundDebuff && S > T);
+  if (woundDebuffApplied) woundNeed += 1;
   woundNeed = Math.max(2, Math.min(6, woundNeed - (b.woundMod || 0)));
   // Anti-X Y+: against a defender with keyword X, a wound roll of Y+ always
   // counts as a Critical Wound — take whichever threshold is easier to hit.
@@ -255,7 +263,15 @@ function computeWeapon(weapon, modelCount, def, bonus) {
   const failProb = Math.min(1, Math.max(0, (effSave - 1) / 6));
   const through = woundsTotal * failProb;
 
-  const fnpProb = def.fnp > 0 ? (7 - def.fnp) / 6 : 0;
+  // Some units have a Feel No Pain that only applies against a specific kind
+  // of attack (e.g. a Culexus Assassin: FNP 2+ against Psychic Attacks) —
+  // on top of, not instead of, any general FNP the unit might also have.
+  // Take whichever applicable threshold is better (lower).
+  let effectiveFnp = def.fnp || 0;
+  if (weapon.isPsychic && def.psychicFnp > 0) {
+    effectiveFnp = effectiveFnp > 0 ? Math.min(effectiveFnp, def.psychicFnp) : def.psychicFnp;
+  }
+  const fnpProb = effectiveFnp > 0 ? (7 - effectiveFnp) / 6 : 0;
   const afterFnp = through * (1 - fnpProb);
   // Some very tough units (e.g. C'tan Shards) have an ability that subtracts a
   // flat amount from the Damage characteristic of each attack against them,
@@ -284,6 +300,7 @@ function computeWeapon(weapon, modelCount, def, bonus) {
       pHit: pHitAdj,
       hitsTotal,
       woundNeed,
+      woundDebuffApplied,
       pWound: pWoundAdj,
       woundsTotal,
       effSave,
@@ -293,7 +310,7 @@ function computeWeapon(weapon, modelCount, def, bonus) {
       afterFnp,
       effWoundsPerKill,
       damageReduction: def.damageReduction || 0,
-      fnpValue: def.fnp || 0,
+      fnpValue: effectiveFnp,
       reductionSaved,
       fnpSaved,
     },
@@ -407,6 +424,7 @@ function defenderProfile(unit, overrides) {
     wounds: Math.max(1, clampNum(unit.wounds, 1)),
     models: o.models !== undefined && o.models !== null ? Math.max(0, clampNum(o.models, 1)) : totalModels(unit) || 1,
     fnp: clampSave(o.fnp !== undefined && o.fnp !== null ? o.fnp : unit.fnp, 0),
+    psychicFnp: clampSave(unit.psychicFnp, 0),
     woundDebuff: o.woundDebuff !== undefined && o.woundDebuff !== null ? !!o.woundDebuff : !!unit.woundDebuff,
     damageReduction: Math.max(0, clampNum(o.damageReduction !== undefined && o.damageReduction !== null ? o.damageReduction : unit.damageReduction, 0)),
     keywords: o.keywords || unit.keywords || {},
@@ -1135,6 +1153,16 @@ function WeaponEditor({ weapon, onChange, onRemove }) {
         <ToggleField label="Přehoz 1 woundu (jednorázově)" value={weapon.rerollOneWound} onChange={set("rerollOneWound")} small />
       </Row>
       <Row cols={2}>
+        <ToggleField
+          label="Psychický útok (Psychic)"
+          value={weapon.isPsychic}
+          onChange={set("isPsychic")}
+          hint="pro obránce s FNP jen proti Psychic Attacks (např. Culexus)"
+          small
+        />
+        <div />
+      </Row>
+      <Row cols={2}>
         <NumberField
           label="Melta (0 = žádná)"
           value={weapon.melta || 0}
@@ -1275,13 +1303,22 @@ function UnitForm({ initial, onSave, onCancel }) {
       </Row>
       <Row cols={3}>
         <NumberField label="Feel No Pain (0 = žádný)" value={u.fnp} onChange={set("fnp")} min={0} />
+        <NumberField
+          label="FNP proti Psychic (0 = žádný)"
+          value={u.psychicFnp || 0}
+          onChange={set("psychicFnp")}
+          min={0}
+          hint="jen proti zbraním označeným jako Psychic, např. Culexus Assassin"
+        />
+        <ToggleField label="Může vést jednotku (Leader)" value={u.isLeader} onChange={set("isLeader")} hint="jen jednotky s touto schopností lze připojit jako vůdce" />
+      </Row>
+      <Row cols={3}>
         <ToggleField
           label="Debuff: -1 WR pokud S > T"
           value={u.woundDebuff}
           onChange={set("woundDebuff")}
           hint="ztíží hod na zranění, když má útočník vyšší sílu než tato jednotka toughness"
         />
-        <ToggleField label="Může vést jednotku (Leader)" value={u.isLeader} onChange={set("isLeader")} hint="jen jednotky s touto schopností lze připojit jako vůdce" />
       </Row>
       <Row cols={3}>
         <NumberField
@@ -1890,7 +1927,9 @@ function UnitComposition({ unit, profileChoices, onChooseProfile, meltaActive, o
       {flat.map(({ member: m, weapon: w }) => {
         const hasProfiles = w.profiles && w.profiles.length > 1;
         const meltaOn = !!(meltaActive && meltaActive[w.id]);
-        const displayDamage = w.melta > 0 && meltaOn ? w.damage + w.melta : w.damage;
+        // w.damage here already includes the melta bump when meltaOn (applied
+        // once, upstream in effectiveAttackerUnit) — don't add it again.
+        const displayDamage = w.damage;
         return (
           <div
             key={w.id}
@@ -2302,14 +2341,32 @@ function BonusFieldsGroup({ bonus, setBonus }) {
         <ToggleField label="Lethal Hits" value={bonus.lethalHits} onChange={(v) => setBonus((s) => ({ ...s, lethalHits: v }))} small />
         <NumberField label="Sustained (extra)" value={bonus.sustained} onChange={(v) => setBonus((s) => ({ ...s, sustained: v }))} min={0} small />
       </Row>
-      <Row cols={3}>
+      <Row cols={2}>
         <SelectField label="Přehoz zásahu" value={bonus.rerollHit} onChange={(v) => setBonus((s) => ({ ...s, rerollHit: v }))} options={REROLL_OPTIONS} small />
         <SelectField label="Přehoz zranění" value={bonus.rerollWound} onChange={(v) => setBonus((s) => ({ ...s, rerollWound: v }))} options={REROLL_OPTIONS} small />
-        <NumberField label="AP bonus" value={bonus.apMod} onChange={(v) => setBonus((s) => ({ ...s, apMod: Math.max(-1, Math.min(1, v)) }))} min={-1} step={1} small />
       </Row>
-      <Row cols={2}>
-        <NumberField label="Modif. zásahu" value={bonus.hitMod} onChange={(v) => setBonus((s) => ({ ...s, hitMod: Math.max(-3, Math.min(3, v)) }))} min={-3} step={1} small />
-        <NumberField label="Modif. zranění" value={bonus.woundMod} onChange={(v) => setBonus((s) => ({ ...s, woundMod: Math.max(-3, Math.min(3, v)) }))} min={-3} step={1} small />
+      <Row cols={3}>
+        <SelectField
+          label="Modifikátor hit rollu"
+          value={String(bonus.hitMod || 0)}
+          onChange={(v) => setBonus((s) => ({ ...s, hitMod: Number(v) }))}
+          options={MOD_OPTIONS_3}
+          small
+        />
+        <SelectField
+          label="Modifikátor wound rollu"
+          value={String(bonus.woundMod || 0)}
+          onChange={(v) => setBonus((s) => ({ ...s, woundMod: Number(v) }))}
+          options={MOD_OPTIONS_3}
+          small
+        />
+        <SelectField
+          label="AP bonus"
+          value={String(bonus.apMod || 0)}
+          onChange={(v) => setBonus((s) => ({ ...s, apMod: Number(v) }))}
+          options={MOD_OPTIONS_3}
+          small
+        />
       </Row>
       <Row cols={2}>
         <NumberField
@@ -3732,7 +3789,12 @@ export default function Wh40kCalculator({ session }) {
                 >
                   {fmt(result.killedModels)}
                 </div>
-                <div style={{ fontSize: 12, color: "var(--muted)", marginTop: -2, position: "relative" }}>z {defenderModelCount} modelů</div>
+                <div style={{ fontSize: 12, color: "var(--muted)", marginTop: -2, position: "relative" }}>
+                  z {defenderModelCount} modelů{" "}
+                  <span style={{ opacity: 0.75 }}>
+                    (průměr přes více her; jistě padne {Math.floor(result.killedModels)})
+                  </span>
+                </div>
                 <SkullRow killed={result.killedModels} total={defenderModelCount} />
                 {defenderModelCount <= 1 && (
                   <div style={{ fontSize: 10.5, color: "var(--muted)", marginTop: 4 }}>podíl zdraví tohoto modelu spotřebovaný útokem</div>
@@ -3771,19 +3833,27 @@ export default function Wh40kCalculator({ session }) {
                 </div>
               </div>
 
-              {resultAgg && (defenderFnp.ranged > 0 || defenderFnp.melee > 0 || defenderDamageReduction.ranged > 0 || defenderDamageReduction.melee > 0) && (
+              {resultAgg &&
+                (defenderFnp.ranged > 0 ||
+                  defenderFnp.melee > 0 ||
+                  defenderDamageReduction.ranged > 0 ||
+                  defenderDamageReduction.melee > 0 ||
+                  resultAgg.ranged.fnpSaved > 0 ||
+                  resultAgg.melee.fnpSaved > 0) && (
                 <div style={{ background: "var(--panel)", border: "1px solid var(--field-border)", borderRadius: 12, padding: 14, marginTop: 12 }}>
                   <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--label)", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 8 }}>
                     Odečteno obranou obránce
                   </div>
-                  {(defenderFnp.ranged > 0 || defenderDamageReduction.ranged > 0) && (
+                  {(defenderFnp.ranged > 0 || defenderDamageReduction.ranged > 0 || resultAgg.ranged.fnpSaved > 0) && (
                     <div style={{ marginBottom: 6 }}>
                       <div style={{ fontSize: 10, fontWeight: 700, color: "#a9c6e5", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 2, display: "flex", alignItems: "center", gap: 4 }}>
                         <Crosshair size={11} /> Na dálku
                       </div>
-                      {defenderFnp.ranged > 0 && (
+                      {resultAgg.ranged.fnpSaved > 0 && (
                         <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "2px 0" }}>
-                          <span style={{ color: "var(--muted)" }}>FNP {defenderFnp.ranged}+ zachránilo</span>
+                          <span style={{ color: "var(--muted)" }}>
+                            FNP zachránilo{defenderUnit.psychicFnp > 0 ? " (vč. FNP proti Psychic)" : ""}
+                          </span>
                           <span style={{ fontFamily: "var(--mono)", fontWeight: 700 }}>{fmt(resultAgg.ranged.fnpSaved, 2)} dmg</span>
                         </div>
                       )}
@@ -3795,14 +3865,16 @@ export default function Wh40kCalculator({ session }) {
                       )}
                     </div>
                   )}
-                  {(defenderFnp.melee > 0 || defenderDamageReduction.melee > 0) && (
+                  {(defenderFnp.melee > 0 || defenderDamageReduction.melee > 0 || resultAgg.melee.fnpSaved > 0) && (
                     <div>
                       <div style={{ fontSize: 10, fontWeight: 700, color: "var(--accent-text)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 2, display: "flex", alignItems: "center", gap: 4 }}>
                         <Sword size={11} /> Na blízko
                       </div>
-                      {defenderFnp.melee > 0 && (
+                      {resultAgg.melee.fnpSaved > 0 && (
                         <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "2px 0" }}>
-                          <span style={{ color: "var(--muted)" }}>FNP {defenderFnp.melee}+ zachránilo</span>
+                          <span style={{ color: "var(--muted)" }}>
+                            FNP zachránilo{defenderUnit.psychicFnp > 0 ? " (vč. FNP proti Psychic)" : ""}
+                          </span>
                           <span style={{ fontFamily: "var(--mono)", fontWeight: 700 }}>{fmt(resultAgg.melee.fnpSaved, 2)} dmg</span>
                         </div>
                       )}
@@ -3898,10 +3970,11 @@ export default function Wh40kCalculator({ session }) {
                             </td>
                             <td style={{ padding: "4px 6px" }}>{fmt(b.detail.attacks, 1)}</td>
                             <td style={{ padding: "4px 6px" }}>
-                              {b.detail.hitX <= 1 ? "auto" : b.detail.hitX + "+"} → {pct(b.detail.pHit)}
+                              {b.detail.hitX <= 1 ? "auto" : b.detail.hitX + "+"} → {pct(b.detail.pHit)} ({fmt(b.detail.hitsTotal, 2)})
                             </td>
                             <td style={{ padding: "4px 6px" }}>
-                              {b.detail.woundNeed}+ → {pct(b.detail.pWound)}
+                              {b.detail.woundNeed}+ → {pct(b.detail.pWound)} ({fmt(b.detail.woundsTotal, 2)})
+                              {b.detail.woundDebuffApplied && <div style={{ fontSize: 9, color: "var(--amber)" }}>debuff -1 WR (S&gt;T)</div>}
                             </td>
                             <td style={{ padding: "4px 6px" }}>{b.detail.effSave >= 7 ? "neprojde" : b.detail.effSave + "+"}</td>
                             <td style={{ padding: "4px 6px", fontWeight: 700 }}>{fmt(b.damage)}</td>
