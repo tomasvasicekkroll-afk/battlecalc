@@ -69,6 +69,8 @@ const emptyWeapon = () => ({
   rerollVsKeywords: { monster: false, vehicle: false, character: false },
   rerollHit: "none",
   rerollWound: "none",
+  rerollOneHit: false,
+  rerollOneWound: false,
   copies: 1,
   needsStats: false,
   note: "",
@@ -141,7 +143,7 @@ function betterReroll(a, b) {
 // Looks at what a unit's weapons already have built in, so the quick attack-bonus
 // panel starts pre-checked to match reality rather than always defaulting to off.
 function emptyBonus() {
-  return { lethalHits: false, sustained: 0, rerollHit: "none", rerollWound: "none", apMod: 0, hitMod: 0, woundMod: 0 };
+  return { lethalHits: false, sustained: 0, rerollHit: "none", rerollWound: "none", apMod: 0, hitMod: 0, woundMod: 0, mortalWounds: 0 };
 }
 
 function autoDetectBonus(unit) {
@@ -207,7 +209,12 @@ function computeWeapon(weapon, modelCount, def, bonus) {
   const hitsNormal = attacks * pHitAdj;
   const critHits = attacks * pCritAdj;
   const sustainedExtra = att.sustained > 0 ? critHits * att.sustained : 0;
-  const hitsTotal = hitsNormal + sustainedExtra;
+  // "Re-roll one Hit roll" (e.g. a master-crafted weapon) is a single extra
+  // attempt, not a blanket reroll — modeled as: chance there was at least one
+  // failure among this attack's hit rolls, times the chance of succeeding on
+  // that one reroll.
+  const rerollOneHitBonus = weapon.rerollOneHit && attacks > 0 ? (1 - (1 - pHitAdj) ** attacks) * pHitAdj : 0;
+  const hitsTotal = hitsNormal + sustainedExtra + rerollOneHitBonus;
 
   const S = att.strength;
   const T = def.toughness;
@@ -238,7 +245,9 @@ function computeWeapon(weapon, modelCount, def, bonus) {
   const hitsForWound = att.lethalHits ? hitsTotal - critHits : hitsTotal;
   const autoWounds = att.lethalHits ? critHits : 0;
   const woundsFromRoll = hitsForWound * pWoundAdj;
-  const woundsTotal = woundsFromRoll + autoWounds;
+  // Same one-shot logic as the hit re-roll, applied to the wound roll instead.
+  const rerollOneWoundBonus = weapon.rerollOneWound && hitsForWound > 0 ? (1 - (1 - pWoundAdj) ** hitsForWound) * pWoundAdj : 0;
+  const woundsTotal = woundsFromRoll + autoWounds + rerollOneWoundBonus;
 
   const apAbs = Math.abs(att.ap);
   const normalSave = Math.min(def.save + apAbs, 7);
@@ -324,6 +333,52 @@ function computeUnitVsUnit(attackerUnit, def, bonus) {
         killedModels: r.killedModels,
         detail: r.detail,
       });
+    });
+  });
+
+  // Flat mortal-wound bonus (e.g. from a charge ability) — a one-off amount
+  // for the whole unit, not scaled by attacks/models. Bypasses save/invuln
+  // but is still reduced by Feel No Pain, same as other damage. Folded into
+  // the breakdown as its own row so it flows through killedModels/remainingPct
+  // and the result screen's totals consistently with everything else.
+  ["ranged", "melee"].forEach((type) => {
+    const wb = pickByType(bonus, type);
+    const raw = (wb && wb.mortalWounds) || 0;
+    if (raw <= 0) return;
+    const d = pickByType(def, type);
+    const fnpProb = d.fnp > 0 ? (7 - d.fnp) / 6 : 0;
+    const dmg = raw * (1 - fnpProb);
+    const effWoundsPerKill = Math.max(1, d.wounds);
+    const killed = dmg / effWoundsPerKill;
+    if (type === "melee") meleeDamage += dmg;
+    else rangedDamage += dmg;
+    killedModels += killed;
+    breakdown.push({
+      member: "Mortal wounds",
+      weapon: "mimo save (např. z charge)",
+      type,
+      damage: dmg,
+      killedModels: killed,
+      isMortalWounds: true,
+      detail: {
+        attacks: 0,
+        hitX: 1,
+        pHit: 1,
+        hitsTotal: 0,
+        woundNeed: 1,
+        pWound: 1,
+        woundsTotal: raw,
+        effSave: 7,
+        failProb: 1,
+        through: raw,
+        fnpProb,
+        afterFnp: dmg,
+        effWoundsPerKill,
+        damageReduction: 0,
+        fnpValue: d.fnp || 0,
+        reductionSaved: 0,
+        fnpSaved: raw - dmg,
+      },
     });
   });
 
@@ -428,6 +483,71 @@ function parseNewRecruitText(text) {
   });
 
   return { faction, units };
+}
+
+// ---------------------------------------------------------------------------
+// New Recruit "full text list" export (the newer app-export style: a list
+// name/points header, faction/detachment lines, then one heading line per
+// unit like "Wolf Guard Terminators (345 points)" followed by indented "•"
+// wargear bullets). Unlike parseNewRecruitText above, this doesn't build new
+// placeholder units — it only extracts (name, points) pairs so they can be
+// matched against units the person already has in their library with real
+// stats, to quickly assemble a named army for the cheat sheet without
+// re-uploading a full JSON roster every time.
+// ---------------------------------------------------------------------------
+const ARMY_TEXT_SKIP_PATTERNS = /detachment|strike force|incursion|onslaught|combat patrol|exported with|data version/i;
+
+function parseArmyTextForMatching(text) {
+  const rawLines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+  if (rawLines.length === 0) return { listName: "", entries: [] };
+
+  const headingMatch = rawLines[0].match(/^(.+?)\s*\(\d+\s*points?\)$/i);
+  const listName = headingMatch ? headingMatch[1].trim() : "";
+
+  const unitLineRegex = /^(.+?)\s*\((\d+)\s*points?\)$/i;
+  const entries = [];
+  for (let i = 1; i < rawLines.length; i++) {
+    const line = rawLines[i];
+    if (line.startsWith("•")) continue;
+    if (ARMY_TEXT_SKIP_PATTERNS.test(line)) continue;
+    const m = line.match(unitLineRegex);
+    if (!m) continue;
+    entries.push({ name: m[1].trim(), points: m[2] });
+  }
+  return { listName, entries };
+}
+
+// Tiered matching against the existing library: prefer an exact name+points
+// match (handles multiple same-named units at different loadouts/costs);
+// fall back to a unique exact name match; fall back to a unique "library name
+// starts with this name" match (catches units renamed by the attached-leader
+// merge, e.g. "Wolf Guard Terminators (vede Logan Grimnar)"). Anything still
+// unresolved is reported back instead of guessed at.
+function matchArmyEntriesToLibrary(entries, library) {
+  const matchedIds = new Set();
+  const unmatched = [];
+
+  entries.forEach((entry) => {
+    const nameLower = entry.name.toLowerCase();
+    const exact = library.filter((u) => u.name.toLowerCase() === nameLower && String(u.points) === String(entry.points));
+    if (exact.length > 0) {
+      matchedIds.add(exact[0].id);
+      return;
+    }
+    const byNameOnly = library.filter((u) => u.name.toLowerCase() === nameLower);
+    if (byNameOnly.length === 1) {
+      matchedIds.add(byNameOnly[0].id);
+      return;
+    }
+    const byPrefix = library.filter((u) => u.name.toLowerCase().startsWith(nameLower));
+    if (byPrefix.length === 1) {
+      matchedIds.add(byPrefix[0].id);
+      return;
+    }
+    unmatched.push(entry);
+  });
+
+  return { matchedIds: Array.from(matchedIds), unmatched };
 }
 
 // ---------------------------------------------------------------------------
@@ -1011,6 +1131,10 @@ function WeaponEditor({ weapon, onChange, onRemove }) {
         <SelectField label="Přehoz zranění" value={weapon.rerollWound} onChange={set("rerollWound")} options={REROLL_OPTIONS} small />
       </Row>
       <Row cols={2}>
+        <ToggleField label="Přehoz 1 hitu (jednorázově)" value={weapon.rerollOneHit} onChange={set("rerollOneHit")} small />
+        <ToggleField label="Přehoz 1 woundu (jednorázově)" value={weapon.rerollOneWound} onChange={set("rerollOneWound")} small />
+      </Row>
+      <Row cols={2}>
         <NumberField
           label="Melta (0 = žádná)"
           value={weapon.melta || 0}
@@ -1363,6 +1487,68 @@ function ImportBox({ onImport }) {
           <span style={{ fontSize: 12, color: "var(--muted)" }}>
             Naimportováno {summary.count} jednotek {summary.faction ? `(${summary.faction})` : ""} — doplň jim bojové staty.
             {summary.skipped > 0 && <> {summary.skipped}× už v knihovně bylo identické, přeskočeno.</>}
+          </span>
+        )}
+        {summary && summary.error && <span style={{ fontSize: 12, color: "#e0857c" }}>{summary.message}</span>}
+      </div>
+    </div>
+  );
+}
+
+function ArmyTextMatchBox({ onMatch }) {
+  const [text, setText] = useState("");
+  const [summary, setSummary] = useState(null);
+
+  const handleMatch = () => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    const result = onMatch(trimmed);
+    setSummary(result);
+    if (!result.error) setText("");
+  };
+
+  return (
+    <div style={{ background: "var(--field-bg)", border: "1px dashed var(--field-border)", borderRadius: 8, padding: 12, marginTop: 10 }}>
+      <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 8 }}>
+        Vlož prostý textový export listu z New Recruit (jen jména a body, žádné staty). Appka jednotky spáruje podle
+        jména a bodů s tím, co už máš v knihovně, a uloží/aktualizuje z nich armádu pro cheat sheet. Jednotky, které
+        se nenajdou, je potřeba mít nejdřív v knihovně (naimportované z JSON).
+      </div>
+      <textarea
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        placeholder="…sem vlož textový export listu…"
+        rows={5}
+        style={{
+          width: "100%",
+          boxSizing: "border-box",
+          background: "var(--panel)",
+          border: "1px solid var(--field-border)",
+          borderRadius: 6,
+          color: "var(--text)",
+          padding: "8px 9px",
+          fontSize: 12,
+          fontFamily: "var(--mono)",
+          resize: "vertical",
+        }}
+      />
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 8, flexWrap: "wrap" }}>
+        <button
+          onClick={handleMatch}
+          className="wh40k-btn"
+          style={{ display: "flex", alignItems: "center", gap: 6, border: "none", background: "var(--accent)", color: "var(--accent-on)", borderRadius: 6, padding: "7px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
+        >
+          <FolderPlus size={14} /> Spárovat s knihovnou
+        </button>
+        {summary && !summary.error && (
+          <span style={{ fontSize: 12, color: "var(--muted)" }}>
+            Armáda "{summary.name}": spárováno {summary.matchedCount} z {summary.totalCount} jednotek.
+            {summary.unmatched.length > 0 && (
+              <>
+                {" "}
+                Nenalezeno: {summary.unmatched.map((u) => `${u.name} (${u.points} pts)`).join(", ")}.
+              </>
+            )}
           </span>
         )}
         {summary && summary.error && <span style={{ fontSize: 12, color: "#e0857c" }}>{summary.message}</span>}
@@ -2125,6 +2311,17 @@ function BonusFieldsGroup({ bonus, setBonus }) {
         <NumberField label="Modif. zásahu" value={bonus.hitMod} onChange={(v) => setBonus((s) => ({ ...s, hitMod: Math.max(-3, Math.min(3, v)) }))} min={-3} step={1} small />
         <NumberField label="Modif. zranění" value={bonus.woundMod} onChange={(v) => setBonus((s) => ({ ...s, woundMod: Math.max(-3, Math.min(3, v)) }))} min={-3} step={1} small />
       </Row>
+      <Row cols={2}>
+        <NumberField
+          label="Mortal wounds navíc"
+          value={bonus.mortalWounds || 0}
+          onChange={(v) => setBonus((s) => ({ ...s, mortalWounds: Math.max(0, v) }))}
+          min={0}
+          hint="jednorázově za celou jednotku, mimo save (např. z charge); FNP se počítá"
+          small
+        />
+        <div />
+      </Row>
     </>
   );
 }
@@ -2228,6 +2425,7 @@ export default function Wh40kCalculator({ session }) {
   const [armiesLoaded, setArmiesLoaded] = useState(false);
   const [armiesOpen, setArmiesOpen] = useState(false);
   const [editingArmy, setEditingArmy] = useState(null);
+  const [textArmyOpen, setTextArmyOpen] = useState(false);
 
   // Navigation shell state
   const [view, setView] = useState("home"); // home | calculator | library | history | lists
@@ -2336,6 +2534,30 @@ export default function Wh40kCalculator({ session }) {
   };
 
   const deleteArmy = (id) => persistArmies(armies.filter((a) => a.id !== id));
+
+  // Matches a pasted New Recruit text-list against units already in the
+  // library (by name/points) and saves/updates a named army from the
+  // matches — no full JSON re-upload needed once the units themselves are
+  // already in the library. Re-running with the same list name replaces
+  // that army's unit selection rather than piling up duplicates.
+  const importArmyFromText = (text) => {
+    const { listName, entries } = parseArmyTextForMatching(text);
+    if (entries.length === 0) {
+      return { error: true, message: "Nepodařilo se v textu najít žádné jednotky (řádky ve tvaru \"Název (N points)\")." };
+    }
+    const { matchedIds, unmatched } = matchArmyEntriesToLibrary(entries, library);
+    if (matchedIds.length === 0) {
+      return { error: true, message: "Ani jedna jednotka z textu se nenašla v knihovně — nejdřív si armádu naimportuj z JSON, ať máš jednotky se staty." };
+    }
+    const name = listName || `Import ${new Date().toLocaleDateString("cs-CZ")}`;
+    const existing = armies.find((a) => a.name.toLowerCase() === name.toLowerCase());
+    if (existing) {
+      persistArmies(armies.map((a) => (a.id === existing.id ? { ...a, unitIds: matchedIds } : a)));
+    } else {
+      persistArmies([...armies, { id: crypto.randomUUID(), name, unitIds: matchedIds }]);
+    }
+    return { error: false, name, matchedCount: matchedIds.length, totalCount: entries.length, unmatched };
+  };
 
   const saveUnit = (unit) => {
     const exists = library.some((u) => u.id === unit.id);
@@ -3657,22 +3879,35 @@ export default function Wh40kCalculator({ session }) {
                       </tr>
                     </thead>
                     <tbody>
-                      {result.breakdown.map((b, i) => (
-                        <tr key={i} style={{ borderTop: "1px solid var(--field-border)", color: "var(--text)" }}>
-                          <td style={{ padding: "4px 6px 4px 0" }}>
-                            {b.type === "melee" ? "⚔" : "🎯"} {b.member} — {b.weapon}
-                          </td>
-                          <td style={{ padding: "4px 6px" }}>{fmt(b.detail.attacks, 1)}</td>
-                          <td style={{ padding: "4px 6px" }}>
-                            {b.detail.hitX <= 1 ? "auto" : b.detail.hitX + "+"} → {pct(b.detail.pHit)}
-                          </td>
-                          <td style={{ padding: "4px 6px" }}>
-                            {b.detail.woundNeed}+ → {pct(b.detail.pWound)}
-                          </td>
-                          <td style={{ padding: "4px 6px" }}>{b.detail.effSave >= 7 ? "neprojde" : b.detail.effSave + "+"}</td>
-                          <td style={{ padding: "4px 6px", fontWeight: 700 }}>{fmt(b.damage)}</td>
-                        </tr>
-                      ))}
+                      {result.breakdown.map((b, i) =>
+                        b.isMortalWounds ? (
+                          <tr key={i} style={{ borderTop: "1px solid var(--field-border)", color: "var(--text)" }}>
+                            <td style={{ padding: "4px 6px 4px 0" }}>
+                              {b.type === "melee" ? "⚔" : "🎯"} {b.member} — {b.weapon}
+                            </td>
+                            <td style={{ padding: "4px 6px" }}>—</td>
+                            <td style={{ padding: "4px 6px" }}>—</td>
+                            <td style={{ padding: "4px 6px" }}>—</td>
+                            <td style={{ padding: "4px 6px" }}>ignoruje save</td>
+                            <td style={{ padding: "4px 6px", fontWeight: 700 }}>{fmt(b.damage)}</td>
+                          </tr>
+                        ) : (
+                          <tr key={i} style={{ borderTop: "1px solid var(--field-border)", color: "var(--text)" }}>
+                            <td style={{ padding: "4px 6px 4px 0" }}>
+                              {b.type === "melee" ? "⚔" : "🎯"} {b.member} — {b.weapon}
+                            </td>
+                            <td style={{ padding: "4px 6px" }}>{fmt(b.detail.attacks, 1)}</td>
+                            <td style={{ padding: "4px 6px" }}>
+                              {b.detail.hitX <= 1 ? "auto" : b.detail.hitX + "+"} → {pct(b.detail.pHit)}
+                            </td>
+                            <td style={{ padding: "4px 6px" }}>
+                              {b.detail.woundNeed}+ → {pct(b.detail.pWound)}
+                            </td>
+                            <td style={{ padding: "4px 6px" }}>{b.detail.effSave >= 7 ? "neprojde" : b.detail.effSave + "+"}</td>
+                            <td style={{ padding: "4px 6px", fontWeight: 700 }}>{fmt(b.damage)}</td>
+                          </tr>
+                        )
+                      )}
                     </tbody>
                   </table>
                 </div>
@@ -3955,11 +4190,17 @@ export default function Wh40kCalculator({ session }) {
           {editingArmy ? (
             <ArmyForm initial={editingArmy} groupedLibrary={groupedLibrary} onSave={saveArmy} onCancel={() => setEditingArmy(null)} />
           ) : (
-            <button onClick={() => setEditingArmy({ id: crypto.randomUUID(), name: "", unitIds: [] })} style={{ ...dashedBtnStyle, marginTop: 6 }} disabled={library.length === 0}>
-              <FolderPlus size={14} /> Uložit novou armádu
-            </button>
+            <div style={{ display: "flex", gap: 8, marginTop: 6, flexWrap: "wrap" }}>
+              <button onClick={() => setEditingArmy({ id: crypto.randomUUID(), name: "", unitIds: [] })} style={dashedBtnStyle} disabled={library.length === 0}>
+                <FolderPlus size={14} /> Uložit novou armádu
+              </button>
+              <button onClick={() => setTextArmyOpen((o) => !o)} style={dashedBtnStyle} disabled={library.length === 0}>
+                <Upload size={14} /> Armáda z textu (New Recruit)
+              </button>
+            </div>
           )}
           {library.length === 0 && <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 6 }}>Nejdřív přidej jednotky do knihovny.</div>}
+          {!editingArmy && textArmyOpen && <ArmyTextMatchBox onMatch={importArmyFromText} />}
 
           <div style={{ fontSize: 11, fontWeight: 700, color: "var(--label)", textTransform: "uppercase", letterSpacing: 0.6, margin: "22px 0 10px" }}>Cheat sheet pro tisk</div>
           <div style={{ fontSize: 11.5, color: "var(--muted)", marginBottom: 10 }}>
