@@ -26,6 +26,7 @@ import {
   Swords as SwordsAlt,
   Maximize2,
   Minimize2,
+  HelpCircle,
 } from "lucide-react";
 import { storage } from "./lib/storage";
 import { supabase } from "./lib/supabaseClient";
@@ -45,6 +46,8 @@ const WEAPON_TYPE_OPTIONS = [
 // attacker (lower target number to hit/wound), negative = worse — matches
 // how hitMod/woundMod are subtracted from the target number in computeWeapon.
 const MOD_OPTIONS_3 = [-3, -2, -1, 0, 1, 2, 3].map((n) => ({ value: String(n), label: n > 0 ? `+${n}` : String(n) }));
+
+const MANUAL_URL = "https://claude.ai/code/artifact/75271227-e2a0-4f23-b105-23bd734efbae";
 
 // Anti-X Y+: against a unit with keyword X, an unmodified wound roll of Y+
 // always counts as a Critical Wound (auto-wounds), regardless of the normal
@@ -3300,6 +3303,7 @@ export default function Wh40kCalculator({ session }) {
               ["Moje armády a cheat sheet", () => setView("lists")],
               ["Historie výpočtů", () => setView("history")],
               [isFullscreen ? "Ukončit celou obrazovku" : "Celá obrazovka", () => toggleFullscreen()],
+              ["Návod k použití", () => window.open(MANUAL_URL, "_blank", "noopener,noreferrer")],
             ].map(([label, fn]) => (
               <button
                 key={label}
@@ -3312,6 +3316,7 @@ export default function Wh40kCalculator({ session }) {
                 {label === "Celá obrazovka" || label === "Ukončit celou obrazovku" ? (
                   isFullscreen ? <Minimize2 size={13} /> : <Maximize2 size={13} />
                 ) : null}
+                {label === "Návod k použití" ? <HelpCircle size={13} /> : null}
                 {label}
               </button>
             ))}
