@@ -2099,6 +2099,70 @@ function SkullIcon({ size = 16, color = "currentColor", filled = false, style })
   );
 }
 
+// Custom bottom-nav glyphs — bold, badge-friendly silhouettes in the same
+// hand-drawn-SVG spirit as SkullIcon above, styled after a field-manual /
+// stencil-badge reference rather than the default thin-line icon set.
+function HouseGlyph({ size = 13, color = "currentColor" }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M4 11.5L12 4l8 7.5" stroke={color} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M6 10.2V19a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-8.8" stroke={color} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M9.7 20v-4.3h4.6V20" stroke={color} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function ReticleGlyph({ size = 13, color = "currentColor" }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="12" cy="12" r="7.5" stroke={color} strokeWidth="2.2" />
+      <circle cx="12" cy="12" r="1.7" fill={color} />
+      <path d="M12 0.8v4M12 19.2v4M0.8 12h4M19.2 12h4" stroke={color} strokeWidth="2.2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function ClockArrowGlyph({ size = 13, color = "currentColor" }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M3.3 8.7A8.6 8.6 0 1 1 2.5 14" stroke={color} strokeWidth="2.2" strokeLinecap="round" />
+      <path d="M1.8 4.6l0.5 4.3 4.2-0.9" stroke={color} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M12 7.5v5l3.6 2" stroke={color} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function ClipboardChecksGlyph({ size = 13, color = "currentColor" }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="4.5" y="4" width="15" height="17.5" rx="1.6" stroke={color} strokeWidth="2.1" />
+      <path d="M9 3.2h6a1 1 0 0 1 1 1V6.3H8V4.2a1 1 0 0 1 1-1z" fill="var(--panel)" stroke={color} strokeWidth="2.1" strokeLinejoin="round" />
+      <path d="M7.3 11.3l1.3 1.3 2.4-2.6M7.3 16.8l1.3 1.3 2.4-2.6" stroke={color} strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M14 11.3h3.2M14 16.8h3.2" stroke={color} strokeWidth="1.9" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function NavBadge({ active, children }) {
+  return (
+    <div
+      style={{
+        width: 24,
+        height: 24,
+        borderRadius: "50%",
+        border: `1.4px solid ${active ? "var(--accent-text)" : "var(--muted)"}`,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        flexShrink: 0,
+        opacity: active ? 1 : 0.85,
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
 // Pure-SVG pie slice (not a CSS background) so it reliably shows up when
 // printed, regardless of the browser's "print background graphics" setting.
 function MiniPie({ frac, size = 34, color = "#1b5faa", trackColor = "#ddd" }) {
@@ -2120,6 +2184,21 @@ function MiniPie({ frac, size = 34, color = "#1b5faa", trackColor = "#ddd" }) {
       {slice}
       <circle cx={r} cy={r} r={r} fill="none" stroke="#999" strokeWidth="0.75" />
     </svg>
+  );
+}
+
+// Row of small skull glyphs (reusing SkullIcon's path) filling in proportionally
+// — the cheat sheet's print-friendly stand-in for a pie chart, at a size that
+// actually fits a narrow matrix column instead of a full 34px circle.
+function MiniSkulls({ frac, count = 5, size = 9, color = "#1b5faa", trackColor = "#ccc" }) {
+  const clamped = Math.max(0, Math.min(1, frac));
+  const filled = Math.round(clamped * count);
+  return (
+    <div style={{ display: "flex", gap: 1 }}>
+      {Array.from({ length: count }).map((_, i) => (
+        <SkullIcon key={i} size={size} color={i < filled ? color : trackColor} filled={i < filled} />
+      ))}
+    </div>
   );
 }
 
@@ -4457,7 +4536,76 @@ export default function Wh40kCalculator({ session }) {
             </div>
           </div>
           )}
+          {(cheatAttackerIds.size === 0 || cheatTargetIds.size === 0) && (
+            <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 14 }}>Zaškrtni aspoň jednu jednotku na obou stranách, ať se má co vygenerovat.</div>
+          )}
+        </div>
+      )}
 
+      {/* Printable result matrix sits right after the modifiers panel (not
+          after the unit checklists below) so it's reachable without much
+          scrolling — kept as its own top-level block (not nested inside the
+          .no-print wrapper above/below) since a display:none ancestor would
+          hide it from printing even with its own display override. */}
+      {view === "lists" && cheatMatrix.length > 0 && cheatMatrix[0].cells.length > 0 && (
+        <div className="print-area" style={{ margin: "0 14px 16px", overflowX: "auto", background: "#fff", borderRadius: 8, padding: 12 }}>
+          <button
+            onClick={() => window.print()}
+            className="wh40k-btn no-print"
+            style={{ display: "flex", alignItems: "center", gap: 6, border: "none", background: "var(--accent)", color: "#fff", borderRadius: 6, padding: "8px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer", marginBottom: 10 }}
+          >
+            Vytisknout cheat sheet
+          </button>
+          <div style={{ fontSize: 14, fontWeight: 700, color: "#111", marginBottom: 2 }}>BATTLECALC — Cheat Sheet: damage na jedno kolo útoku</div>
+          <div style={{ fontSize: 9.5, color: "#777", marginBottom: 8 }}>
+            Lebka = % zničené jednotky. <span style={{ color: "#999" }}>Šedá</span> = Základ (jen vestavěné schopnosti). <span style={{ color: "#1b5faa" }}>Modrá</span> = S bonusy (základ + nastavené bonusy/debuffy).
+          </div>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 10, color: "#111" }}>
+            <thead>
+              <tr>
+                <th style={{ textAlign: "left", padding: "4px 6px", border: "1px solid #ccc", background: "#f0f0f0" }}>Útočník \ Cíl</th>
+                {cheatMatrix[0].cells.map((c) => (
+                  <th key={c.target.id} style={{ textAlign: "center", padding: "4px 6px", border: "1px solid #ccc", background: "#f0f0f0" }}>
+                    {c.target.name}
+                    <div style={{ fontWeight: 400, fontSize: 8.5, color: "#555" }}>
+                      T{c.target.toughness} Sv{c.target.save}+{c.target.invul > 0 ? " Inv" + c.target.invul + "+" : ""} W{c.target.wounds} ({totalModels(c.target)}x)
+                    </div>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {cheatMatrix.map((row) => (
+                <tr key={row.attacker.id}>
+                  <td style={{ padding: "4px 6px", border: "1px solid #ccc", fontWeight: 700 }}>{row.attacker.name}</td>
+                  {row.cells.map((c) => {
+                    const targetModels = totalModels(c.target) || 1;
+                    const baseFrac = c.base.res.killedModels / targetModels;
+                    const boostedFrac = c.boosted.res.killedModels / targetModels;
+                    return (
+                      <td key={c.target.id} style={{ padding: "3px 4px", border: "1px solid #ccc", textAlign: "center" }}>
+                        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                            <MiniSkulls frac={baseFrac} color="#666" trackColor="#ddd" size={7} />
+                            <span style={{ fontSize: 7.5, color: "#555", fontWeight: 600 }}>{(baseFrac * 100).toFixed(0)}%</span>
+                          </div>
+                          <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                            <MiniSkulls frac={boostedFrac} color="#1b5faa" trackColor="#dbe8f5" size={7} />
+                            <span style={{ fontSize: 7.5, color: "#1b5faa", fontWeight: 600 }}>{(boostedFrac * 100).toFixed(0)}%</span>
+                          </div>
+                        </div>
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {view === "lists" && (
+        <div className="no-print" style={{ padding: "4px 14px 16px" }}>
           {(cheatAttackerIds.size > 0 || cheatTargetIds.size > 0) && (
             <button
               onClick={swapCheatAttackersAndTargets}
@@ -4569,90 +4717,32 @@ export default function Wh40kCalculator({ session }) {
               {library.length === 0 && <div style={{ fontSize: 12, color: "var(--muted)" }}>Knihovna je prázdná.</div>}
             </div>
           </div>
-
-          {cheatMatrix.length > 0 && cheatMatrix[0].cells.length > 0 && (
-            <button
-              onClick={() => window.print()}
-              className="wh40k-btn"
-              style={{ display: "flex", alignItems: "center", gap: 6, border: "none", background: "var(--accent)", color: "#fff", borderRadius: 6, padding: "8px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer", marginBottom: 4 }}
-            >
-              Vytisknout cheat sheet
-            </button>
-          )}
-          {(cheatAttackerIds.size === 0 || cheatTargetIds.size === 0) && (
-            <div style={{ fontSize: 12, color: "var(--muted)" }}>Zaškrtni aspoň jednu jednotku na obou stranách, ať se má co vygenerovat.</div>
-          )}
-        </div>
-      )}
-
-      {view === "lists" && cheatMatrix.length > 0 && cheatMatrix[0].cells.length > 0 && (
-        <div className="print-area" style={{ margin: "0 14px 16px", overflowX: "auto", background: "#fff", borderRadius: 8, padding: 12 }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: "#111", marginBottom: 2 }}>BATTLECALC — Cheat Sheet: damage na jedno kolo útoku</div>
-          <div style={{ fontSize: 9.5, color: "#777", marginBottom: 8 }}>
-            Kruh = % zničené jednotky. <span style={{ color: "#999" }}>Šedý</span> = Základ (jen vestavěné schopnosti). <span style={{ color: "#1b5faa" }}>Modrý</span> = S bonusy (základ + nastavené bonusy/debuffy).
-          </div>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 10, color: "#111" }}>
-            <thead>
-              <tr>
-                <th style={{ textAlign: "left", padding: "4px 6px", border: "1px solid #ccc", background: "#f0f0f0" }}>Útočník \ Cíl</th>
-                {cheatMatrix[0].cells.map((c) => (
-                  <th key={c.target.id} style={{ textAlign: "center", padding: "4px 6px", border: "1px solid #ccc", background: "#f0f0f0" }}>
-                    {c.target.name}
-                    <div style={{ fontWeight: 400, fontSize: 8.5, color: "#555" }}>
-                      T{c.target.toughness} Sv{c.target.save}+{c.target.invul > 0 ? " Inv" + c.target.invul + "+" : ""} W{c.target.wounds} ({totalModels(c.target)}x)
-                    </div>
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {cheatMatrix.map((row) => (
-                <tr key={row.attacker.id}>
-                  <td style={{ padding: "4px 6px", border: "1px solid #ccc", fontWeight: 700 }}>{row.attacker.name}</td>
-                  {row.cells.map((c) => {
-                    const targetModels = totalModels(c.target) || 1;
-                    const baseFrac = c.base.res.killedModels / targetModels;
-                    const boostedFrac = c.boosted.res.killedModels / targetModels;
-                    return (
-                      <td key={c.target.id} style={{ padding: "4px 6px", border: "1px solid #ccc", textAlign: "center" }}>
-                        <div style={{ display: "flex", justifyContent: "center", gap: 6 }}>
-                          <div style={{ textAlign: "center" }}>
-                            <MiniPie frac={baseFrac} color="#666" trackColor="#e6e6e6" />
-                            <div style={{ fontSize: 8.5, color: "#555" }}>{(baseFrac * 100).toFixed(0)}%</div>
-                          </div>
-                          <div style={{ textAlign: "center" }}>
-                            <MiniPie frac={boostedFrac} color="#1b5faa" trackColor="#dbe8f5" />
-                            <div style={{ fontSize: 8.5, color: "#1b5faa" }}>{(boostedFrac * 100).toFixed(0)}%</div>
-                          </div>
-                        </div>
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
-            </tbody>
-          </table>
         </div>
       )}
 
       {/* BOTTOM NAV */}
       <div className="no-print" style={{ position: "absolute", bottom: 0, left: 0, right: 0, display: "flex", borderTop: "1px solid var(--field-border)", background: "rgba(8,14,23,0.97)", backdropFilter: "blur(8px)" }}>
         {[
-          ["home", Home, "Domů"],
-          ["calculator", Crosshair, "Kalkulačka"],
+          ["home", HouseGlyph, "Domů"],
+          ["calculator", ReticleGlyph, "Kalkulačka"],
           ["library", SkullIcon, "Knihovna"],
-          ["history", Clock, "Historie"],
-          ["lists", List, "Cheat sheet"],
-        ].map(([key, Icon, label]) => (
-          <button
-            key={key}
-            onClick={() => setView(key)}
-            style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, padding: "9px 0 10px", background: "transparent", border: "none", cursor: "pointer", color: view === key ? "var(--accent-text)" : "var(--muted)" }}
-          >
-            <Icon size={17} />
-            <span style={{ fontSize: 8.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.3 }}>{label}</span>
-          </button>
-        ))}
+          ["history", ClockArrowGlyph, "Historie"],
+          ["lists", ClipboardChecksGlyph, "Cheat sheet"],
+        ].map(([key, Icon, label]) => {
+          const active = view === key;
+          return (
+            <button
+              key={key}
+              onClick={() => setView(key)}
+              style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4, padding: "8px 0 10px", background: "transparent", border: "none", cursor: "pointer", color: active ? "var(--accent-text)" : "var(--muted)" }}
+            >
+              <NavBadge active={active}>
+                <Icon size={13} color={active ? "var(--accent-text)" : "var(--muted)"} />
+              </NavBadge>
+              <span style={{ fontSize: 8.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.3 }}>{label}</span>
+            </button>
+          );
+        })}
       </div>
 
       {/* Custom confirm/alert dialogs — replace window.confirm/alert, which can be
