@@ -4642,7 +4642,7 @@ export default function Wh40kCalculator({ session }) {
           ["calculator", Crosshair, "Kalkulačka"],
           ["library", SkullIcon, "Knihovna"],
           ["history", Clock, "Historie"],
-          ["lists", List, "Seznamy"],
+          ["lists", List, "Cheat sheet"],
         ].map(([key, Icon, label]) => (
           <button
             key={key}
