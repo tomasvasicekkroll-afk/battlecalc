@@ -1657,9 +1657,13 @@ function ExportImportBox({ library, armies, onImport }) {
   const [mode, setMode] = useState("export"); // export | import
   const [importText, setImportText] = useState("");
   const [importSummary, setImportSummary] = useState(null);
+  const [importFileName, setImportFileName] = useState("");
   const [copied, setCopied] = useState(false);
 
-  const exportPayload = JSON.stringify({ battlecalcExport: true, units: library, armies }, null, 0);
+  // Pretty-printed so the "paste as text" fallback stays at least readable —
+  // the file download below is the main path now.
+  const exportPayload = JSON.stringify({ battlecalcExport: true, units: library, armies }, null, 2);
+  const exportFileName = `battlecalc-export-${new Date().toISOString().slice(0, 10)}.json`;
 
   const handleCopy = async () => {
     try {
@@ -1671,8 +1675,20 @@ function ExportImportBox({ library, armies, onImport }) {
     }
   };
 
-  const handleImport = () => {
-    const trimmed = importText.trim();
+  const handleDownload = () => {
+    const blob = new Blob([exportPayload], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = exportFileName;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const importFromText = (text) => {
+    const trimmed = text.trim();
     if (!trimmed) return;
     let data;
     try {
@@ -1690,6 +1706,19 @@ function ExportImportBox({ library, armies, onImport }) {
     const { added, skipped } = onImport(units, armiesIn);
     setImportSummary({ error: false, added, skipped, armiesAdded: armiesIn.length });
     setImportText("");
+    setImportFileName("");
+  };
+
+  const handleImport = () => importFromText(importText);
+
+  const handleImportFile = (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    setImportFileName(file.name);
+    const reader = new FileReader();
+    reader.onload = (ev) => importFromText(String(ev.target.result || ""));
+    reader.onerror = () => setImportSummary({ error: true, message: "Soubor se nepodařilo přečíst." });
+    reader.readAsText(file);
   };
 
   return (
@@ -1732,34 +1761,64 @@ function ExportImportBox({ library, armies, onImport }) {
       {mode === "export" ? (
         <>
           <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 8 }}>
-            Zkopíruj tenhle text a pošli ho kamarádovi (mail, Discord, cokoliv). On si ho pak v téhle appce vloží přes záložku "Import".
+            Stáhni soubor a pošli ho kamarádovi (mail, Discord, cokoliv). On si ho pak v téhle appce nahraje přes záložku "Import".
           </div>
-          <textarea
-            readOnly
-            value={exportPayload}
-            rows={5}
-            style={{ width: "100%", boxSizing: "border-box", background: "var(--panel)", border: "1px solid var(--field-border)", borderRadius: 6, color: "var(--text)", padding: "8px 9px", fontSize: 11, fontFamily: "var(--mono)", resize: "vertical" }}
-            onFocus={(e) => e.target.select()}
-          />
           <button
-            onClick={handleCopy}
+            onClick={handleDownload}
             className="wh40k-btn"
-            style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 6, border: "none", background: "var(--accent)", color: "#fff", borderRadius: 6, padding: "7px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
+            style={{ display: "flex", alignItems: "center", gap: 6, border: "none", background: "var(--accent)", color: "#fff", borderRadius: 6, padding: "7px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
           >
-            {copied ? "Zkopírováno ✓" : "Kopírovat"}
+            <Save size={14} /> Stáhnout jako soubor
           </button>
-          <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 6 }}>
-            Obsahuje {library.length} jednotek a {armies.length} uložených armád z tvé knihovny.
+          <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 6, marginBottom: 10 }}>
+            Obsahuje {library.length} jednotek a {armies.length} uložených armád z tvé knihovny ({exportFileName}).
           </div>
+
+          <details>
+            <summary style={{ fontSize: 11.5, color: "var(--muted)", cursor: "pointer" }}>Nebo zkopírovat jako text</summary>
+            <textarea
+              readOnly
+              value={exportPayload}
+              rows={5}
+              style={{ width: "100%", boxSizing: "border-box", marginTop: 8, background: "var(--panel)", border: "1px solid var(--field-border)", borderRadius: 6, color: "var(--text)", padding: "8px 9px", fontSize: 11, fontFamily: "var(--mono)", resize: "vertical" }}
+              onFocus={(e) => e.target.select()}
+            />
+            <button
+              onClick={handleCopy}
+              className="wh40k-btn"
+              style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 6, border: "1px solid var(--field-border)", background: "transparent", color: "var(--text)", borderRadius: 6, padding: "6px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
+            >
+              {copied ? "Zkopírováno ✓" : "Kopírovat"}
+            </button>
+          </details>
         </>
       ) : (
         <>
-          <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 8 }}>Vlož sem text, který ti poslal kamarád z jeho exportu.</div>
+          <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 8 }}>Nahraj soubor, který ti poslal kamarád, nebo vlož jeho obsah jako text.</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+            <label
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                border: "1px solid var(--field-border)",
+                borderRadius: 6,
+                padding: "6px 12px",
+                fontSize: 12.5,
+                cursor: "pointer",
+                color: "var(--text)",
+              }}
+            >
+              <Upload size={13} /> Nahrát soubor (.json)
+              <input type="file" accept=".json,application/json" onChange={handleImportFile} style={{ display: "none" }} />
+            </label>
+            {importFileName && <span style={{ fontSize: 12, color: "var(--muted)" }}>{importFileName}</span>}
+          </div>
           <textarea
             value={importText}
             onChange={(e) => setImportText(e.target.value)}
             rows={5}
-            placeholder="…sem vlož exportovaný text…"
+            placeholder="…nebo sem vlož exportovaný text…"
             style={{ width: "100%", boxSizing: "border-box", background: "var(--panel)", border: "1px solid var(--field-border)", borderRadius: 6, color: "var(--text)", padding: "8px 9px", fontSize: 11, fontFamily: "var(--mono)", resize: "vertical" }}
           />
           <button
