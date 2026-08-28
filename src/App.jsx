@@ -27,6 +27,7 @@ import {
   Maximize2,
   Minimize2,
   HelpCircle,
+  LayoutGrid,
 } from "lucide-react";
 import { storage } from "./lib/storage";
 import { supabase } from "./lib/supabaseClient";
@@ -522,8 +523,11 @@ function parseArmyTextForMatching(text) {
   const rawLines = text.split("\n").map((l) => l.trim()).filter(Boolean);
   if (rawLines.length === 0) return { listName: "", entries: [] };
 
-  const headingMatch = rawLines[0].match(/^(.+?)\s*\(\d+\s*points?\)$/i);
-  const listName = headingMatch ? headingMatch[1].trim() : "";
+  // The list's own name is always the export's first line — strip a trailing
+  // "(N points)" if present, but use the line either way rather than only
+  // when that exact pattern matches (some export variants format it slightly
+  // differently).
+  const listName = rawLines[0].replace(/\s*\(\d+\s*points?\)\s*$/i, "").trim();
 
   const unitLineRegex = /^(.+?)\s*\((\d+)\s*points?\)$/i;
   const entries = [];
@@ -2542,6 +2546,25 @@ export default function Wh40kCalculator({ session }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [defenderModifiersOpen, setDefenderModifiersOpen] = useState(false);
+  const [cheatModifiersOpen, setCheatModifiersOpen] = useState(false);
+  const [wideLayout, setWideLayout] = useState(() => {
+    try {
+      return localStorage.getItem("battlecalc:wideLayout") === "1";
+    } catch (e) {
+      return false;
+    }
+  });
+  const toggleWideLayout = () => {
+    setWideLayout((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem("battlecalc:wideLayout", next ? "1" : "0");
+      } catch (e) {
+        // ignore — purely a per-browser display preference
+      }
+      return next;
+    });
+  };
   const [isFullscreen, setIsFullscreen] = useState(!!document.fullscreenElement);
 
   useEffect(() => {
@@ -3194,10 +3217,11 @@ export default function Wh40kCalculator({ session }) {
         background: "radial-gradient(ellipse 120% 60% at 50% -10%, #102338 0%, #070c14 55%)",
         color: "var(--text)",
         borderRadius: 18,
-        width: 460,
+        width: wideLayout ? "min(1100px, 96vw)" : 460,
         maxWidth: "100%",
         flexShrink: 0,
         margin: "0 auto",
+        transition: "width 0.15s ease",
         border: "1px solid #16233a",
         overflow: "hidden",
         paddingBottom: 68,
@@ -3225,9 +3249,10 @@ export default function Wh40kCalculator({ session }) {
             border-radius: 0 !important;
             overflow: visible !important;
           }
-          .print-area table { table-layout: auto; width: 100%; font-size: 8px; }
+          .print-area table { table-layout: fixed; width: 100%; font-size: 8px; }
           .print-area tr { break-inside: avoid; }
-          .print-area th, .print-area td { word-break: break-word; padding: 2px 3px !important; }
+          .print-area th, .print-area td { overflow-wrap: break-word; word-break: normal; padding: 2px 3px !important; }
+          .print-area th:first-child, .print-area td:first-child { width: 110px; }
         }
         @keyframes wh40k-pulse {
           0%, 100% { box-shadow: 0 0 14px rgba(47,143,232,0.5), 0 0 0 rgba(47,143,232,0); }
@@ -3303,6 +3328,7 @@ export default function Wh40kCalculator({ session }) {
               ["Moje armády a cheat sheet", () => setView("lists")],
               ["Historie výpočtů", () => setView("history")],
               [isFullscreen ? "Ukončit celou obrazovku" : "Celá obrazovka", () => toggleFullscreen()],
+              [wideLayout ? "Užší zobrazení (mobil)" : "Širší zobrazení (notebook)", () => toggleWideLayout()],
               ["Návod k použití", () => window.open(MANUAL_URL, "_blank", "noopener,noreferrer")],
             ].map(([label, fn]) => (
               <button
@@ -3316,6 +3342,7 @@ export default function Wh40kCalculator({ session }) {
                 {label === "Celá obrazovka" || label === "Ukončit celou obrazovku" ? (
                   isFullscreen ? <Minimize2 size={13} /> : <Maximize2 size={13} />
                 ) : null}
+                {label === "Širší zobrazení (notebook)" || label === "Užší zobrazení (mobil)" ? <LayoutGrid size={13} /> : null}
                 {label === "Návod k použití" ? <HelpCircle size={13} /> : null}
                 {label}
               </button>
@@ -4430,6 +4457,14 @@ export default function Wh40kCalculator({ session }) {
             </div>
           </div>
 
+          <button
+            onClick={() => setCheatModifiersOpen((o) => !o)}
+            style={{ display: "flex", alignItems: "center", gap: 4, background: "transparent", border: "none", color: "var(--accent-text)", fontSize: 11.5, fontWeight: 700, cursor: "pointer", padding: 0, marginBottom: 10, textTransform: "uppercase", letterSpacing: 0.4 }}
+          >
+            <Plus size={12} /> Modifikátory (volitelné)
+            <ChevronDown size={12} style={{ transform: cheatModifiersOpen ? "rotate(180deg)" : "none" }} />
+          </button>
+          {cheatModifiersOpen && (
           <div style={{ background: "var(--field-bg)", border: "1px solid var(--field-border)", borderRadius: 10, padding: 12, marginBottom: 14 }}>
             <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>
               Bonusy útočníka <span style={{ fontWeight: 400, textTransform: "none" }}>(navíc k jejich vlastním schopnostem)</span>
@@ -4494,6 +4529,7 @@ export default function Wh40kCalculator({ session }) {
               Tabulka níže vždy ukáže obojí: "Základ" (jen vestavěné schopnosti) a "S bonusy" (základ + tohle nastavení), ať je vidět rozdíl.
             </div>
           </div>
+          )}
 
           {cheatMatrix.length > 0 && cheatMatrix[0].cells.length > 0 && (
             <button
