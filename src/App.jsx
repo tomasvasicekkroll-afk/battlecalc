@@ -4271,6 +4271,11 @@ export default function Wh40kCalculator({ session }) {
               </button>
               {importOpen && <ImportBox onImport={importFromNewRecruit} />}
 
+              <button onClick={() => setShareOpen((o) => !o)} style={{ ...dashedBtnStyle, width: "100%", justifyContent: "center", marginBottom: 10 }}>
+                <Save size={14} /> Sdílet s kamarádem
+              </button>
+              {shareOpen && <ExportImportBox library={library} armies={armies} onImport={importUnitsAndArmies} />}
+
               <SearchBox value={librarySearch} onChange={setLibrarySearch} placeholder="Hledat jednotky…" />
               {library.length > 0 && (
                 <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
@@ -4292,16 +4297,10 @@ export default function Wh40kCalculator({ session }) {
               {editingUnit ? (
                 <UnitForm initial={editingUnit} onSave={saveUnit} onCancel={() => setEditingUnit(null)} />
               ) : (
-                <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
-                  <button onClick={() => setEditingUnit(emptyUnit())} style={dashedBtnStyle}>
-                    <Plus size={14} /> Přidat ručně
-                  </button>
-                  <button onClick={() => setShareOpen((o) => !o)} style={dashedBtnStyle}>
-                    <Save size={14} /> Sdílet s kamarádem
-                  </button>
-                </div>
+                <button onClick={() => setEditingUnit(emptyUnit())} style={{ ...dashedBtnStyle, marginTop: 10 }}>
+                  <Plus size={14} /> Přidat ručně
+                </button>
               )}
-              {!editingUnit && shareOpen && <ExportImportBox library={library} armies={armies} onImport={importUnitsAndArmies} />}
             </>
           )}
 
