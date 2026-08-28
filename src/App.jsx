@@ -28,6 +28,7 @@ import {
   Minimize2,
   HelpCircle,
   LayoutGrid,
+  ArrowLeftRight,
 } from "lucide-react";
 import { storage } from "./lib/storage";
 import { supabase } from "./lib/supabaseClient";
@@ -2501,6 +2502,13 @@ export default function Wh40kCalculator({ session }) {
       next.has(id) ? next.delete(id) : next.add(id);
       return next;
     });
+  // Swaps which checked units are attackers vs targets — e.g. after building
+  // "my army vs their army", flip to "their army vs my army" without
+  // re-ticking every checkbox by hand.
+  const swapCheatAttackersAndTargets = () => {
+    setCheatAttackerIds(cheatTargetIds);
+    setCheatTargetIds(cheatAttackerIds);
+  };
 
   const [cheatBonus, setCheatBonus] = useState({ ranged: emptyBonus(), melee: emptyBonus() });
   const [cheatDefenderFnp, setCheatDefenderFnp] = useState({ ranged: 0, melee: 0 });
@@ -2547,18 +2555,21 @@ export default function Wh40kCalculator({ session }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [defenderModifiersOpen, setDefenderModifiersOpen] = useState(false);
   const [cheatModifiersOpen, setCheatModifiersOpen] = useState(false);
-  const [wideLayout, setWideLayout] = useState(() => {
+  // Width is responsive by default (see .wh40k-shell media queries below) —
+  // forceCompact pins it back to the narrow phone-card width regardless of
+  // screen size, for anyone who prefers that even on a big display.
+  const [forceCompact, setForceCompact] = useState(() => {
     try {
-      return localStorage.getItem("battlecalc:wideLayout") === "1";
+      return localStorage.getItem("battlecalc:forceCompact") === "1";
     } catch (e) {
       return false;
     }
   });
-  const toggleWideLayout = () => {
-    setWideLayout((prev) => {
+  const toggleForceCompact = () => {
+    setForceCompact((prev) => {
       const next = !prev;
       try {
-        localStorage.setItem("battlecalc:wideLayout", next ? "1" : "0");
+        localStorage.setItem("battlecalc:forceCompact", next ? "1" : "0");
       } catch (e) {
         // ignore — purely a per-browser display preference
       }
@@ -3196,7 +3207,7 @@ export default function Wh40kCalculator({ session }) {
 
   return (
     <div
-      className="wh40k-shell"
+      className={`wh40k-shell${forceCompact ? " wh40k-compact" : ""}`}
       style={{
         "--bg": "#070c14",
         "--panel": "#0f1826",
@@ -3217,7 +3228,7 @@ export default function Wh40kCalculator({ session }) {
         background: "radial-gradient(ellipse 120% 60% at 50% -10%, #102338 0%, #070c14 55%)",
         color: "var(--text)",
         borderRadius: 18,
-        width: wideLayout ? "min(1100px, 96vw)" : 460,
+        width: 460,
         maxWidth: "100%",
         flexShrink: 0,
         margin: "0 auto",
@@ -3285,6 +3296,18 @@ export default function Wh40kCalculator({ session }) {
         @media (max-width: 380px) {
           .wh40k-row-2, .wh40k-row-3, .wh40k-row-4 { grid-template-columns: 1fr; }
         }
+        /* Responsive by default — wider viewports (tablet/monitor) get a
+           wider shell so grids/tables have room to breathe, instead of
+           staying pinned at phone-card width. .wh40k-compact opts back out. */
+        @media (min-width: 640px) {
+          .wh40k-shell:not(.wh40k-compact) { width: 700px !important; }
+        }
+        @media (min-width: 900px) {
+          .wh40k-shell:not(.wh40k-compact) { width: 940px !important; }
+        }
+        @media (min-width: 1200px) {
+          .wh40k-shell:not(.wh40k-compact) { width: 1200px !important; }
+        }
         * { box-sizing: border-box; }
       `}</style>
 
@@ -3328,7 +3351,7 @@ export default function Wh40kCalculator({ session }) {
               ["Moje armády a cheat sheet", () => setView("lists")],
               ["Historie výpočtů", () => setView("history")],
               [isFullscreen ? "Ukončit celou obrazovku" : "Celá obrazovka", () => toggleFullscreen()],
-              [wideLayout ? "Užší zobrazení (mobil)" : "Širší zobrazení (notebook)", () => toggleWideLayout()],
+              [forceCompact ? "Automaticky podle displeje" : "Vždy úzké (mobil)", () => toggleForceCompact()],
               ["Návod k použití", () => window.open(MANUAL_URL, "_blank", "noopener,noreferrer")],
             ].map(([label, fn]) => (
               <button
@@ -3342,7 +3365,7 @@ export default function Wh40kCalculator({ session }) {
                 {label === "Celá obrazovka" || label === "Ukončit celou obrazovku" ? (
                   isFullscreen ? <Minimize2 size={13} /> : <Maximize2 size={13} />
                 ) : null}
-                {label === "Širší zobrazení (notebook)" || label === "Užší zobrazení (mobil)" ? <LayoutGrid size={13} /> : null}
+                {label === "Automaticky podle displeje" || label === "Vždy úzké (mobil)" ? <LayoutGrid size={13} /> : null}
                 {label === "Návod k použití" ? <HelpCircle size={13} /> : null}
                 {label}
               </button>
@@ -4354,6 +4377,16 @@ export default function Wh40kCalculator({ session }) {
           <div style={{ fontSize: 11.5, color: "var(--muted)", marginBottom: 10 }}>
             Zaškrtni útočníky a očekávané protivníky. Damage se počítá s plným počtem modelů a vestavěnými schopnostmi zbraní.
           </div>
+
+          {(cheatAttackerIds.size > 0 || cheatTargetIds.size > 0) && (
+            <button
+              onClick={swapCheatAttackersAndTargets}
+              className="wh40k-btn"
+              style={{ display: "flex", alignItems: "center", gap: 6, border: "1px solid var(--field-border)", background: "var(--field-bg)", color: "var(--text)", borderRadius: 6, padding: "6px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer", marginBottom: 10 }}
+            >
+              <ArrowLeftRight size={13} /> Prohodit útočníky a cíle
+            </button>
+          )}
 
           <div className="wh40k-grid-2" style={{ marginBottom: 14 }}>
             <div style={{ background: "var(--panel)", border: "1px solid var(--accent)", borderRadius: 10, padding: 12 }}>
