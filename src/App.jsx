@@ -4339,14 +4339,20 @@ export default function Wh40kCalculator({ session }) {
                 <span>
                   {a.name} <span style={{ fontSize: 11, color: "var(--muted)" }}>({a.unitIds.length} jednotek)</span>
                 </span>
-                <span style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                <span style={{ display: "flex", gap: 4, alignItems: "center", flexWrap: "wrap" }}>
                   <button
-                    onClick={() => {
-                      setCheatAttackerIds(new Set(a.unitIds));
-                    }}
-                    style={{ border: "1px solid var(--field-border)", background: "transparent", color: "var(--text)", borderRadius: 6, padding: "3px 8px", fontSize: 11, cursor: "pointer" }}
+                    onClick={() => setCheatAttackerIds(new Set(a.unitIds))}
+                    title="Do cheat sheetu jako útočník"
+                    style={{ display: "flex", alignItems: "center", gap: 4, border: "1px solid var(--accent)", background: "transparent", color: "var(--accent-text)", borderRadius: 6, padding: "3px 8px", fontSize: 11, cursor: "pointer" }}
                   >
-                    Do cheat sheetu
+                    <Sword size={11} /> Útočník
+                  </button>
+                  <button
+                    onClick={() => setCheatTargetIds(new Set(a.unitIds))}
+                    title="Do cheat sheetu jako obránce"
+                    style={{ display: "flex", alignItems: "center", gap: 4, border: "1px solid var(--blue)", background: "transparent", color: "#a9c6e5", borderRadius: 6, padding: "3px 8px", fontSize: 11, cursor: "pointer" }}
+                  >
+                    <Shield size={11} /> Obránce
                   </button>
                   <button onClick={() => setEditingArmy(a)} aria-label="Upravit" style={{ background: "transparent", border: "none", color: "var(--muted)", cursor: "pointer", padding: 4 }}>
                     <Pencil size={14} />
@@ -4377,6 +4383,80 @@ export default function Wh40kCalculator({ session }) {
           <div style={{ fontSize: 11.5, color: "var(--muted)", marginBottom: 10 }}>
             Zaškrtni útočníky a očekávané protivníky. Damage se počítá s plným počtem modelů a vestavěnými schopnostmi zbraní.
           </div>
+
+          <button
+            onClick={() => setCheatModifiersOpen((o) => !o)}
+            style={{ display: "flex", alignItems: "center", gap: 4, background: "transparent", border: "none", color: "var(--accent-text)", fontSize: 11.5, fontWeight: 700, cursor: "pointer", padding: 0, marginBottom: 10, textTransform: "uppercase", letterSpacing: 0.4 }}
+          >
+            <Plus size={12} /> Modifikátory (volitelné)
+            <ChevronDown size={12} style={{ transform: cheatModifiersOpen ? "rotate(180deg)" : "none" }} />
+          </button>
+          {cheatModifiersOpen && (
+          <div style={{ background: "var(--field-bg)", border: "1px solid var(--field-border)", borderRadius: 10, padding: 12, marginBottom: 14 }}>
+            <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>
+              Bonusy útočníka <span style={{ fontWeight: 400, textTransform: "none" }}>(navíc k jejich vlastním schopnostem)</span>
+            </div>
+
+            <div style={{ background: "var(--panel)", border: "1px solid var(--field-border)", borderRadius: 8, padding: 8, marginBottom: 8 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: "#a9c6e5", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6, display: "flex", alignItems: "center", gap: 4 }}>
+                <Crosshair size={11} /> Na dálku
+              </div>
+              <BonusFieldsGroup
+                bonus={cheatBonus.ranged}
+                setBonus={(updater) => setCheatBonus((s) => ({ ...s, ranged: typeof updater === "function" ? updater(s.ranged) : updater }))}
+              />
+            </div>
+            <div style={{ background: "var(--panel)", border: "1px solid var(--field-border)", borderRadius: 8, padding: 8 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: "var(--accent-text)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6, display: "flex", alignItems: "center", gap: 4 }}>
+                <Sword size={11} /> Na blízko
+              </div>
+              <BonusFieldsGroup
+                bonus={cheatBonus.melee}
+                setBonus={(updater) => setCheatBonus((s) => ({ ...s, melee: typeof updater === "function" ? updater(s.melee) : updater }))}
+              />
+            </div>
+
+            <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.5, margin: "14px 0 8px" }}>
+              Debuffy obránce <span style={{ fontWeight: 400, textTransform: "none" }}>(navíc k jejich vlastním hodnotám)</span>
+            </div>
+            <div style={{ background: "var(--panel)", border: "1px solid var(--field-border)", borderRadius: 8, padding: 8, marginBottom: 8 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: "#a9c6e5", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6, display: "flex", alignItems: "center", gap: 4 }}>
+                <Crosshair size={11} /> Proti útokům na dálku
+              </div>
+              <Row cols={3}>
+                <NumberField label="FNP (0 = jen vlastní)" value={cheatDefenderFnp.ranged} onChange={(v) => setCheatDefenderFnp((s) => ({ ...s, ranged: Math.max(0, v) }))} min={0} small />
+                <NumberField
+                  label="Redukce dmg (0 = jen vlastní)"
+                  value={cheatDefenderDamageReduction.ranged}
+                  onChange={(v) => setCheatDefenderDamageReduction((s) => ({ ...s, ranged: Math.max(0, v) }))}
+                  min={0}
+                  small
+                />
+                <ToggleField label="Debuff: -1 WR pokud S > T" value={cheatDefenderWoundDebuff.ranged} onChange={(v) => setCheatDefenderWoundDebuff((s) => ({ ...s, ranged: v }))} small />
+              </Row>
+            </div>
+            <div style={{ background: "var(--panel)", border: "1px solid var(--field-border)", borderRadius: 8, padding: 8 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: "var(--accent-text)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6, display: "flex", alignItems: "center", gap: 4 }}>
+                <Sword size={11} /> Proti útokům na blízko
+              </div>
+              <Row cols={3}>
+                <NumberField label="FNP (0 = jen vlastní)" value={cheatDefenderFnp.melee} onChange={(v) => setCheatDefenderFnp((s) => ({ ...s, melee: Math.max(0, v) }))} min={0} small />
+                <NumberField
+                  label="Redukce dmg (0 = jen vlastní)"
+                  value={cheatDefenderDamageReduction.melee}
+                  onChange={(v) => setCheatDefenderDamageReduction((s) => ({ ...s, melee: Math.max(0, v) }))}
+                  min={0}
+                  small
+                />
+                <ToggleField label="Debuff: -1 WR pokud S > T" value={cheatDefenderWoundDebuff.melee} onChange={(v) => setCheatDefenderWoundDebuff((s) => ({ ...s, melee: v }))} small />
+              </Row>
+            </div>
+
+            <div style={{ fontSize: 10.5, color: "var(--muted)", marginTop: 8 }}>
+              Tabulka níže vždy ukáže obojí: "Základ" (jen vestavěné schopnosti) a "S bonusy" (základ + tohle nastavení), ať je vidět rozdíl.
+            </div>
+          </div>
+          )}
 
           {(cheatAttackerIds.size > 0 || cheatTargetIds.size > 0) && (
             <button
@@ -4489,80 +4569,6 @@ export default function Wh40kCalculator({ session }) {
               {library.length === 0 && <div style={{ fontSize: 12, color: "var(--muted)" }}>Knihovna je prázdná.</div>}
             </div>
           </div>
-
-          <button
-            onClick={() => setCheatModifiersOpen((o) => !o)}
-            style={{ display: "flex", alignItems: "center", gap: 4, background: "transparent", border: "none", color: "var(--accent-text)", fontSize: 11.5, fontWeight: 700, cursor: "pointer", padding: 0, marginBottom: 10, textTransform: "uppercase", letterSpacing: 0.4 }}
-          >
-            <Plus size={12} /> Modifikátory (volitelné)
-            <ChevronDown size={12} style={{ transform: cheatModifiersOpen ? "rotate(180deg)" : "none" }} />
-          </button>
-          {cheatModifiersOpen && (
-          <div style={{ background: "var(--field-bg)", border: "1px solid var(--field-border)", borderRadius: 10, padding: 12, marginBottom: 14 }}>
-            <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>
-              Bonusy útočníka <span style={{ fontWeight: 400, textTransform: "none" }}>(navíc k jejich vlastním schopnostem)</span>
-            </div>
-
-            <div style={{ background: "var(--panel)", border: "1px solid var(--field-border)", borderRadius: 8, padding: 8, marginBottom: 8 }}>
-              <div style={{ fontSize: 10, fontWeight: 700, color: "#a9c6e5", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6, display: "flex", alignItems: "center", gap: 4 }}>
-                <Crosshair size={11} /> Na dálku
-              </div>
-              <BonusFieldsGroup
-                bonus={cheatBonus.ranged}
-                setBonus={(updater) => setCheatBonus((s) => ({ ...s, ranged: typeof updater === "function" ? updater(s.ranged) : updater }))}
-              />
-            </div>
-            <div style={{ background: "var(--panel)", border: "1px solid var(--field-border)", borderRadius: 8, padding: 8 }}>
-              <div style={{ fontSize: 10, fontWeight: 700, color: "var(--accent-text)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6, display: "flex", alignItems: "center", gap: 4 }}>
-                <Sword size={11} /> Na blízko
-              </div>
-              <BonusFieldsGroup
-                bonus={cheatBonus.melee}
-                setBonus={(updater) => setCheatBonus((s) => ({ ...s, melee: typeof updater === "function" ? updater(s.melee) : updater }))}
-              />
-            </div>
-
-            <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.5, margin: "14px 0 8px" }}>
-              Debuffy obránce <span style={{ fontWeight: 400, textTransform: "none" }}>(navíc k jejich vlastním hodnotám)</span>
-            </div>
-            <div style={{ background: "var(--panel)", border: "1px solid var(--field-border)", borderRadius: 8, padding: 8, marginBottom: 8 }}>
-              <div style={{ fontSize: 10, fontWeight: 700, color: "#a9c6e5", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6, display: "flex", alignItems: "center", gap: 4 }}>
-                <Crosshair size={11} /> Proti útokům na dálku
-              </div>
-              <Row cols={3}>
-                <NumberField label="FNP (0 = jen vlastní)" value={cheatDefenderFnp.ranged} onChange={(v) => setCheatDefenderFnp((s) => ({ ...s, ranged: Math.max(0, v) }))} min={0} small />
-                <NumberField
-                  label="Redukce dmg (0 = jen vlastní)"
-                  value={cheatDefenderDamageReduction.ranged}
-                  onChange={(v) => setCheatDefenderDamageReduction((s) => ({ ...s, ranged: Math.max(0, v) }))}
-                  min={0}
-                  small
-                />
-                <ToggleField label="Debuff: -1 WR pokud S > T" value={cheatDefenderWoundDebuff.ranged} onChange={(v) => setCheatDefenderWoundDebuff((s) => ({ ...s, ranged: v }))} small />
-              </Row>
-            </div>
-            <div style={{ background: "var(--panel)", border: "1px solid var(--field-border)", borderRadius: 8, padding: 8 }}>
-              <div style={{ fontSize: 10, fontWeight: 700, color: "var(--accent-text)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6, display: "flex", alignItems: "center", gap: 4 }}>
-                <Sword size={11} /> Proti útokům na blízko
-              </div>
-              <Row cols={3}>
-                <NumberField label="FNP (0 = jen vlastní)" value={cheatDefenderFnp.melee} onChange={(v) => setCheatDefenderFnp((s) => ({ ...s, melee: Math.max(0, v) }))} min={0} small />
-                <NumberField
-                  label="Redukce dmg (0 = jen vlastní)"
-                  value={cheatDefenderDamageReduction.melee}
-                  onChange={(v) => setCheatDefenderDamageReduction((s) => ({ ...s, melee: Math.max(0, v) }))}
-                  min={0}
-                  small
-                />
-                <ToggleField label="Debuff: -1 WR pokud S > T" value={cheatDefenderWoundDebuff.melee} onChange={(v) => setCheatDefenderWoundDebuff((s) => ({ ...s, melee: v }))} small />
-              </Row>
-            </div>
-
-            <div style={{ fontSize: 10.5, color: "var(--muted)", marginTop: 8 }}>
-              Tabulka níže vždy ukáže obojí: "Základ" (jen vestavěné schopnosti) a "S bonusy" (základ + tohle nastavení), ať je vidět rozdíl.
-            </div>
-          </div>
-          )}
 
           {cheatMatrix.length > 0 && cheatMatrix[0].cells.length > 0 && (
             <button
