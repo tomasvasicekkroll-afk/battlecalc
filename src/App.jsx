@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef, useId } from "react";
 import {
   Swords,
   Shield,
@@ -2087,13 +2087,18 @@ function UnitComposition({ unit, profileChoices, onChooseProfile, meltaActive, o
   );
 }
 
+// Shared cranium outline, reused by SkullIcon below and by the cheat sheet's
+// skull-shaped pie chart (same silhouette, different fill treatment).
+const SKULL_OUTLINE_D =
+  "M12 2.5C7.3 2.5 3.5 6.3 3.5 11c0 3.1 1.65 5.8 4.1 7.3.22.13.35.36.35.62V20a1 1 0 0 0 1 1h.55v1.1c0 .5.4.9.9.9h3.2c.5 0 .9-.4.9-.9V21h.55a1 1 0 0 0 1-1v-1.08c0-.26.13-.49.35-.62 2.45-1.5 4.1-4.2 4.1-7.3 0-4.7-3.8-8.5-8.5-8.5z";
+
 // Custom skull icon — lucide's built-in "Skull" reads as an abstract blob at
 // small UI sizes, so we draw a proper cranium + eye sockets + nose + teeth.
 function SkullIcon({ size = 16, color = "currentColor", filled = false, style }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" style={style} xmlns="http://www.w3.org/2000/svg">
       <path
-        d="M12 2.5C7.3 2.5 3.5 6.3 3.5 11c0 3.1 1.65 5.8 4.1 7.3.22.13.35.36.35.62V20a1 1 0 0 0 1 1h.55v1.1c0 .5.4.9.9.9h3.2c.5 0 .9-.4.9-.9V21h.55a1 1 0 0 0 1-1v-1.08c0-.26.13-.49.35-.62 2.45-1.5 4.1-4.2 4.1-7.3 0-4.7-3.8-8.5-8.5-8.5z"
+        d={SKULL_OUTLINE_D}
         fill={filled ? color : "none"}
         stroke={color}
         strokeWidth="1.4"
@@ -2134,15 +2139,37 @@ function MiniPie({ frac, size = 34, color = "#1b5faa", trackColor = "#ddd" }) {
 // Row of small skull glyphs (reusing SkullIcon's path) filling in proportionally
 // — the cheat sheet's print-friendly stand-in for a pie chart, at a size that
 // actually fits a narrow matrix column instead of a full 34px circle.
-function MiniSkulls({ frac, count = 5, size = 9, color = "#1b5faa", trackColor = "#ccc" }) {
+// Pie chart clipped to the skull silhouette instead of a circle — same "fill
+// sweeps clockwise from the top" reading as MiniPie, just skull-shaped.
+function MiniSkullPie({ frac, size = 34, color = "#1b5faa", trackColor = "#ddd" }) {
   const clamped = Math.max(0, Math.min(1, frac));
-  const filled = Math.round(clamped * count);
+  const clipId = useId();
+  const cx = 12;
+  const cy = 12;
+  const r = 17; // covers the whole 24x24 viewBox from center at any angle
+  let slice = null;
+  if (clamped >= 0.999) {
+    slice = <rect x="0" y="0" width="24" height="24" fill={color} />;
+  } else if (clamped > 0) {
+    const angle = clamped * 2 * Math.PI;
+    const x = cx + r * Math.sin(angle);
+    const y = cy - r * Math.cos(angle);
+    const largeArc = clamped > 0.5 ? 1 : 0;
+    slice = <path d={`M ${cx} ${cy} L ${cx} ${cy - r} A ${r} ${r} 0 ${largeArc} 1 ${x} ${y} Z`} fill={color} />;
+  }
   return (
-    <div style={{ display: "flex", gap: 1 }}>
-      {Array.from({ length: count }).map((_, i) => (
-        <SkullIcon key={i} size={size} color={i < filled ? color : trackColor} filled={i < filled} />
-      ))}
-    </div>
+    <svg width={size} height={size} viewBox="0 0 24 24" style={{ display: "block" }}>
+      <defs>
+        <clipPath id={clipId}>
+          <path d={SKULL_OUTLINE_D} />
+        </clipPath>
+      </defs>
+      <g clipPath={`url(#${clipId})`}>
+        <rect x="0" y="0" width="24" height="24" fill={trackColor} />
+        {slice}
+      </g>
+      <path d={SKULL_OUTLINE_D} fill="none" stroke="#999" strokeWidth="0.6" />
+    </svg>
   );
 }
 
@@ -4529,14 +4556,14 @@ export default function Wh40kCalculator({ session }) {
                     const boostedFrac = c.boosted.res.killedModels / targetModels;
                     return (
                       <td key={c.target.id} style={{ padding: "3px 4px", border: "1px solid #ccc", textAlign: "center" }}>
-                        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
-                            <MiniSkulls frac={baseFrac} color="#666" trackColor="#ddd" size={7} />
-                            <span style={{ fontSize: 7.5, color: "#555", fontWeight: 600 }}>{(baseFrac * 100).toFixed(0)}%</span>
+                        <div style={{ display: "flex", justifyContent: "center", gap: 5 }}>
+                          <div style={{ textAlign: "center" }}>
+                            <MiniSkullPie frac={baseFrac} size={22} color="#666" trackColor="#e6e6e6" />
+                            <div style={{ fontSize: 7.5, color: "#555", fontWeight: 600 }}>{(baseFrac * 100).toFixed(0)}%</div>
                           </div>
-                          <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
-                            <MiniSkulls frac={boostedFrac} color="#1b5faa" trackColor="#dbe8f5" size={7} />
-                            <span style={{ fontSize: 7.5, color: "#1b5faa", fontWeight: 600 }}>{(boostedFrac * 100).toFixed(0)}%</span>
+                          <div style={{ textAlign: "center" }}>
+                            <MiniSkullPie frac={boostedFrac} size={22} color="#1b5faa" trackColor="#dbe8f5" />
+                            <div style={{ fontSize: 7.5, color: "#1b5faa", fontWeight: 600 }}>{(boostedFrac * 100).toFixed(0)}%</div>
                           </div>
                         </div>
                       </td>
