@@ -2833,7 +2833,9 @@ function ManualView({ onBack }) {
             <>Výsledková matice se počítá průběžně, hned nad zaškrtávacími seznamy. Klikni <b>Vytisknout cheat sheet</b>.</>,
           ]}
         />
-        <ManualP>Každá buňka má dvě lebky — šedou (jen vestavěné schopnosti) a modrou (+ tvoje bonusy) — vyplněné podle procenta zničené jednotky.</ManualP>
+        <ManualP>
+          Každá buňka má čtyři lebky ve dvou řádcích — <b>S</b> (na dálku) a <b>M</b> (na blízko), v obou řádcích šedou (jen vestavěné schopnosti) a modrou (+ tvoje bonusy) — vyplněné podle procenta zničené jednotky.
+        </ManualP>
         <ManualP muted>Tlačítko <b>Prohodit útočníky a cíle</b> prohodí obě zaškrtnutí najednou.</ManualP>
       </ManualSection>
 
@@ -4985,7 +4987,7 @@ export default function Wh40kCalculator({ session }) {
           </button>
           <div style={{ fontSize: 14, fontWeight: 700, color: "#111", marginBottom: 2 }}>BATTLECALC — Cheat Sheet: damage na jedno kolo útoku</div>
           <div style={{ fontSize: 9.5, color: "#777", marginBottom: 8 }}>
-            Lebka = % zničené jednotky (na dálku + na blízko dohromady). <span style={{ color: "#999" }}>Šedá</span> = Základ (jen vestavěné schopnosti). <span style={{ color: "#1b5faa" }}>Modrá</span> = S bonusy (základ + nastavené bonusy/debuffy). Řádek pod procentem: <b>S</b> = jen na dálku (Shoot), <b>M</b> = jen na blízko (Melee).
+            Každá buňka: 4 lebky = % zničené jednotky. Horní řádek <b>S</b> = na dálku (Shoot), dolní řádek <b>M</b> = na blízko (Melee). V obou řádcích: <span style={{ color: "#999" }}>šedá</span> = Základ (jen vestavěné schopnosti), <span style={{ color: "#1b5faa" }}>modrá</span> = S bonusy (základ + nastavené bonusy/debuffy).
           </div>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 10, color: "#111" }}>
             <thead>
@@ -5007,28 +5009,28 @@ export default function Wh40kCalculator({ session }) {
                   <td style={{ padding: "4px 6px", border: "1px solid #ccc", fontWeight: 700 }}>{row.attacker.name}</td>
                   {row.cells.map((c) => {
                     const targetModels = totalModels(c.target) || 1;
-                    const baseFrac = c.base.res.killedModels / targetModels;
-                    const boostedFrac = c.boosted.res.killedModels / targetModels;
-                    const baseShootPct = ((killedModelsByType(c.base.res, "ranged") / targetModels) * 100).toFixed(0);
-                    const baseMeleePct = ((killedModelsByType(c.base.res, "melee") / targetModels) * 100).toFixed(0);
-                    const boostedShootPct = ((killedModelsByType(c.boosted.res, "ranged") / targetModels) * 100).toFixed(0);
-                    const boostedMeleePct = ((killedModelsByType(c.boosted.res, "melee") / targetModels) * 100).toFixed(0);
+                    const rangedBaseFrac = killedModelsByType(c.base.res, "ranged") / targetModels;
+                    const rangedBoostedFrac = killedModelsByType(c.boosted.res, "ranged") / targetModels;
+                    const meleeBaseFrac = killedModelsByType(c.base.res, "melee") / targetModels;
+                    const meleeBoostedFrac = killedModelsByType(c.boosted.res, "melee") / targetModels;
+                    const cell = (frac, color, trackColor) => (
+                      <div style={{ textAlign: "center" }}>
+                        <MiniSkullPie frac={frac} size={16} color={color} trackColor={trackColor} />
+                        <div style={{ fontSize: 6.5, color, fontWeight: 600 }}>{(frac * 100).toFixed(0)}%</div>
+                      </div>
+                    );
                     return (
                       <td key={c.target.id} style={{ padding: "3px 4px", border: "1px solid #ccc", textAlign: "center" }}>
-                        <div style={{ display: "flex", justifyContent: "center", gap: 5 }}>
-                          <div style={{ textAlign: "center" }}>
-                            <MiniSkullPie frac={baseFrac} size={22} color="#666" trackColor="#e6e6e6" />
-                            <div style={{ fontSize: 7.5, color: "#555", fontWeight: 600 }}>{(baseFrac * 100).toFixed(0)}%</div>
-                            <div style={{ fontSize: 6, color: "#888" }}>
-                              S{baseShootPct} M{baseMeleePct}
-                            </div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 3, alignItems: "center" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                            <span style={{ fontSize: 6.5, color: "#999", width: 8 }}>S</span>
+                            {cell(rangedBaseFrac, "#666", "#e6e6e6")}
+                            {cell(rangedBoostedFrac, "#1b5faa", "#dbe8f5")}
                           </div>
-                          <div style={{ textAlign: "center" }}>
-                            <MiniSkullPie frac={boostedFrac} size={22} color="#1b5faa" trackColor="#dbe8f5" />
-                            <div style={{ fontSize: 7.5, color: "#1b5faa", fontWeight: 600 }}>{(boostedFrac * 100).toFixed(0)}%</div>
-                            <div style={{ fontSize: 6, color: "#5a8fc4" }}>
-                              S{boostedShootPct} M{boostedMeleePct}
-                            </div>
+                          <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                            <span style={{ fontSize: 6.5, color: "#999", width: 8 }}>M</span>
+                            {cell(meleeBaseFrac, "#666", "#e6e6e6")}
+                            {cell(meleeBoostedFrac, "#1b5faa", "#dbe8f5")}
                           </div>
                         </div>
                       </td>
