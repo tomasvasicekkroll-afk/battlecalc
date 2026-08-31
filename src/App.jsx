@@ -165,6 +165,22 @@ function emptyBonus() {
   return { lethalHits: false, sustained: 0, rerollHit: "none", rerollWound: "none", apMod: 0, hitMod: 0, woundMod: 0, mortalWounds: 0 };
 }
 
+// Cheat sheet only: a "slot" (Útočníci or Cíle) can hold BOTH offensive and
+// defensive modifiers, since after "Prohodit útočníky a cíle" the same army
+// may sit in either role — see emptySlotModifiers below.
+function emptyFullModifier() {
+  return {
+    ...emptyBonus(),
+    fnp: 0,
+    woundDebuff: false,
+    damageReduction: 0,
+    benefitOfCover: false, // only meaningful for the ranged slice — cover doesn't apply in melee
+  };
+}
+function emptySlotModifiers() {
+  return { ranged: emptyFullModifier(), melee: emptyFullModifier(), toughnessMod: 0, saveMod: 0 };
+}
+
 function autoDetectBonus(unit) {
   const result = { ranged: emptyBonus(), melee: emptyBonus() };
   if (!unit) return result;
@@ -433,10 +449,14 @@ function defenderProfile(unit, overrides) {
   // characteristics for this fight (e.g. -1 Toughness, -1 to Save
   // characteristic), plus Benefit of Cover (+1 armour save, ranged only per
   // core rules) — all applied to the base characteristic before AP/invuln.
+  // Entered exactly like the ability is worded on a datasheet: typing -1
+  // makes the stat worse for the defender in BOTH fields, even though that
+  // means "+ the typed value" for Toughness (lower T is worse) but "- the
+  // typed value" for Save (a *higher* Sv number is worse).
   const rawToughness = Math.max(1, clampNum(unit.toughness, 4));
-  const toughness = Math.max(1, rawToughness - Math.max(0, clampNum(o.toughnessMod, 0)));
+  const toughness = Math.max(1, rawToughness + clampNum(o.toughnessMod, 0));
   const rawSave = clampSave(unit.save, 3) || 7;
-  let save = rawSave >= 7 ? 7 : Math.max(2, Math.min(7, rawSave + Math.max(0, clampNum(o.saveMod, 0))));
+  let save = rawSave >= 7 ? 7 : Math.max(2, Math.min(7, rawSave - clampNum(o.saveMod, 0)));
   if (o.benefitOfCover && save < 7) save = Math.max(2, save - 1);
   return {
     toughness,
@@ -2559,6 +2579,78 @@ function BonusFieldsGroup({ bonus, setBonus }) {
   );
 }
 
+// Cheat sheet only: the offensive fields above (BonusFieldsGroup) plus the
+// defensive ones a "Debuffy obránce" panel used to have on its own — merged
+// so either slot panel can hold both, letting values follow an army through
+// a "Prohodit útočníky a cíle" swap. `mod` is one type-slice (ranged/melee)
+// of a slot's modifiers (see emptyFullModifier).
+function FullModifierFields({ mod, setMod, isRanged }) {
+  return (
+    <>
+      <BonusFieldsGroup bonus={mod} setBonus={setMod} />
+      <Row cols={isRanged ? 4 : 3}>
+        <NumberField label="FNP (0 = jen vlastní)" value={mod.fnp} onChange={(v) => setMod((s) => ({ ...s, fnp: Math.max(0, v) }))} min={0} small />
+        <NumberField
+          label="Redukce dmg (0 = jen vlastní)"
+          value={mod.damageReduction}
+          onChange={(v) => setMod((s) => ({ ...s, damageReduction: Math.max(0, v) }))}
+          min={0}
+          small
+        />
+        <ToggleField label="Debuff: -1 WR pokud S > T" value={mod.woundDebuff} onChange={(v) => setMod((s) => ({ ...s, woundDebuff: v }))} small />
+        {isRanged && (
+          <ToggleField
+            label="Benefit of Cover (+1 Save)"
+            value={mod.benefitOfCover}
+            onChange={(v) => setMod((s) => ({ ...s, benefitOfCover: v }))}
+            hint="jen na dálku"
+            small
+          />
+        )}
+      </Row>
+    </>
+  );
+}
+
+function CheatSlotPanel({ title, hint, accent, slot, setSlot }) {
+  const setType = (type) => (updater) => setSlot((s) => ({ ...s, [type]: typeof updater === "function" ? updater(s[type]) : updater }));
+  return (
+    <div style={{ background: "var(--field-bg)", border: "1px solid var(--field-border)", borderRadius: 10, padding: 12, marginBottom: 14 }}>
+      <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>
+        {title} <span style={{ fontWeight: 400, textTransform: "none" }}>({hint})</span>
+      </div>
+      <Row cols={2}>
+        <NumberField
+          label="Toughness (Nurglovy dary)"
+          value={slot.toughnessMod}
+          onChange={(v) => setSlot((s) => ({ ...s, toughnessMod: v }))}
+          hint="zadej -1 pro zhoršení; pro obě strany"
+          small
+        />
+        <NumberField
+          label="Save (Nurglovy dary)"
+          value={slot.saveMod}
+          onChange={(v) => setSlot((s) => ({ ...s, saveMod: v }))}
+          hint="zadej -1 pro zhoršení; pro obě strany"
+          small
+        />
+      </Row>
+      <div style={{ background: "var(--panel)", border: "1px solid var(--field-border)", borderRadius: 8, padding: 8, marginBottom: 8 }}>
+        <div style={{ fontSize: 10, fontWeight: 700, color: "#a9c6e5", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6, display: "flex", alignItems: "center", gap: 4 }}>
+          <Crosshair size={11} /> Na dálku
+        </div>
+        <FullModifierFields mod={slot.ranged} setMod={setType("ranged")} isRanged />
+      </div>
+      <div style={{ background: "var(--panel)", border: "1px solid var(--field-border)", borderRadius: 8, padding: 8 }}>
+        <div style={{ fontSize: 10, fontWeight: 700, color: accent, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6, display: "flex", alignItems: "center", gap: 4 }}>
+          <Sword size={11} /> Na blízko
+        </div>
+        <FullModifierFields mod={slot.melee} setMod={setType("melee")} isRanged={false} />
+      </div>
+    </div>
+  );
+}
+
 function StepDots({ steps, current }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 4, flexWrap: "wrap" }}>
@@ -2912,18 +3004,17 @@ export default function Wh40kCalculator({ session }) {
   const swapCheatAttackersAndTargets = () => {
     setCheatAttackerIds(cheatTargetIds);
     setCheatTargetIds(cheatAttackerIds);
+    setCheatSlotA(cheatSlotB);
+    setCheatSlotB(cheatSlotA);
   };
 
-  const [cheatBonus, setCheatBonus] = useState({ ranged: emptyBonus(), melee: emptyBonus() });
-  const [cheatDefenderFnp, setCheatDefenderFnp] = useState({ ranged: 0, melee: 0 });
-  const [cheatDefenderWoundDebuff, setCheatDefenderWoundDebuff] = useState({ ranged: false, melee: false });
-  const [cheatDefenderDamageReduction, setCheatDefenderDamageReduction] = useState({ ranged: 0, melee: 0 });
-  // "Nurgle's gifts": not split ranged/melee since a lowered Toughness/Save
-  // characteristic stays lowered no matter what's shooting or swinging at it.
-  const [cheatDefenderToughnessMod, setCheatDefenderToughnessMod] = useState(0);
-  const [cheatDefenderSaveMod, setCheatDefenderSaveMod] = useState(0);
-  // Benefit of Cover only applies to ranged attacks per the core rules.
-  const [cheatDefenderBenefitOfCover, setCheatDefenderBenefitOfCover] = useState(false);
+  // Two symmetric slots ("Bonusy útočníka" / "Debuffy obránce" panels) — each
+  // holds a full offense+defense modifier set, since after "Prohodit
+  // útočníky a cíle" the same army can sit in either role and its modifiers
+  // should follow it, not stay pinned to whichever panel they were typed
+  // into. Swapping swaps these two objects wholesale.
+  const [cheatSlotA, setCheatSlotA] = useState(emptySlotModifiers());
+  const [cheatSlotB, setCheatSlotB] = useState(emptySlotModifiers());
   const ZERO_BONUS = { ranged: emptyBonus(), melee: emptyBonus() };
 
   const addArmyToAttackers = (armyId) => {
@@ -3344,22 +3435,22 @@ export default function Wh40kCalculator({ session }) {
         // debuff are taken as the better/larger of the unit's own value and the panel's).
         const boostedProfile = {
           ranged: defenderProfile(tgt, {
-            fnp: Math.max(clampNum(tgt.fnp, 0), cheatDefenderFnp.ranged),
-            woundDebuff: !!tgt.woundDebuff || cheatDefenderWoundDebuff.ranged,
-            damageReduction: Math.max(clampNum(tgt.damageReduction, 0), cheatDefenderDamageReduction.ranged),
-            toughnessMod: cheatDefenderToughnessMod,
-            saveMod: cheatDefenderSaveMod,
-            benefitOfCover: cheatDefenderBenefitOfCover,
+            fnp: Math.max(clampNum(tgt.fnp, 0), cheatSlotB.ranged.fnp),
+            woundDebuff: !!tgt.woundDebuff || cheatSlotB.ranged.woundDebuff,
+            damageReduction: Math.max(clampNum(tgt.damageReduction, 0), cheatSlotB.ranged.damageReduction),
+            toughnessMod: cheatSlotB.toughnessMod,
+            saveMod: cheatSlotB.saveMod,
+            benefitOfCover: cheatSlotB.ranged.benefitOfCover,
           }),
           melee: defenderProfile(tgt, {
-            fnp: Math.max(clampNum(tgt.fnp, 0), cheatDefenderFnp.melee),
-            woundDebuff: !!tgt.woundDebuff || cheatDefenderWoundDebuff.melee,
-            damageReduction: Math.max(clampNum(tgt.damageReduction, 0), cheatDefenderDamageReduction.melee),
-            toughnessMod: cheatDefenderToughnessMod,
-            saveMod: cheatDefenderSaveMod,
+            fnp: Math.max(clampNum(tgt.fnp, 0), cheatSlotB.melee.fnp),
+            woundDebuff: !!tgt.woundDebuff || cheatSlotB.melee.woundDebuff,
+            damageReduction: Math.max(clampNum(tgt.damageReduction, 0), cheatSlotB.melee.damageReduction),
+            toughnessMod: cheatSlotB.toughnessMod,
+            saveMod: cheatSlotB.saveMod,
           }),
         };
-        const boostedRes = computeUnitVsUnit(att, boostedProfile, cheatBonus);
+        const boostedRes = computeUnitVsUnit(att, boostedProfile, { ranged: cheatSlotA.ranged, melee: cheatSlotA.melee });
 
         const baseStats = computeSurvivalStats(baseRes, tgt, tgtModels);
         const boostedStats = computeSurvivalStats(boostedRes, tgt, tgtModels);
@@ -3371,18 +3462,7 @@ export default function Wh40kCalculator({ session }) {
         };
       }),
     }));
-  }, [
-    library,
-    cheatAttackerIds,
-    cheatTargetIds,
-    cheatBonus,
-    cheatDefenderFnp,
-    cheatDefenderWoundDebuff,
-    cheatDefenderDamageReduction,
-    cheatDefenderToughnessMod,
-    cheatDefenderSaveMod,
-    cheatDefenderBenefitOfCover,
-  ]);
+  }, [library, cheatAttackerIds, cheatTargetIds, cheatSlotA, cheatSlotB]);
 
   const groupedLibrary = useMemo(() => {
     const g = {};
@@ -4218,19 +4298,17 @@ export default function Wh40kCalculator({ session }) {
                       <NumberField label="Počet modelů v jednotce" value={defenderModelCount} onChange={(v) => setDefenderModelCount(Math.max(0, v))} min={0} small />
                       <Row cols={2}>
                         <NumberField
-                          label="Toughness (Nurglovy dary, -)"
+                          label="Toughness (Nurglovy dary)"
                           value={defenderToughnessMod}
-                          onChange={(v) => setDefenderToughnessMod(Math.max(0, v))}
-                          min={0}
-                          hint="sníží T obránce o tuhle hodnotu, pro obě strany"
+                          onChange={(v) => setDefenderToughnessMod(v)}
+                          hint="zadej -1 pro zhoršení; pro obě strany"
                           small
                         />
                         <NumberField
-                          label="Save (Nurglovy dary, -)"
+                          label="Save (Nurglovy dary)"
                           value={defenderSaveMod}
-                          onChange={(v) => setDefenderSaveMod(Math.max(0, v))}
-                          min={0}
-                          hint="zhorší charakteristiku Save obránce, pro obě strany"
+                          onChange={(v) => setDefenderSaveMod(v)}
+                          hint="zadej -1 pro zhoršení; pro obě strany"
                           small
                         />
                       </Row>
@@ -4875,95 +4953,13 @@ export default function Wh40kCalculator({ session }) {
             <ChevronDown size={12} style={{ transform: cheatModifiersOpen ? "rotate(180deg)" : "none" }} />
           </button>
           {cheatModifiersOpen && (
-          <div style={{ background: "var(--field-bg)", border: "1px solid var(--field-border)", borderRadius: 10, padding: 12, marginBottom: 14 }}>
-            <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>
-              Bonusy útočníka <span style={{ fontWeight: 400, textTransform: "none" }}>(navíc k jejich vlastním schopnostem)</span>
-            </div>
-
-            <div style={{ background: "var(--panel)", border: "1px solid var(--field-border)", borderRadius: 8, padding: 8, marginBottom: 8 }}>
-              <div style={{ fontSize: 10, fontWeight: 700, color: "#a9c6e5", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6, display: "flex", alignItems: "center", gap: 4 }}>
-                <Crosshair size={11} /> Na dálku
-              </div>
-              <BonusFieldsGroup
-                bonus={cheatBonus.ranged}
-                setBonus={(updater) => setCheatBonus((s) => ({ ...s, ranged: typeof updater === "function" ? updater(s.ranged) : updater }))}
-              />
-            </div>
-            <div style={{ background: "var(--panel)", border: "1px solid var(--field-border)", borderRadius: 8, padding: 8 }}>
-              <div style={{ fontSize: 10, fontWeight: 700, color: "var(--accent-text)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6, display: "flex", alignItems: "center", gap: 4 }}>
-                <Sword size={11} /> Na blízko
-              </div>
-              <BonusFieldsGroup
-                bonus={cheatBonus.melee}
-                setBonus={(updater) => setCheatBonus((s) => ({ ...s, melee: typeof updater === "function" ? updater(s.melee) : updater }))}
-              />
-            </div>
-
-            <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.5, margin: "14px 0 8px" }}>
-              Debuffy obránce <span style={{ fontWeight: 400, textTransform: "none" }}>(navíc k jejich vlastním hodnotám)</span>
-            </div>
-            <Row cols={2}>
-              <NumberField
-                label="Toughness (Nurglovy dary, -)"
-                value={cheatDefenderToughnessMod}
-                onChange={(v) => setCheatDefenderToughnessMod(Math.max(0, v))}
-                min={0}
-                hint="pro obě strany"
-                small
-              />
-              <NumberField
-                label="Save (Nurglovy dary, -)"
-                value={cheatDefenderSaveMod}
-                onChange={(v) => setCheatDefenderSaveMod(Math.max(0, v))}
-                min={0}
-                hint="pro obě strany"
-                small
-              />
-            </Row>
-            <div style={{ background: "var(--panel)", border: "1px solid var(--field-border)", borderRadius: 8, padding: 8, marginBottom: 8 }}>
-              <div style={{ fontSize: 10, fontWeight: 700, color: "#a9c6e5", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6, display: "flex", alignItems: "center", gap: 4 }}>
-                <Crosshair size={11} /> Proti útokům na dálku
-              </div>
-              <Row cols={4}>
-                <NumberField label="FNP (0 = jen vlastní)" value={cheatDefenderFnp.ranged} onChange={(v) => setCheatDefenderFnp((s) => ({ ...s, ranged: Math.max(0, v) }))} min={0} small />
-                <NumberField
-                  label="Redukce dmg (0 = jen vlastní)"
-                  value={cheatDefenderDamageReduction.ranged}
-                  onChange={(v) => setCheatDefenderDamageReduction((s) => ({ ...s, ranged: Math.max(0, v) }))}
-                  min={0}
-                  small
-                />
-                <ToggleField label="Debuff: -1 WR pokud S > T" value={cheatDefenderWoundDebuff.ranged} onChange={(v) => setCheatDefenderWoundDebuff((s) => ({ ...s, ranged: v }))} small />
-                <ToggleField
-                  label="Benefit of Cover (+1 Save)"
-                  value={cheatDefenderBenefitOfCover}
-                  onChange={setCheatDefenderBenefitOfCover}
-                  hint="jen na dálku"
-                  small
-                />
-              </Row>
-            </div>
-            <div style={{ background: "var(--panel)", border: "1px solid var(--field-border)", borderRadius: 8, padding: 8 }}>
-              <div style={{ fontSize: 10, fontWeight: 700, color: "var(--accent-text)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6, display: "flex", alignItems: "center", gap: 4 }}>
-                <Sword size={11} /> Proti útokům na blízko
-              </div>
-              <Row cols={3}>
-                <NumberField label="FNP (0 = jen vlastní)" value={cheatDefenderFnp.melee} onChange={(v) => setCheatDefenderFnp((s) => ({ ...s, melee: Math.max(0, v) }))} min={0} small />
-                <NumberField
-                  label="Redukce dmg (0 = jen vlastní)"
-                  value={cheatDefenderDamageReduction.melee}
-                  onChange={(v) => setCheatDefenderDamageReduction((s) => ({ ...s, melee: Math.max(0, v) }))}
-                  min={0}
-                  small
-                />
-                <ToggleField label="Debuff: -1 WR pokud S > T" value={cheatDefenderWoundDebuff.melee} onChange={(v) => setCheatDefenderWoundDebuff((s) => ({ ...s, melee: v }))} small />
-              </Row>
-            </div>
-
-            <div style={{ fontSize: 10.5, color: "var(--muted)", marginTop: 8 }}>
+          <>
+            <CheatSlotPanel title="Bonusy útočníka" hint="navíc k vlastním schopnostem, drží se armády i po prohození" accent="var(--accent-text)" slot={cheatSlotA} setSlot={setCheatSlotA} />
+            <CheatSlotPanel title="Debuffy obránce" hint="navíc k vlastním hodnotám, drží se armády i po prohození" accent="var(--accent-text)" slot={cheatSlotB} setSlot={setCheatSlotB} />
+            <div style={{ fontSize: 10.5, color: "var(--muted)", marginTop: -6, marginBottom: 14 }}>
               Tabulka níže vždy ukáže obojí: "Základ" (jen vestavěné schopnosti) a "S bonusy" (základ + tohle nastavení), ať je vidět rozdíl.
             </div>
-          </div>
+          </>
           )}
           {(cheatAttackerIds.size === 0 || cheatTargetIds.size === 0) && (
             <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 14 }}>Zaškrtni aspoň jednu jednotku na obou stranách, ať se má co vygenerovat.</div>
