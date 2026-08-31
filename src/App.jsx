@@ -49,7 +49,6 @@ const WEAPON_TYPE_OPTIONS = [
 // how hitMod/woundMod are subtracted from the target number in computeWeapon.
 const MOD_OPTIONS_3 = [-3, -2, -1, 0, 1, 2, 3].map((n) => ({ value: String(n), label: n > 0 ? `+${n}` : String(n) }));
 
-const MANUAL_URL = "https://claude.ai/code/artifact/75271227-e2a0-4f23-b105-23bd734efbae";
 
 // Anti-X Y+: against a unit with keyword X, an unmodified wound roll of Y+
 // always counts as a Critical Wound (auto-wounds), regardless of the normal
@@ -430,9 +429,18 @@ function defenderProfile(unit, overrides) {
     if (v <= 0) return 0;
     return Math.max(2, Math.min(6, v));
   };
+  // "Nurgle's gifts"-style attacker abilities that worsen the defender's own
+  // characteristics for this fight (e.g. -1 Toughness, -1 to Save
+  // characteristic), plus Benefit of Cover (+1 armour save, ranged only per
+  // core rules) — all applied to the base characteristic before AP/invuln.
+  const rawToughness = Math.max(1, clampNum(unit.toughness, 4));
+  const toughness = Math.max(1, rawToughness - Math.max(0, clampNum(o.toughnessMod, 0)));
+  const rawSave = clampSave(unit.save, 3) || 7;
+  let save = rawSave >= 7 ? 7 : Math.max(2, Math.min(7, rawSave + Math.max(0, clampNum(o.saveMod, 0))));
+  if (o.benefitOfCover && save < 7) save = Math.max(2, save - 1);
   return {
-    toughness: Math.max(1, clampNum(unit.toughness, 4)),
-    save: clampSave(unit.save, 3) || 7, // 0 would mean "no save at all", which never happens for `save`; treat as fail
+    toughness,
+    save,
     invul: clampSave(unit.invul, 0),
     wounds: Math.max(1, clampNum(unit.wounds, 1)),
     models: o.models !== undefined && o.models !== null ? Math.max(0, clampNum(o.models, 1)) : totalModels(unit) || 1,
@@ -2314,6 +2322,14 @@ function binomialCDF(k, n, p) {
   return Math.max(0, Math.min(1, cdf));
 }
 
+// Sums the killedModels contributed by just one weapon type (ranged or melee)
+// out of a computeUnitVsUnit result's breakdown — used to show Shoot/Melee
+// separately in the cheat sheet instead of only the combined figure.
+function killedModelsByType(res, type) {
+  if (!res || !res.breakdown) return 0;
+  return res.breakdown.filter((b) => b.type === type).reduce((s, b) => s + b.killedModels, 0);
+}
+
 // Given a computeUnitVsUnit-style result (with .breakdown and .totalDamage) and
 // the target unit being attacked, works out: M = how many wound rolls actually
 // reach a save this round, q = the real chance a given one of those fails its
@@ -2581,6 +2597,283 @@ function StepDots({ steps, current }) {
 }
 
 // ---------------------------------------------------------------------------
+// Manual / help view — built into the app itself (not an external link) so
+// anyone visiting the site can open it, logged in or not.
+// ---------------------------------------------------------------------------
+function ManualPath({ children }) {
+  return (
+    <span style={{ fontFamily: "var(--mono)", fontSize: 11.5, background: "var(--field-bg)", border: "1px solid var(--field-border)", borderRadius: 4, padding: "1px 6px", whiteSpace: "nowrap" }}>
+      {children}
+    </span>
+  );
+}
+
+function ManualSection({ num, title, children }) {
+  return (
+    <div style={{ marginBottom: 28 }}>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 10, borderBottom: "1px solid var(--field-border)", paddingBottom: 8, marginBottom: 12 }}>
+        <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--accent-text)", border: "1px solid var(--accent)", borderRadius: 4, padding: "1px 6px", flexShrink: 0 }}>{num}</span>
+        <div style={{ fontSize: 15.5, fontWeight: 700 }}>{title}</div>
+      </div>
+      <div style={{ fontSize: 12.5, color: "var(--text)", lineHeight: 1.65 }}>{children}</div>
+    </div>
+  );
+}
+
+function ManualP({ children, muted }) {
+  return <div style={{ marginBottom: 10, color: muted ? "var(--muted)" : "var(--text)" }}>{children}</div>;
+}
+
+function ManualH({ children }) {
+  return <div style={{ fontSize: 12.5, fontWeight: 700, margin: "16px 0 6px" }}>{children}</div>;
+}
+
+function ManualSteps({ items }) {
+  return (
+    <ol style={{ margin: "0 0 12px", padding: 0, listStyle: "none", counterReset: "ms" }}>
+      {items.map((it, i) => (
+        <li key={i} style={{ counterIncrement: "ms", position: "relative", padding: "3px 0 3px 30px", marginBottom: 2 }}>
+          <span
+            style={{
+              position: "absolute",
+              left: 0,
+              top: 2,
+              width: 19,
+              height: 19,
+              borderRadius: 5,
+              background: "var(--accent-dim)",
+              color: "var(--accent-text)",
+              fontFamily: "var(--mono)",
+              fontWeight: 700,
+              fontSize: 10.5,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            {i + 1}
+          </span>
+          {it}
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+function ManualUl({ items }) {
+  return (
+    <ul style={{ margin: "0 0 12px", padding: 0, listStyle: "none" }}>
+      {items.map((it, i) => (
+        <li key={i} style={{ position: "relative", padding: "0 0 8px 14px" }}>
+          <span style={{ position: "absolute", left: 0, top: 7, width: 5, height: 5, background: "var(--muted)", opacity: 0.6, borderRadius: 1 }} />
+          {it}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function ManualNote({ tone = "accent", label, children }) {
+  const color = tone === "warn" ? "#e0857c" : "var(--accent-text)";
+  const bg = tone === "warn" ? "rgba(224,133,124,0.1)" : "var(--accent-dim)";
+  const border = tone === "warn" ? "rgba(224,133,124,0.4)" : "var(--accent)";
+  return (
+    <div style={{ background: bg, border: `1px solid ${border}`, borderRadius: 8, padding: "10px 12px", margin: "10px 0" }}>
+      <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase", color, marginBottom: 4 }}>{label}</div>
+      <div style={{ color: "var(--text)" }}>{children}</div>
+    </div>
+  );
+}
+
+function ManualView({ onBack }) {
+  return (
+    <div className="no-print" style={{ padding: "4px 14px 16px" }}>
+      <button
+        onClick={onBack}
+        style={{ display: "flex", alignItems: "center", gap: 5, background: "transparent", border: "none", color: "var(--muted)", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, cursor: "pointer", padding: 0, marginBottom: 14 }}
+      >
+        <ArrowLeft size={13} /> Zpět
+      </button>
+      <div style={{ fontSize: 20, fontWeight: 800, marginBottom: 4 }}>Návod k použití</div>
+      <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 22 }}>
+        Battlecalc počítá očekávané poškození a šance na zabití mezi dvěma jednotkami Warhammeru 40 000 — na základě skutečných statů zbraní, ne jen odhadem.
+      </div>
+
+      <ManualSection num="01" title="Přihlášení">
+        <ManualP muted>Appka je vázaná na účet — knihovna, armády i historie se ukládají zvlášť pro každého uživatele. Na výběr jsou tři způsoby:</ManualP>
+        <ManualH>Odkaz emailem (nejjednodušší)</ManualH>
+        <ManualSteps
+          items={[
+            <>Zadej svůj email a klikni <b>Poslat přihlašovací odkaz</b>.</>,
+            <>Otevři si schránku (i spam) a klikni na odkaz v emailu.</>,
+            <>Appka tě rovnou přihlásí — heslo nikde nezadáváš.</>,
+          ]}
+        />
+        <ManualH>Email + heslo</ManualH>
+        <ManualP>
+          Přepni na záložku <ManualPath>Email + heslo</ManualPath>. Poprvé zvol <b>Vytvořit účet</b>, potvrď registraci odkazem v emailu, pak se už přihlašuj heslem.
+        </ManualP>
+        <ManualH>Google</ManualH>
+        <ManualP>
+          Tlačítko <b>Pokračovat s Google</b> tě přihlásí přes existující Google účet.
+        </ManualP>
+        <ManualNote label="Odhlášení">
+          Ozubené kolečko vpravo nahoře → dole v menu <b>Odhlásit se</b>.
+        </ManualNote>
+      </ManualSection>
+
+      <ManualSection num="02" title="Knihovna jednotek">
+        <ManualP muted>Knihovna je tvůj sklad jednotek — každou počítanou bitvu appka vybírá útočníka i obránce právě odsud. Naplnit ji jde třemi způsoby.</ManualP>
+        <ManualH>Import z New Recruit (JSON export)</ManualH>
+        <ManualP>
+          <ManualPath>Knihovna → Nahrát novou armádu z New Recruit</ManualPath>
+        </ManualP>
+        <ManualSteps
+          items={[
+            <>V New Recruit exportuj svůj list jako <b>JSON</b> (ne obyčejný text).</>,
+            <>Nahraj soubor, nebo obsah vlož do textového pole.</>,
+            <>Klikni <b>Naimportovat</b>.</>,
+          ]}
+        />
+        <ManualP>
+          Tohle je jediný způsob, který appce dá <b>skutečné bojové staty</b> pro každou zbraň — proto se doporučuje jako první krok pro každou novou frakci. Appka sama pozná Lethal Hits, Sustained Hits, Twin-linked, Melta X, Feel No Pain a některé útočné schopnosti (víc v kapitole 05) a rovnou z importu uloží i pojmenovanou armádu.
+        </ManualP>
+        <ManualNote tone="warn" label="Vůdci jednotek">
+          Pokud je v listu postava připojená k jednotce jako vůdce (Leader), appka je při importu spojí do jedné položky knihovny — jejich zbraně se pak počítají dohromady, jméno bude např. „Wolf Guard Terminators (vede Logan Grimnar)“ a body se sečtou.
+        </ManualNote>
+        <ManualH>Ruční přidání / úprava</ManualH>
+        <ManualP>
+          <ManualPath>Knihovna → Přidat ručně</ManualPath> — vyplníš obranné staty a přidáš modely se zbraněmi. Stejný formulář se otevře i tužkou u existující jednotky.
+        </ManualP>
+        <ManualP>Ikonka hvězdy u jednotky ji přidá do Oblíbených.</ManualP>
+        <ManualH>Sdílení s kamarádem</ManualH>
+        <ManualP>
+          <ManualPath>Knihovna → Sdílet s kamarádem → Export</ManualPath> — tlačítko <b>Stáhnout jako soubor</b> uloží celou knihovnu a armády jako <code style={{ fontFamily: "var(--mono)" }}>.json</code> soubor. Kamarád ho na stejném místě přes záložku <b>Import</b> nahraje tlačítkem <b>Nahrát soubor</b>. Duplicity se automaticky přeskočí.
+        </ManualP>
+        <ManualNote label="Copyright">
+          Battlecalc nešíří žádnou oficiální databázi jednotek GW — knihovna obsahuje jen to, co si sám naimportuješ nebo co ti pošle kamarád ze svého vlastního exportu.
+        </ManualNote>
+      </ManualSection>
+
+      <ManualSection num="03" title="Kalkulačka">
+        <ManualP muted>Hlavní obrazovka appky, tři kroky:</ManualP>
+        <ManualH>Krok 1 — Útočník</ManualH>
+        <ManualP>Vyber frakci nebo uloženou armádu, pak konkrétní jednotku z knihovny.</ManualP>
+        <ManualH>Krok 2 — Úprava</ManualH>
+        <ManualUl
+          items={[
+            <><b>Připojit vůdce</b> — dočasně spojí jednotku s postavou z knihovny (jen pro tenhle výpočet).</>,
+            <><b>Bonusy na dálku / na blízko zvlášť</b> — Lethal Hits, Sustained, přehoz zásahu/zranění, modifikátor hit rollu, wound rollu, AP bonus, mortal wounds navíc.</>,
+            <><b>Profil zbraně</b> — pokud má zbraň víc profilů (např. Sweep/Strike), zvolíš který se použije.</>,
+            <><b>Melta</b> — přepínač „v polovičním dosahu“ u zbraní s Meltou X.</>,
+          ]}
+        />
+        <ManualH>Krok 3 — Obránce</ManualH>
+        <ManualP>
+          Vyber cílovou jednotku. Volitelně rozklikni <b>Modifikátory</b> pro úpravu počtu modelů, FNP nebo debuffu. Klikni <b>Spočítat</b>.
+        </ManualP>
+      </ManualSection>
+
+      <ManualSection num="04" title="Čtení výsledku">
+        <ManualH>Očekávané zabité modely</ManualH>
+        <ManualP>
+          Tohle číslo je <b>průměr přes mnoho her</b>, ne jistota — <code style={{ fontFamily: "var(--mono)" }}>1.84</code> znamená „za 100 stejných útoků v průměru zabiješ 184 modelů“. Vedle je proto i <b>„jistě padne N“</b> — spodní odhad zaokrouhlený dolů.
+        </ManualP>
+        <ManualH>Tři šance dole</ManualH>
+        <ManualP muted>Počítané binomickým rozdělením (ne jen průměrem):</ManualP>
+        <ManualUl items={["Šance zabít alespoň 1 model", "Šance zničit celou jednotku", "Šance, že jednotka přežije"]} />
+        <ManualH>Rozpis podle zbraní</ManualH>
+        <ManualP>
+          Vedle procent vidíš i skutečné očekávané počty, např. <code style={{ fontFamily: "var(--mono)" }}>3+ → 66.7% (0.67)</code>. Řádek se navíc označí, pokud se u něj uplatnil debuff -1 na wound roll.
+        </ManualP>
+      </ManualSection>
+
+      <ManualSection num="05" title="Co appka umí rozpoznat">
+        <ManualP muted>Z JSON importu appka automaticky vyčte a nastaví: Lethal Hits, Sustained Hits X, Twin-linked, Melta X, Feel No Pain, redukci damage (např. C'tan Shard).</ManualP>
+        <ManualP>Tohle je potřeba doplnit/zkontrolovat ručně v editaci jednotky nebo zbraně (tužka v knihovně):</ManualP>
+        <ManualUl
+          items={[
+            <><b>Anti-X Y+</b> — zbraň → „Anti- klíčové slovo“ + práh. Proti MONSTER/VEHICLE/CHARACTER automaticky zraní na hod Y+.</>,
+            <><b>Přehoz vše proti keywordu</b> — zbraň → „vs MONSTER/VEHICLE/CHARACTER“. Přehoz zásahu i zranění jen proti danému keywordu (např. GMNDK).</>,
+            <><b>Přehoz 1 hitu / 1 woundu</b> — zbraň → zaškrtávátko. Jednorázový přehoz, jiná matematika než „všechny“/„jedničky“.</>,
+            <><b>FNP proti Psychic</b> — jednotka → „FNP proti Psychic“. Funguje jen proti zbraním označeným jako „Psychický útok“ (např. Culexus).</>,
+            <><b>Klíčová slova jednotky</b> — MONSTER / VEHICLE / CHARACTER. Nutné pro Anti-X a keyword-rerolly výše.</>,
+            <><b>Mortal wounds navíc</b> — kalkulačka krok 2, bonusový panel. Jednorázově za celou jednotku, mimo save.</>,
+          ]}
+        />
+      </ManualSection>
+
+      <ManualSection num="06" title="Armády">
+        <ManualP>
+          <ManualPath>Cheat sheet → Moje armády</ManualPath> — pojmenovaná skupina jednotek z knihovny, hlavně pro cheat sheet (kapitola 07). Dvě cesty, jak ji založit:
+        </ManualP>
+        <ManualH>Ručně</ManualH>
+        <ManualP><b>Uložit novou armádu</b> → pojmenuj a zaškrtni jednotky z knihovny.</ManualP>
+        <ManualH>Z textu (New Recruit)</ManualH>
+        <ManualP>
+          <b>Armáda z textu (New Recruit)</b> — vlož prostý textový export listu (bez statů, jen jména a body). Appka spáruje jednotky podle jména a bodů s knihovnou a armádu uloží nebo aktualizuje.
+        </ManualP>
+        <ManualNote label="Vůdce v textu zvlášť">
+          Pokud text uvádí vůdce a jednotku zvlášť, appka zkusí i jejich <b>součet bodů</b> a najde sloučenou položku v knihovně. Samotný vůdce se pak ukáže jako „nenalezeno“ — to je v pořádku, jeho staty už jsou uvnitř sloučené jednotky.
+        </ManualNote>
+        <ManualH>Přidání do cheat sheetu</ManualH>
+        <ManualP>
+          U každé uložené armády jsou dvě tlačítka — <b>Útočník</b> a <b>Obránce</b> — zaškrtnou rovnou všechny její jednotky na příslušné straně.
+        </ManualP>
+      </ManualSection>
+
+      <ManualSection num="07" title="Cheat sheet k tisku">
+        <ManualP>
+          <ManualPath>Cheat sheet → Cheat sheet pro tisk</ManualPath> spočítá matici všichni útočníci × všichni cíle najednou.
+        </ManualP>
+        <ManualSteps
+          items={[
+            <>Volitelně rozbal <b>Modifikátory</b> a nastav bonusy útočníka / debuffy obránce navíc k vestavěným schopnostem — tabulka ukáže obojí, „Základ“ i „S bonusy“.</>,
+            <>Zaškrtni útočníky a cíle — nebo použij <b>Zaškrtnout celou armádu…</b> / tlačítka Útočník/Obránce u uložené armády.</>,
+            <>Výsledková matice se počítá průběžně, hned nad zaškrtávacími seznamy. Klikni <b>Vytisknout cheat sheet</b>.</>,
+          ]}
+        />
+        <ManualP>Každá buňka má dvě lebky — šedou (jen vestavěné schopnosti) a modrou (+ tvoje bonusy) — vyplněné podle procenta zničené jednotky.</ManualP>
+        <ManualP muted>Tlačítko <b>Prohodit útočníky a cíle</b> prohodí obě zaškrtnutí najednou.</ManualP>
+      </ManualSection>
+
+      <ManualSection num="08" title="Historie">
+        <ManualP>
+          Každý spočítaný výsledek se uloží do <ManualPath>Historie</ManualPath>. <b>Kopírovat</b> zkopíruje čitelný textový přehled, <b>Upravit</b> tě vrátí do kalkulačky se stejným nastavením.
+        </ManualP>
+      </ManualSection>
+
+      <ManualSection num="09" title="Menu a zobrazení">
+        <ManualP muted>Ikona ☰ vlevo nahoře otevře rychlé menu:</ManualP>
+        <ManualUl
+          items={[
+            "Nový výpočet, Knihovna jednotek, Moje armády a cheat sheet, Historie výpočtů — přímé skoky do sekcí.",
+            <><b>Celá obrazovka</b> — appka zabere celou obrazovku prohlížeče.</>,
+            <><b>Automaticky podle displeje / Vždy úzké (mobil)</b> — šířka appky se sama přizpůsobuje displeji; tímhle přepínačem to jde vypnout.</>,
+            <><b>Návod k použití</b> — tahle stránka.</>,
+          ]}
+        />
+      </ManualSection>
+
+      <ManualSection num="10" title="Časté dotazy">
+        <ManualH>Proč se mi po smazání jednotky nezobrazuje armáda?</ManualH>
+        <ManualP muted>Smazání jednotky ji odstraní i ze všech armád, které ji obsahovaly — a armádu, která by zůstala prázdná, appka smaže celou.</ManualP>
+        <ManualH>Uvidí moji knihovnu někdo jiný?</ManualH>
+        <ManualP muted>Ne. Data jsou vázaná na tvůj přihlášený účet, dokud je sám nepošleš přes „Sdílet s kamarádem“.</ManualP>
+        <ManualH>Proč +1 u modifikátoru znamená zlepšení?</ManualH>
+        <ManualP muted>+1 u modifikátoru hit/wound rollu vždy znamená zlepšení pro útočníka (např. z 3+ na 2+), -1 zhoršení.</ManualP>
+        <ManualH>Proč appka nepočítá přehoz jednoho damage rollu?</ManualH>
+        <ManualP muted>Damage appka ukládá jako zprůměrované číslo (D6 → 3.5), takže si nepamatuje, že šlo o kostku.</ManualP>
+      </ManualSection>
+
+      <div style={{ marginTop: 20, paddingTop: 14, borderTop: "1px solid var(--field-border)", fontSize: 10.5, color: "var(--muted)" }}>
+        Neoficiální fanouškovský nástroj, bez vazby na Games Workshop.
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 export default function Wh40kCalculator({ session }) {
@@ -2623,6 +2916,12 @@ export default function Wh40kCalculator({ session }) {
   const [cheatDefenderFnp, setCheatDefenderFnp] = useState({ ranged: 0, melee: 0 });
   const [cheatDefenderWoundDebuff, setCheatDefenderWoundDebuff] = useState({ ranged: false, melee: false });
   const [cheatDefenderDamageReduction, setCheatDefenderDamageReduction] = useState({ ranged: 0, melee: 0 });
+  // "Nurgle's gifts": not split ranged/melee since a lowered Toughness/Save
+  // characteristic stays lowered no matter what's shooting or swinging at it.
+  const [cheatDefenderToughnessMod, setCheatDefenderToughnessMod] = useState(0);
+  const [cheatDefenderSaveMod, setCheatDefenderSaveMod] = useState(0);
+  // Benefit of Cover only applies to ranged attacks per the core rules.
+  const [cheatDefenderBenefitOfCover, setCheatDefenderBenefitOfCover] = useState(false);
   const ZERO_BONUS = { ranged: emptyBonus(), melee: emptyBonus() };
 
   const addArmyToAttackers = (armyId) => {
@@ -2644,6 +2943,9 @@ export default function Wh40kCalculator({ session }) {
   const [defenderFnp, setDefenderFnp] = useState({ ranged: 0, melee: 0 });
   const [defenderWoundDebuff, setDefenderWoundDebuff] = useState({ ranged: false, melee: false });
   const [defenderDamageReduction, setDefenderDamageReduction] = useState({ ranged: 0, melee: 0 });
+  const [defenderToughnessMod, setDefenderToughnessMod] = useState(0);
+  const [defenderSaveMod, setDefenderSaveMod] = useState(0);
+  const [defenderBenefitOfCover, setDefenderBenefitOfCover] = useState(false);
 
   const [armies, setArmies] = useState([]);
   const [armiesLoaded, setArmiesLoaded] = useState(false);
@@ -2982,11 +3284,37 @@ export default function Wh40kCalculator({ session }) {
   const result = useMemo(() => {
     if (!effectiveAttackerUnit || !defenderUnit) return null;
     const defByType = {
-      ranged: defenderProfile(defenderUnit, { models: defenderModelCount, fnp: defenderFnp.ranged, woundDebuff: defenderWoundDebuff.ranged, damageReduction: defenderDamageReduction.ranged }),
-      melee: defenderProfile(defenderUnit, { models: defenderModelCount, fnp: defenderFnp.melee, woundDebuff: defenderWoundDebuff.melee, damageReduction: defenderDamageReduction.melee }),
+      ranged: defenderProfile(defenderUnit, {
+        models: defenderModelCount,
+        fnp: defenderFnp.ranged,
+        woundDebuff: defenderWoundDebuff.ranged,
+        damageReduction: defenderDamageReduction.ranged,
+        toughnessMod: defenderToughnessMod,
+        saveMod: defenderSaveMod,
+        benefitOfCover: defenderBenefitOfCover,
+      }),
+      melee: defenderProfile(defenderUnit, {
+        models: defenderModelCount,
+        fnp: defenderFnp.melee,
+        woundDebuff: defenderWoundDebuff.melee,
+        damageReduction: defenderDamageReduction.melee,
+        toughnessMod: defenderToughnessMod,
+        saveMod: defenderSaveMod,
+      }),
     };
     return computeUnitVsUnit(effectiveAttackerUnit, defByType, attackerBonus);
-  }, [effectiveAttackerUnit, defenderUnit, attackerBonus, defenderModelCount, defenderFnp, defenderWoundDebuff, defenderDamageReduction]);
+  }, [
+    effectiveAttackerUnit,
+    defenderUnit,
+    attackerBonus,
+    defenderModelCount,
+    defenderFnp,
+    defenderWoundDebuff,
+    defenderDamageReduction,
+    defenderToughnessMod,
+    defenderSaveMod,
+    defenderBenefitOfCover,
+  ]);
 
   const fmt = (n, d = 2) => (Number.isFinite(n) ? n.toFixed(d) : "0");
   // Never display a flat "0.0%" — with dice there is always some (tiny) chance,
@@ -3017,11 +3345,16 @@ export default function Wh40kCalculator({ session }) {
             fnp: Math.max(clampNum(tgt.fnp, 0), cheatDefenderFnp.ranged),
             woundDebuff: !!tgt.woundDebuff || cheatDefenderWoundDebuff.ranged,
             damageReduction: Math.max(clampNum(tgt.damageReduction, 0), cheatDefenderDamageReduction.ranged),
+            toughnessMod: cheatDefenderToughnessMod,
+            saveMod: cheatDefenderSaveMod,
+            benefitOfCover: cheatDefenderBenefitOfCover,
           }),
           melee: defenderProfile(tgt, {
             fnp: Math.max(clampNum(tgt.fnp, 0), cheatDefenderFnp.melee),
             woundDebuff: !!tgt.woundDebuff || cheatDefenderWoundDebuff.melee,
             damageReduction: Math.max(clampNum(tgt.damageReduction, 0), cheatDefenderDamageReduction.melee),
+            toughnessMod: cheatDefenderToughnessMod,
+            saveMod: cheatDefenderSaveMod,
           }),
         };
         const boostedRes = computeUnitVsUnit(att, boostedProfile, cheatBonus);
@@ -3036,7 +3369,18 @@ export default function Wh40kCalculator({ session }) {
         };
       }),
     }));
-  }, [library, cheatAttackerIds, cheatTargetIds, cheatBonus, cheatDefenderFnp, cheatDefenderWoundDebuff, cheatDefenderDamageReduction]);
+  }, [
+    library,
+    cheatAttackerIds,
+    cheatTargetIds,
+    cheatBonus,
+    cheatDefenderFnp,
+    cheatDefenderWoundDebuff,
+    cheatDefenderDamageReduction,
+    cheatDefenderToughnessMod,
+    cheatDefenderSaveMod,
+    cheatDefenderBenefitOfCover,
+  ]);
 
   const groupedLibrary = useMemo(() => {
     const g = {};
@@ -3462,7 +3806,7 @@ export default function Wh40kCalculator({ session }) {
               ["Historie výpočtů", () => setView("history")],
               [isFullscreen ? "Ukončit celou obrazovku" : "Celá obrazovka", () => toggleFullscreen()],
               [forceCompact ? "Automaticky podle displeje" : "Vždy úzké (mobil)", () => toggleForceCompact()],
-              ["Návod k použití", () => window.open(MANUAL_URL, "_blank", "noopener,noreferrer")],
+              ["Návod k použití", () => setView("manual")],
             ].map(([label, fn]) => (
               <button
                 key={label}
@@ -3870,11 +4214,29 @@ export default function Wh40kCalculator({ session }) {
                   {defenderModifiersOpen && (
                     <div style={{ marginTop: 10 }}>
                       <NumberField label="Počet modelů v jednotce" value={defenderModelCount} onChange={(v) => setDefenderModelCount(Math.max(0, v))} min={0} small />
+                      <Row cols={2}>
+                        <NumberField
+                          label="Toughness (Nurglovy dary, -)"
+                          value={defenderToughnessMod}
+                          onChange={(v) => setDefenderToughnessMod(Math.max(0, v))}
+                          min={0}
+                          hint="sníží T obránce o tuhle hodnotu, pro obě strany"
+                          small
+                        />
+                        <NumberField
+                          label="Save (Nurglovy dary, -)"
+                          value={defenderSaveMod}
+                          onChange={(v) => setDefenderSaveMod(Math.max(0, v))}
+                          min={0}
+                          hint="zhorší charakteristiku Save obránce, pro obě strany"
+                          small
+                        />
+                      </Row>
                       <div style={{ marginTop: 8, background: "var(--panel)", border: "1px solid var(--field-border)", borderRadius: 8, padding: 8 }}>
                         <div style={{ fontSize: 10, fontWeight: 700, color: "#a9c6e5", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6, display: "flex", alignItems: "center", gap: 4 }}>
                           <Crosshair size={11} /> Proti útokům na dálku
                         </div>
-                        <Row cols={3}>
+                        <Row cols={4}>
                           <NumberField
                             label="FNP (0 = žádný)"
                             value={defenderFnp.ranged}
@@ -3893,6 +4255,13 @@ export default function Wh40kCalculator({ session }) {
                             label="Debuff: -1 WR pokud S > T"
                             value={defenderWoundDebuff.ranged}
                             onChange={(v) => setDefenderWoundDebuff((s) => ({ ...s, ranged: v }))}
+                            small
+                          />
+                          <ToggleField
+                            label="Benefit of Cover (+1 Save)"
+                            value={defenderBenefitOfCover}
+                            onChange={setDefenderBenefitOfCover}
+                            hint="jen proti útokům na dálku"
                             small
                           />
                         </Row>
@@ -4436,6 +4805,9 @@ export default function Wh40kCalculator({ session }) {
         </div>
       )}
 
+      {/* MANUAL */}
+      {view === "manual" && <ManualView onBack={() => setView("home")} />}
+
       {/* LISTS (armies + cheat sheet) */}
       {view === "lists" && (
         <div className="no-print" style={{ padding: "4px 14px 16px" }}>
@@ -4528,11 +4900,29 @@ export default function Wh40kCalculator({ session }) {
             <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.5, margin: "14px 0 8px" }}>
               Debuffy obránce <span style={{ fontWeight: 400, textTransform: "none" }}>(navíc k jejich vlastním hodnotám)</span>
             </div>
+            <Row cols={2}>
+              <NumberField
+                label="Toughness (Nurglovy dary, -)"
+                value={cheatDefenderToughnessMod}
+                onChange={(v) => setCheatDefenderToughnessMod(Math.max(0, v))}
+                min={0}
+                hint="pro obě strany"
+                small
+              />
+              <NumberField
+                label="Save (Nurglovy dary, -)"
+                value={cheatDefenderSaveMod}
+                onChange={(v) => setCheatDefenderSaveMod(Math.max(0, v))}
+                min={0}
+                hint="pro obě strany"
+                small
+              />
+            </Row>
             <div style={{ background: "var(--panel)", border: "1px solid var(--field-border)", borderRadius: 8, padding: 8, marginBottom: 8 }}>
               <div style={{ fontSize: 10, fontWeight: 700, color: "#a9c6e5", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6, display: "flex", alignItems: "center", gap: 4 }}>
                 <Crosshair size={11} /> Proti útokům na dálku
               </div>
-              <Row cols={3}>
+              <Row cols={4}>
                 <NumberField label="FNP (0 = jen vlastní)" value={cheatDefenderFnp.ranged} onChange={(v) => setCheatDefenderFnp((s) => ({ ...s, ranged: Math.max(0, v) }))} min={0} small />
                 <NumberField
                   label="Redukce dmg (0 = jen vlastní)"
@@ -4542,6 +4932,13 @@ export default function Wh40kCalculator({ session }) {
                   small
                 />
                 <ToggleField label="Debuff: -1 WR pokud S > T" value={cheatDefenderWoundDebuff.ranged} onChange={(v) => setCheatDefenderWoundDebuff((s) => ({ ...s, ranged: v }))} small />
+                <ToggleField
+                  label="Benefit of Cover (+1 Save)"
+                  value={cheatDefenderBenefitOfCover}
+                  onChange={setCheatDefenderBenefitOfCover}
+                  hint="jen na dálku"
+                  small
+                />
               </Row>
             </div>
             <div style={{ background: "var(--panel)", border: "1px solid var(--field-border)", borderRadius: 8, padding: 8 }}>
@@ -4588,7 +4985,7 @@ export default function Wh40kCalculator({ session }) {
           </button>
           <div style={{ fontSize: 14, fontWeight: 700, color: "#111", marginBottom: 2 }}>BATTLECALC — Cheat Sheet: damage na jedno kolo útoku</div>
           <div style={{ fontSize: 9.5, color: "#777", marginBottom: 8 }}>
-            Lebka = % zničené jednotky. <span style={{ color: "#999" }}>Šedá</span> = Základ (jen vestavěné schopnosti). <span style={{ color: "#1b5faa" }}>Modrá</span> = S bonusy (základ + nastavené bonusy/debuffy).
+            Lebka = % zničené jednotky (na dálku + na blízko dohromady). <span style={{ color: "#999" }}>Šedá</span> = Základ (jen vestavěné schopnosti). <span style={{ color: "#1b5faa" }}>Modrá</span> = S bonusy (základ + nastavené bonusy/debuffy). Řádek pod procentem: <b>S</b> = jen na dálku (Shoot), <b>M</b> = jen na blízko (Melee).
           </div>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 10, color: "#111" }}>
             <thead>
@@ -4612,16 +5009,26 @@ export default function Wh40kCalculator({ session }) {
                     const targetModels = totalModels(c.target) || 1;
                     const baseFrac = c.base.res.killedModels / targetModels;
                     const boostedFrac = c.boosted.res.killedModels / targetModels;
+                    const baseShootPct = ((killedModelsByType(c.base.res, "ranged") / targetModels) * 100).toFixed(0);
+                    const baseMeleePct = ((killedModelsByType(c.base.res, "melee") / targetModels) * 100).toFixed(0);
+                    const boostedShootPct = ((killedModelsByType(c.boosted.res, "ranged") / targetModels) * 100).toFixed(0);
+                    const boostedMeleePct = ((killedModelsByType(c.boosted.res, "melee") / targetModels) * 100).toFixed(0);
                     return (
                       <td key={c.target.id} style={{ padding: "3px 4px", border: "1px solid #ccc", textAlign: "center" }}>
                         <div style={{ display: "flex", justifyContent: "center", gap: 5 }}>
                           <div style={{ textAlign: "center" }}>
                             <MiniSkullPie frac={baseFrac} size={22} color="#666" trackColor="#e6e6e6" />
                             <div style={{ fontSize: 7.5, color: "#555", fontWeight: 600 }}>{(baseFrac * 100).toFixed(0)}%</div>
+                            <div style={{ fontSize: 6, color: "#888" }}>
+                              S{baseShootPct} M{baseMeleePct}
+                            </div>
                           </div>
                           <div style={{ textAlign: "center" }}>
                             <MiniSkullPie frac={boostedFrac} size={22} color="#1b5faa" trackColor="#dbe8f5" />
                             <div style={{ fontSize: 7.5, color: "#1b5faa", fontWeight: 600 }}>{(boostedFrac * 100).toFixed(0)}%</div>
+                            <div style={{ fontSize: 6, color: "#5a8fc4" }}>
+                              S{boostedShootPct} M{boostedMeleePct}
+                            </div>
                           </div>
                         </div>
                       </td>
