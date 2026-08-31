@@ -224,7 +224,11 @@ function computeWeapon(weapon, modelCount, def, bonus) {
   };
 
   // Hit-roll modifier: weapons that auto-hit (hitX === 1, e.g. Torrent) ignore modifiers.
-  const effectiveHitX = att.hitX <= 1 ? att.hitX : Math.max(2, Math.min(6, att.hitX - (b.hitMod || 0)));
+  // Benefit of Cover (11th ed.): -1 to the attacker's Ballistic Skill against
+  // ranged attacks — def.benefitOfCover is only ever set on the ranged
+  // defender profile, so this naturally never applies to melee weapons.
+  const coverPenalty = def.benefitOfCover ? 1 : 0;
+  const effectiveHitX = att.hitX <= 1 ? att.hitX : Math.max(2, Math.min(6, att.hitX - (b.hitMod || 0) + coverPenalty));
 
   const pHitBase = (7 - effectiveHitX) / 6;
   const pHitAdj =
@@ -447,8 +451,7 @@ function defenderProfile(unit, overrides) {
   };
   // "Nurgle's gifts"-style attacker abilities that worsen the defender's own
   // characteristics for this fight (e.g. -1 Toughness, -1 to Save
-  // characteristic), plus Benefit of Cover (+1 armour save, ranged only per
-  // core rules) — all applied to the base characteristic before AP/invuln.
+  // characteristic) — applied to the base characteristic before AP/invuln.
   // Entered exactly like the ability is worded on a datasheet: typing -1
   // makes the stat worse for the defender in BOTH fields, even though that
   // means "+ the typed value" for Toughness (lower T is worse) but "- the
@@ -456,11 +459,14 @@ function defenderProfile(unit, overrides) {
   const rawToughness = Math.max(1, clampNum(unit.toughness, 4));
   const toughness = Math.max(1, rawToughness + clampNum(o.toughnessMod, 0));
   const rawSave = clampSave(unit.save, 3) || 7;
-  let save = rawSave >= 7 ? 7 : Math.max(2, Math.min(7, rawSave - clampNum(o.saveMod, 0)));
-  if (o.benefitOfCover && save < 7) save = Math.max(2, save - 1);
+  const save = rawSave >= 7 ? 7 : Math.max(2, Math.min(7, rawSave - clampNum(o.saveMod, 0)));
   return {
     toughness,
     save,
+    // Benefit of Cover (11th ed.): -1 to the attacker's Ballistic Skill
+    // against ranged attacks — read by computeWeapon, not applied here,
+    // since it worsens the hit roll rather than any defender characteristic.
+    benefitOfCover: !!o.benefitOfCover,
     invul: clampSave(unit.invul, 0),
     wounds: Math.max(1, clampNum(unit.wounds, 1)),
     models: o.models !== undefined && o.models !== null ? Math.max(0, clampNum(o.models, 1)) : totalModels(unit) || 1,
@@ -2600,7 +2606,7 @@ function FullModifierFields({ mod, setMod, isRanged }) {
         <ToggleField label="Debuff: -1 WR pokud S > T" value={mod.woundDebuff} onChange={(v) => setMod((s) => ({ ...s, woundDebuff: v }))} small />
         {isRanged && (
           <ToggleField
-            label="Benefit of Cover (+1 Save)"
+            label="Benefit of Cover (-1 BS)"
             value={mod.benefitOfCover}
             onChange={(v) => setMod((s) => ({ ...s, benefitOfCover: v }))}
             hint="jen na dálku"
@@ -4338,7 +4344,7 @@ export default function Wh40kCalculator({ session }) {
                             small
                           />
                           <ToggleField
-                            label="Benefit of Cover (+1 Save)"
+                            label="Benefit of Cover (-1 BS)"
                             value={defenderBenefitOfCover}
                             onChange={setDefenderBenefitOfCover}
                             hint="jen proti útokům na dálku"
