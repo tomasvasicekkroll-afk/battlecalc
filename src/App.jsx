@@ -73,6 +73,7 @@ const emptyWeapon = () => ({
   lethalHits: false,
   sustained: 0,
   melta: 0,
+  rapidFire: 0,
   antiKeyword: "none",
   antiValue: 4,
   isPsychic: false,
@@ -81,6 +82,8 @@ const emptyWeapon = () => ({
   rerollWound: "none",
   rerollOneHit: false,
   rerollOneWound: false,
+  damageDice: "",
+  rerollOneDamage: false,
   copies: 1,
   needsStats: false,
   note: "",
@@ -208,13 +211,28 @@ function computeWeapon(weapon, modelCount, def, bonus) {
     !!weapon.rerollVsKeywords &&
     !!def.keywords &&
     Object.keys(weapon.rerollVsKeywords).some((k) => weapon.rerollVsKeywords[k] && def.keywords[k]);
+  // "Re-roll one damage roll" (e.g. a weapon whose ability lets you re-roll a
+  // bad damage die): only meaningful when the raw dice notation (e.g. "D6")
+  // is known, since it needs the actual spread of outcomes, not just the
+  // average. Modeled as a flat bonus added on top of weapon.damage — that
+  // average already carries the flat notation's own bonus (e.g. "D3+3") plus
+  // any upstream adjustments like a Melta bump, so only the extra value the
+  // reroll itself adds needs to be computed and layered on here.
+  let rerollDamageBonus = 0;
+  if (weapon.rerollOneDamage && weapon.damageDice) {
+    const dist = parseDiceDistribution(weapon.damageDice);
+    if (dist) {
+      const baseMean = Array.from(dist.entries()).reduce((s, [v, p]) => s + v * p, 0);
+      rerollDamageBonus = expectedValueWithOneReroll(dist) - baseMean;
+    }
+  }
   const att = {
     models: modelCount * (weapon.copies || 1),
     attacks: weapon.attacks,
     hitX: weapon.hitX,
     strength: weapon.strength,
     ap: weapon.ap - (b.apMod || 0),
-    damage: weapon.damage,
+    damage: weapon.damage + rerollDamageBonus,
     lethalHits: weapon.lethalHits || b.lethalHits,
     sustained: Math.max(weapon.sustained, b.sustained),
     antiKeyword: weapon.antiKeyword || "none",
@@ -323,6 +341,19 @@ function computeWeapon(weapon, modelCount, def, bonus) {
   const effWoundsPerKill = Math.ceil(def.wounds / dmgPerHit) * dmgPerHit;
   const killedModels = effWoundsPerKill > 0 ? totalDamage / effWoundsPerKill : 0;
 
+  // For transparency: how many of the hits/wounds above specifically came
+  // from "re-roll hit" (both the blanket all/ones reroll and the one-shot
+  // reroll) and from Lethal Hits (crits that skipped the wound roll
+  // entirely). Computed additively against the no-reroll / no-Lethal-Hits
+  // baseline, then converted to a damage-equivalent using the same
+  // save/FNP/per-hit-damage rate as the rest of this weapon's damage, so
+  // it's directly comparable to the "Poškození" total shown per weapon.
+  const hitsFromRerollHit = attacks > 0 ? attacks * (pHitAdj - pHitBase) + rerollOneHitBonus : 0;
+  const woundsFromLethalHits = att.lethalHits ? critHits * (1 - pWoundAdj) : 0;
+  const damageConvFactor = failProb * (1 - fnpProb) * effectiveDamage;
+  const damageFromRerollHit = hitsFromRerollHit * pWoundAdj * damageConvFactor;
+  const damageFromLethalHits = woundsFromLethalHits * damageConvFactor;
+
   return {
     totalDamage,
     killedModels,
@@ -345,6 +376,10 @@ function computeWeapon(weapon, modelCount, def, bonus) {
       fnpValue: effectiveFnp,
       reductionSaved,
       fnpSaved,
+      hitsFromRerollHit,
+      woundsFromLethalHits,
+      damageFromRerollHit,
+      damageFromLethalHits,
     },
   };
 }
@@ -679,6 +714,62 @@ function parseDiceAvg(text) {
   return Number.isFinite(n) ? n : 0;
 }
 
+// Full probability distribution for a dice-notation string like "D6", "2D6",
+// "D3+3" — used to model "re-roll one damage roll" (see below), which needs
+// the actual spread of outcomes, not just the average parseDiceAvg gives.
+// Returns null for anything that isn't recognized dice notation (flat
+// numbers, blank, "N/A", …), so callers can fall back to a no-op.
+function parseDiceDistribution(text) {
+  if (text === undefined || text === null) return null;
+  const t = String(text).trim();
+  if (!t) return null;
+  const m = /^(\d*)D(\d+)(?:\+(\d+))?$/i.exec(t);
+  if (!m) return null;
+  const count = m[1] ? parseInt(m[1], 10) : 1;
+  const die = parseInt(m[2], 10);
+  const flatBonus = m[3] ? parseInt(m[3], 10) : 0;
+  if (!count || !die || count > 10 || die > 20) return null;
+  // Convolve `count` uniform 1..die dice together.
+  let dist = new Map([[0, 1]]);
+  for (let i = 0; i < count; i++) {
+    const next = new Map();
+    dist.forEach((p, sum) => {
+      for (let face = 1; face <= die; face++) {
+        const key = sum + face;
+        next.set(key, (next.get(key) || 0) + p / die);
+      }
+    });
+    dist = next;
+  }
+  if (flatBonus) {
+    const shifted = new Map();
+    dist.forEach((p, sum) => shifted.set(sum + flatBonus, p));
+    dist = shifted;
+  }
+  return dist;
+}
+
+// "Re-roll one damage roll" (e.g. "you can re-roll the damage roll"): a
+// rational player only takes the reroll when the roll came out low, keeping
+// it otherwise. Finds the break-even threshold that maximizes the expected
+// result — reroll totals at or below it, keep totals above it — and returns
+// that expected value. For a plain D6 this lands on "re-roll 3 or less,
+// keep 4+", matching how the ability plays out in practice.
+function expectedValueWithOneReroll(dist) {
+  const entries = Array.from(dist.entries()).sort((a, b) => a[0] - b[0]);
+  const baseMean = entries.reduce((s, [v, p]) => s + v * p, 0);
+  let best = baseMean;
+  let cumP = 0;
+  // Threshold t: reroll every value <= t, keep every value > t.
+  for (const [t] of entries) {
+    cumP += dist.get(t);
+    const keptE = entries.filter(([x]) => x > t).reduce((s, [x, p]) => s + x * p, 0);
+    const e = cumP * baseMean + keptE;
+    if (e > best) best = e;
+  }
+  return best;
+}
+
 function parseHitVal(text) {
   if (!text) return 3;
   const t = String(text).trim();
@@ -720,6 +811,13 @@ function parseWeaponCharacteristics(wc) {
   const meltaMatch = keywords.match(/melta\s*(\d+)/i);
   if (meltaMatch) melta = parseInt(meltaMatch[1], 10) || 0;
 
+  // Rapid Fire X: within half range, add X to the Attacks characteristic.
+  // Same "can't know actual table distance" caveat as Melta above — stored
+  // and toggled per weapon for a given calculation.
+  let rapidFire = 0;
+  const rapidFireMatch = keywords.match(/rapid fire\s*(\d+)/i);
+  if (rapidFireMatch) rapidFire = parseInt(rapidFireMatch[1], 10) || 0;
+
   // Twin-linked: re-roll the wound roll for this weapon.
   const twinLinked = /twin-linked/i.test(keywords);
 
@@ -745,9 +843,14 @@ function parseWeaponCharacteristics(wc) {
     strength: strengthParsed.value,
     ap: wc ? -Math.abs(parseIntSafe(wc.AP, 0).value) : 0,
     damage: wc ? parseDiceAvg(wc.D) || 1 : 1,
+    // Raw dice notation (e.g. "D6", "2D6") kept alongside the averaged
+    // `damage` above so a "re-roll one damage roll" ability can be modeled
+    // exactly instead of just off the average.
+    damageDice: wc && wc.D ? String(wc.D).trim() : "",
     lethalHits,
     sustained,
     melta,
+    rapidFire,
     antiKeyword,
     antiValue,
     twinLinked,
@@ -1238,12 +1341,28 @@ function WeaponEditor({ weapon, onChange, onRemove }) {
       <Row cols={4}>
         <ToggleField label="Lethal Hits" value={weapon.lethalHits} onChange={set("lethalHits")} small />
         <NumberField label="Sustained (extra)" value={weapon.sustained} onChange={set("sustained")} min={0} small />
-        <SelectField label="Přehoz zásahu" value={weapon.rerollHit} onChange={set("rerollHit")} options={REROLL_OPTIONS} small />
-        <SelectField label="Přehoz zranění" value={weapon.rerollWound} onChange={set("rerollWound")} options={REROLL_OPTIONS} small />
+        <SelectField label="Přehoz hit rollu" value={weapon.rerollHit} onChange={set("rerollHit")} options={REROLL_OPTIONS} small />
+        <SelectField label="Přehoz wound rollu" value={weapon.rerollWound} onChange={set("rerollWound")} options={REROLL_OPTIONS} small />
       </Row>
       <Row cols={2}>
         <ToggleField label="Přehoz 1 hitu (jednorázově)" value={weapon.rerollOneHit} onChange={set("rerollOneHit")} small />
         <ToggleField label="Přehoz 1 woundu (jednorázově)" value={weapon.rerollOneWound} onChange={set("rerollOneWound")} small />
+      </Row>
+      <Row cols={2}>
+        <TextField
+          label="Kostky Damage (nepovinné)"
+          value={weapon.damageDice || ""}
+          onChange={set("damageDice")}
+          placeholder="např. D6, 2D6, D3+3"
+          small
+        />
+        <ToggleField
+          label="Přehoz 1 damage rollu (jednorázově)"
+          value={weapon.rerollOneDamage}
+          onChange={set("rerollOneDamage")}
+          hint={weapon.damageDice ? undefined : "vyžaduje vyplněné kostky Damage výše"}
+          small
+        />
       </Row>
       <Row cols={2}>
         <ToggleField
@@ -1264,7 +1383,14 @@ function WeaponEditor({ weapon, onChange, onRemove }) {
           hint="+X k Damage v polovičním dosahu (Twin-linked = přehoz zranění vše)"
           small
         />
-        <div />
+        <NumberField
+          label="Rapid Fire (0 = žádný)"
+          value={weapon.rapidFire || 0}
+          onChange={set("rapidFire")}
+          min={0}
+          hint="+X útoků v polovičním dosahu (Rapid Fire 2 = +2 Attacks)"
+          small
+        />
       </Row>
       <Row cols={2}>
         <SelectField
@@ -2058,7 +2184,7 @@ function StatChip({ label, value }) {
   );
 }
 
-function UnitComposition({ unit, profileChoices, onChooseProfile, meltaActive, onToggleMelta }) {
+function UnitComposition({ unit, profileChoices, onChooseProfile, meltaActive, onToggleMelta, rapidFireActive, onToggleRapidFire }) {
   if (!unit) return null;
 
   // Flatten to {member, weapon} pairs and put multi-profile weapons (e.g. an axe
@@ -2079,8 +2205,10 @@ function UnitComposition({ unit, profileChoices, onChooseProfile, meltaActive, o
       {flat.map(({ member: m, weapon: w }) => {
         const hasProfiles = w.profiles && w.profiles.length > 1;
         const meltaOn = !!(meltaActive && meltaActive[w.id]);
-        // w.damage here already includes the melta bump when meltaOn (applied
-        // once, upstream in effectiveAttackerUnit) — don't add it again.
+        const rapidFireOn = !!(rapidFireActive && rapidFireActive[w.id]);
+        // w.damage/w.attacks here already include the melta/rapid-fire bump
+        // when active (applied once, upstream in effectiveAttackerUnit) —
+        // don't add it again.
         const displayDamage = w.damage;
         return (
           <div
@@ -2117,6 +2245,11 @@ function UnitComposition({ unit, profileChoices, onChooseProfile, meltaActive, o
               {w.melta > 0 && (
                 <span style={{ fontSize: 8.5, fontWeight: 700, color: "var(--amber)", border: "1px solid var(--amber)", borderRadius: 4, padding: "0 4px", textTransform: "uppercase" }}>
                   Melta {w.melta}
+                </span>
+              )}
+              {w.rapidFire > 0 && (
+                <span style={{ fontSize: 8.5, fontWeight: 700, color: "var(--amber)", border: "1px solid var(--amber)", borderRadius: 4, padding: "0 4px", textTransform: "uppercase" }}>
+                  Rapid Fire {w.rapidFire}
                 </span>
               )}
             </div>
@@ -2163,6 +2296,26 @@ function UnitComposition({ unit, profileChoices, onChooseProfile, meltaActive, o
                   }}
                 >
                   {meltaOn ? `ANO (+${w.melta} Dmg)` : "NE"}
+                </button>
+              </div>
+            )}
+            {w.rapidFire > 0 && (
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+                <span style={{ fontSize: 9.5, color: "var(--muted)" }}>V polovičním dosahu (rapid fire):</span>
+                <button
+                  onClick={() => onToggleRapidFire && onToggleRapidFire(w.id)}
+                  style={{
+                    fontSize: 10.5,
+                    fontWeight: 700,
+                    padding: "2px 8px",
+                    borderRadius: 5,
+                    border: `1px solid ${rapidFireOn ? "var(--amber)" : "var(--field-border)"}`,
+                    background: rapidFireOn ? "rgba(232,167,47,0.15)" : "transparent",
+                    color: rapidFireOn ? "var(--amber)" : "var(--muted)",
+                    cursor: onToggleRapidFire ? "pointer" : "default",
+                  }}
+                >
+                  {rapidFireOn ? `ANO (+${w.rapidFire} Atk)` : "NE"}
                 </button>
               </div>
             )}
@@ -2544,8 +2697,8 @@ function BonusFieldsGroup({ bonus, setBonus }) {
         <NumberField label="Sustained (extra)" value={bonus.sustained} onChange={(v) => setBonus((s) => ({ ...s, sustained: v }))} min={0} small />
       </Row>
       <Row cols={2}>
-        <SelectField label="Přehoz zásahu" value={bonus.rerollHit} onChange={(v) => setBonus((s) => ({ ...s, rerollHit: v }))} options={REROLL_OPTIONS} small />
-        <SelectField label="Přehoz zranění" value={bonus.rerollWound} onChange={(v) => setBonus((s) => ({ ...s, rerollWound: v }))} options={REROLL_OPTIONS} small />
+        <SelectField label="Přehoz hit rollu" value={bonus.rerollHit} onChange={(v) => setBonus((s) => ({ ...s, rerollHit: v }))} options={REROLL_OPTIONS} small />
+        <SelectField label="Přehoz wound rollu" value={bonus.rerollWound} onChange={(v) => setBonus((s) => ({ ...s, rerollWound: v }))} options={REROLL_OPTIONS} small />
       </Row>
       <Row cols={3}>
         <SelectField
@@ -2864,6 +3017,7 @@ function ManualView({ onBack }) {
             <><b>Bonusy na dálku / na blízko zvlášť</b> — Lethal Hits, Sustained, přehoz zásahu/zranění, modifikátor hit rollu, wound rollu, AP bonus, mortal wounds navíc.</>,
             <><b>Profil zbraně</b> — pokud má zbraň víc profilů (např. Sweep/Strike), zvolíš který se použije.</>,
             <><b>Melta</b> — přepínač „v polovičním dosahu“ u zbraní s Meltou X.</>,
+            <><b>Rapid Fire</b> — přepínač „v polovičním dosahu“ u zbraní s Rapid Fire X (přidá X útoků).</>,
           ]}
         />
         <ManualH>Krok 3 — Obránce</ManualH>
@@ -2887,13 +3041,14 @@ function ManualView({ onBack }) {
       </ManualSection>
 
       <ManualSection num="05" title="Co appka umí rozpoznat">
-        <ManualP muted>Z JSON importu appka automaticky vyčte a nastaví: Lethal Hits, Sustained Hits X, Twin-linked, Melta X, Feel No Pain, redukci damage (např. C'tan Shard).</ManualP>
+        <ManualP muted>Z JSON importu appka automaticky vyčte a nastaví: Lethal Hits, Sustained Hits X, Twin-linked, Melta X, Rapid Fire X, Feel No Pain, redukci damage (např. C'tan Shard).</ManualP>
         <ManualP>Tohle je potřeba doplnit/zkontrolovat ručně v editaci jednotky nebo zbraně (tužka v knihovně):</ManualP>
         <ManualUl
           items={[
             <><b>Anti-X Y+</b> — zbraň → „Anti- klíčové slovo“ + práh. Proti MONSTER/VEHICLE/CHARACTER automaticky zraní na hod Y+.</>,
             <><b>Přehoz vše proti keywordu</b> — zbraň → „vs MONSTER/VEHICLE/CHARACTER“. Přehoz zásahu i zranění jen proti danému keywordu (např. GMNDK).</>,
             <><b>Přehoz 1 hitu / 1 woundu</b> — zbraň → zaškrtávátko. Jednorázový přehoz, jiná matematika než „všechny“/„jedničky“.</>,
+            <><b>Přehoz 1 damage rollu</b> — zbraň → vyplň „Kostky Damage“ (např. D6, 2D6, D3+3) a zaškrtni přehoz. Appka spočítá optimální strategii (přehodit jen nízké hody).</>,
             <><b>FNP proti Psychic</b> — jednotka → „FNP proti Psychic“. Funguje jen proti zbraním označeným jako „Psychický útok“ (např. Culexus).</>,
             <><b>Klíčová slova jednotky</b> — MONSTER / VEHICLE / CHARACTER. Nutné pro Anti-X a keyword-rerolly výše.</>,
             <><b>Mortal wounds navíc</b> — kalkulačka krok 2, bonusový panel. Jednorázově za celou jednotku, mimo save.</>,
@@ -3038,6 +3193,7 @@ export default function Wh40kCalculator({ session }) {
   const [attachedLeaderId, setAttachedLeaderId] = useState(null);
   const [weaponProfileChoice, setWeaponProfileChoice] = useState({}); // weaponId -> chosen profile index
   const [weaponMeltaActive, setWeaponMeltaActive] = useState({}); // weaponId -> is target within half range?
+  const [weaponRapidFireActive, setWeaponRapidFireActive] = useState({}); // weaponId -> is target within half range?
   const [defenderModelCount, setDefenderModelCount] = useState(0);
   const [defenderFnp, setDefenderFnp] = useState({ ranged: 0, melee: 0 });
   const [defenderWoundDebuff, setDefenderWoundDebuff] = useState({ ranged: false, melee: false });
@@ -3322,7 +3478,12 @@ export default function Wh40kCalculator({ session }) {
         members: [...attackerUnit.members, ...attachedLeader.members],
       };
     }
-    if (Object.keys(weaponProfileChoice).length === 0 && Object.keys(weaponMeltaActive).length === 0) return merged;
+    if (
+      Object.keys(weaponProfileChoice).length === 0 &&
+      Object.keys(weaponMeltaActive).length === 0 &&
+      Object.keys(weaponRapidFireActive).length === 0
+    )
+      return merged;
     return {
       ...merged,
       members: merged.members.map((m) => ({
@@ -3337,17 +3498,23 @@ export default function Wh40kCalculator({ session }) {
           if (next.melta > 0 && weaponMeltaActive[w.id]) {
             next = { ...next, damage: next.damage + next.melta };
           }
+          if (next.rapidFire > 0 && weaponRapidFireActive[w.id]) {
+            next = { ...next, attacks: next.attacks + next.rapidFire };
+          }
           return next;
         }),
       })),
     };
-  }, [attackerUnit, attachedLeader, weaponProfileChoice, weaponMeltaActive]);
+  }, [attackerUnit, attachedLeader, weaponProfileChoice, weaponMeltaActive, weaponRapidFireActive]);
 
   const chooseWeaponProfile = (weaponId, index) => {
     setWeaponProfileChoice((s) => ({ ...s, [weaponId]: index }));
   };
   const toggleWeaponMelta = (weaponId) => {
     setWeaponMeltaActive((s) => ({ ...s, [weaponId]: !s[weaponId] }));
+  };
+  const toggleWeaponRapidFire = (weaponId) => {
+    setWeaponRapidFireActive((s) => ({ ...s, [weaponId]: !s[weaponId] }));
   };
 
   // When a new attacker unit (or attached leader) is picked, reset the quick
@@ -3367,6 +3534,7 @@ export default function Wh40kCalculator({ session }) {
     setAttachedLeaderId(null);
     setWeaponProfileChoice({});
     setWeaponMeltaActive({});
+    setWeaponRapidFireActive({});
   }, [attackerUnitId]);
 
   useEffect(() => {
@@ -3536,6 +3704,7 @@ export default function Wh40kCalculator({ session }) {
       attachedLeaderId,
       weaponProfileChoice,
       weaponMeltaActive,
+      weaponRapidFireActive,
       attackerBonus,
       defenderFnp,
       defenderWoundDebuff,
@@ -3556,6 +3725,7 @@ export default function Wh40kCalculator({ session }) {
     setAttachedLeaderId(h.attachedLeaderId || null);
     setWeaponProfileChoice(h.weaponProfileChoice || {});
     setWeaponMeltaActive(h.weaponMeltaActive || {});
+    setWeaponRapidFireActive(h.weaponRapidFireActive || {});
     if (h.attackerBonus) setAttackerBonus(h.attackerBonus);
     if (h.defenderModelCount !== undefined) setDefenderModelCount(h.defenderModelCount);
     if (h.defenderFnp) setDefenderFnp(h.defenderFnp);
@@ -4218,6 +4388,8 @@ export default function Wh40kCalculator({ session }) {
                   onChooseProfile={chooseWeaponProfile}
                   meltaActive={weaponMeltaActive}
                   onToggleMelta={toggleWeaponMelta}
+                  rapidFireActive={weaponRapidFireActive}
+                  onToggleRapidFire={toggleWeaponRapidFire}
                 />
               </div>
               <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
@@ -4634,13 +4806,27 @@ export default function Wh40kCalculator({ session }) {
                             <td style={{ padding: "4px 6px" }}>{fmt(b.detail.attacks, 1)}</td>
                             <td style={{ padding: "4px 6px" }}>
                               {b.detail.hitX <= 1 ? "auto" : b.detail.hitX + "+"} → {pct(b.detail.pHit)} ({fmt(b.detail.hitsTotal, 2)})
+                              {b.detail.hitsFromRerollHit > 0.005 && (
+                                <div style={{ fontSize: 9, color: "var(--accent-text)" }}>z toho přehoz: +{fmt(b.detail.hitsFromRerollHit, 2)}</div>
+                              )}
                             </td>
                             <td style={{ padding: "4px 6px" }}>
                               {b.detail.woundNeed}+ → {pct(b.detail.pWound)} ({fmt(b.detail.woundsTotal, 2)})
                               {b.detail.woundDebuffApplied && <div style={{ fontSize: 9, color: "var(--amber)" }}>debuff -1 WR (S&gt;T)</div>}
+                              {b.detail.woundsFromLethalHits > 0.005 && (
+                                <div style={{ fontSize: 9, color: "var(--accent-text)" }}>z toho Lethal Hits: +{fmt(b.detail.woundsFromLethalHits, 2)}</div>
+                              )}
                             </td>
                             <td style={{ padding: "4px 6px" }}>{b.detail.effSave >= 7 ? "neprojde" : b.detail.effSave + "+"}</td>
-                            <td style={{ padding: "4px 6px", fontWeight: 700 }}>{fmt(b.damage)}</td>
+                            <td style={{ padding: "4px 6px", fontWeight: 700 }}>
+                              {fmt(b.damage)}
+                              {(b.detail.damageFromRerollHit > 0.005 || b.detail.damageFromLethalHits > 0.005) && (
+                                <div style={{ fontSize: 9, fontWeight: 400, color: "var(--accent-text)" }}>
+                                  {b.detail.damageFromRerollHit > 0.005 && <>přehoz: +{fmt(b.detail.damageFromRerollHit, 2)} </>}
+                                  {b.detail.damageFromLethalHits > 0.005 && <>Lethal: +{fmt(b.detail.damageFromLethalHits, 2)}</>}
+                                </div>
+                              )}
+                            </td>
                           </tr>
                         )
                       )}
