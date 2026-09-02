@@ -3241,7 +3241,7 @@ export default function Wh40kCalculator({ session }) {
 
   // Navigation shell state
   const [view, setView] = useState("home"); // home | calculator | library | history | lists
-  const [calcStep, setCalcStep] = useState(1); // 1 attacker, 2 adjust, 3 defender, "result"
+  const [calcStep, setCalcStep] = useState("setup"); // "setup" (attacker + defender side by side), "result"
   const [attackerSearch, setAttackerSearch] = useState("");
   const [defenderSearch, setDefenderSearch] = useState("");
   const [attackerFilter, setAttackerFilter] = useState(null); // { type: 'faction'|'army', key, label } | null
@@ -3806,59 +3806,6 @@ export default function Wh40kCalculator({ session }) {
     return lines.join("\n");
   };
 
-  // Picking a defender resets its model count / FNP / debuff to that unit's own
-  // defaults via a separate effect (below), which runs a render *after* the id
-  // change. When the user taps "next to the unit" to select-and-calculate in one
-  // go, we wait for those defaults to actually land before computing/logging, so
-  // we never calculate against the previous defender's leftover settings. If the
-  // unit was already selected (a second tap), nothing changes state-wise, so no
-  // effect would ever re-fire — in that case we just calculate immediately.
-  const pendingDefenderCalcId = useRef(null);
-  const selectDefenderAndCalculate = (unitId) => {
-    const targetUnit = library.find((u) => u.id === unitId);
-    if (defenderUnitId === unitId && targetUnit) {
-      const expectedModels = totalModels(targetUnit);
-      const expectedFnp = clampNum(targetUnit.fnp, 0);
-      const expectedDebuff = !!targetUnit.woundDebuff;
-      const expectedDmgReduction = clampNum(targetUnit.damageReduction, 0);
-      const alreadySettled =
-        defenderModelCount === expectedModels &&
-        defenderFnp.ranged === expectedFnp &&
-        defenderFnp.melee === expectedFnp &&
-        defenderWoundDebuff.ranged === expectedDebuff &&
-        defenderWoundDebuff.melee === expectedDebuff &&
-        defenderDamageReduction.ranged === expectedDmgReduction &&
-        defenderDamageReduction.melee === expectedDmgReduction;
-      if (alreadySettled) {
-        logCalculation();
-        setCalcStep("result");
-        return;
-      }
-    }
-    setDefenderUnitId(unitId);
-    pendingDefenderCalcId.current = unitId;
-  };
-  useEffect(() => {
-    if (!pendingDefenderCalcId.current || !defenderUnit || defenderUnit.id !== pendingDefenderCalcId.current) return;
-    const expectedModels = totalModels(defenderUnit);
-    const expectedFnp = clampNum(defenderUnit.fnp, 0);
-    const expectedDebuff = !!defenderUnit.woundDebuff;
-    const expectedDmgReduction = clampNum(defenderUnit.damageReduction, 0);
-    if (
-      defenderModelCount === expectedModels &&
-      defenderFnp.ranged === expectedFnp &&
-      defenderFnp.melee === expectedFnp &&
-      defenderWoundDebuff.ranged === expectedDebuff &&
-      defenderWoundDebuff.melee === expectedDebuff &&
-      defenderDamageReduction.ranged === expectedDmgReduction &&
-      defenderDamageReduction.melee === expectedDmgReduction
-    ) {
-      pendingDefenderCalcId.current = null;
-      logCalculation();
-      setCalcStep("result");
-    }
-  }, [defenderUnit, defenderModelCount, defenderFnp, defenderWoundDebuff, defenderDamageReduction]);
-
   const startNewCalculation = () => {
     setAttackerUnitId(null);
     setDefenderUnitId(null);
@@ -3867,7 +3814,7 @@ export default function Wh40kCalculator({ session }) {
     setAttackerFilter(null);
     setDefenderFilter(null);
     setDefenderModifiersOpen(false);
-    setCalcStep(1);
+    setCalcStep("setup");
     setView("calculator");
   };
 
@@ -4050,6 +3997,14 @@ export default function Wh40kCalculator({ session }) {
         }
         @media (min-width: 1200px) {
           .wh40k-shell:not(.wh40k-compact) { width: 1200px !important; }
+        }
+        /* Calculator: attacker and defender "naproti sobě" (facing each
+           other) — one column on a phone-width shell, two side by side once
+           there's room (matches the 900px breakpoint that also widens the
+           shell itself, so both cards get real space to breathe). */
+        .wh40k-vs-columns { display: grid; grid-template-columns: 1fr; gap: 12px; min-width: 0; margin-bottom: 12px; }
+        @media (min-width: 900px) {
+          .wh40k-shell:not(.wh40k-compact) .wh40k-vs-columns { grid-template-columns: 1fr 1fr; gap: 16px; }
         }
         * { box-sizing: border-box; }
       `}</style>
@@ -4259,372 +4214,328 @@ export default function Wh40kCalculator({ session }) {
       {/* CALCULATOR */}
       {view === "calculator" && (
         <div className="no-print" style={{ padding: "4px 14px 16px" }}>
-          {calcStep !== "result" && (
-            <>
+          {calcStep === "setup" && (
+            <div style={{ marginTop: 6 }}>
               <button
-                onClick={() => {
-                  if (calcStep === 1) setView("home");
-                  else setCalcStep((s) => s - 1);
-                }}
+                onClick={() => setView("home")}
                 style={{ display: "flex", alignItems: "center", gap: 5, background: "transparent", border: "none", color: "var(--muted)", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, cursor: "pointer", padding: 0, marginBottom: 12 }}
               >
                 <ArrowLeft size={13} /> Kalkulačka
               </button>
-              <StepDots steps={["Útočník", "Úprava", "Obránce"]} current={calcStep} />
-            </>
-          )}
 
-          {calcStep === 1 && (
-            <div style={{ marginTop: 10 }}>
-              {!attackerFilter ? (
-                <>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: "var(--label)", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 8 }}>Vyber frakci nebo armádu</div>
-                  {library.length === 0 && (
-                    <div style={{ fontSize: 12.5, color: "var(--muted)", background: "var(--field-bg)", border: "1px dashed var(--field-border)", borderRadius: 8, padding: 12 }}>
-                      Knihovna je prázdná. Přidej jednotky v sekci Knihovna v menu.
-                    </div>
-                  )}
-                  {pickerOptions.armyOpts.length > 0 && (
+              {/* ÚTOČNÍK a OBRÁNCE naproti sobě — jeden sloupec na mobilu, dva na širším displeji. */}
+              <div className="wh40k-vs-columns">
+                {/* ÚTOČNÍK */}
+                <div style={{ background: "var(--panel)", border: "1px solid var(--field-border)", borderRadius: 12, padding: 14 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
+                    <Crosshair size={13} color="#a9c6e5" />
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "var(--label)", textTransform: "uppercase", letterSpacing: 0.6 }}>Útočník</div>
+                  </div>
+
+                  {!attackerUnit ? (
+                    !attackerFilter ? (
+                      <>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: "var(--label)", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 8 }}>Vyber frakci nebo armádu</div>
+                        {library.length === 0 && (
+                          <div style={{ fontSize: 12.5, color: "var(--muted)", background: "var(--field-bg)", border: "1px dashed var(--field-border)", borderRadius: 8, padding: 12 }}>
+                            Knihovna je prázdná. Přidej jednotky v sekci Knihovna v menu.
+                          </div>
+                        )}
+                        {pickerOptions.armyOpts.length > 0 && (
+                          <>
+                            <div style={{ fontSize: 10, fontWeight: 700, color: "var(--amber)", textTransform: "uppercase", marginBottom: 4 }}>Moje armády</div>
+                            {pickerOptions.armyOpts.map((o) => (
+                              <PickerRow key={o.type + o.key} icon={Folder} label={o.label} count={o.count} onClick={() => setAttackerFilter(o)} />
+                            ))}
+                            <div style={{ fontSize: 10, fontWeight: 700, color: "var(--amber)", textTransform: "uppercase", margin: "10px 0 4px" }}>Frakce</div>
+                          </>
+                        )}
+                        {pickerOptions.factions.map((o) => (
+                          <PickerRow key={o.type + o.key} icon={SkullIcon} label={o.label} count={o.count} onClick={() => setAttackerFilter(o)} />
+                        ))}
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          onClick={() => {
+                            setAttackerFilter(null);
+                            setAttackerSearch("");
+                          }}
+                          style={{ display: "flex", alignItems: "center", gap: 5, background: "transparent", border: "none", color: "var(--accent-text)", fontSize: 11.5, fontWeight: 700, cursor: "pointer", padding: 0, marginBottom: 10 }}
+                        >
+                          <ArrowLeft size={12} /> {attackerFilter.label}
+                        </button>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: "var(--label)", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 8 }}>Vyber jednotku útočníka</div>
+                        <SearchBox value={attackerSearch} onChange={setAttackerSearch} placeholder="Hledat jednotky…" />
+                        {filteredAttackerList.length === 0 && (
+                          <div style={{ fontSize: 12.5, color: "var(--muted)", background: "var(--field-bg)", border: "1px dashed var(--field-border)", borderRadius: 8, padding: 12 }}>
+                            Nic tu neodpovídá hledání.
+                          </div>
+                        )}
+                        <div style={{ maxHeight: 360, overflowY: "auto" }}>
+                          {filteredAttackerList.map((u) => (
+                            <UnitListRow key={u.id} u={u} selected={u.id === attackerUnitId} onClick={() => setAttackerUnitId(u.id)} />
+                          ))}
+                        </div>
+                      </>
+                    )
+                  ) : (
                     <>
-                      <div style={{ fontSize: 10, fontWeight: 700, color: "var(--amber)", textTransform: "uppercase", marginBottom: 4 }}>Moje armády</div>
-                      {pickerOptions.armyOpts.map((o) => (
-                        <PickerRow key={o.type + o.key} icon={Folder} label={o.label} count={o.count} onClick={() => setAttackerFilter(o)} />
-                      ))}
-                      <div style={{ fontSize: 10, fontWeight: 700, color: "var(--amber)", textTransform: "uppercase", margin: "10px 0 4px" }}>Frakce</div>
+                      <button
+                        onClick={() => setAttackerUnitId(null)}
+                        style={{ display: "flex", alignItems: "center", gap: 5, background: "transparent", border: "none", color: "var(--accent-text)", fontSize: 11.5, fontWeight: 700, cursor: "pointer", padding: 0, marginBottom: 10 }}
+                      >
+                        <ArrowLeft size={12} /> Změnit jednotku
+                      </button>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <SkullLogo size={26} />
+                        <div style={{ fontWeight: 700, fontSize: 13.5 }}>{attackerUnit.name}</div>
+                      </div>
+                      <label style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 12 }}>
+                        <span style={{ fontSize: 11.5, color: "var(--label)", fontWeight: 600 }}>Připojit vůdce (volitelné)</span>
+                        <select
+                          value={attachedLeaderId || ""}
+                          onChange={(e) => setAttachedLeaderId(e.target.value || null)}
+                          className="wh40k-select"
+                          style={{ background: "var(--field-bg)", border: "1px solid var(--field-border)", borderRadius: 6, color: "var(--text)", padding: "7px 9px", fontSize: 13 }}
+                        >
+                          <option value="">— žádný —</option>
+                          {library
+                            .filter((u) => u.id !== attackerUnitId && u.isLeader && (u.faction || "Bez frakce") === (attackerUnit.faction || "Bez frakce"))
+                            .filter((u, idx, arr) => arr.findIndex((x) => unitSignature(x) === unitSignature(u)) === idx)
+                            .map((u) => (
+                              <option key={u.id} value={u.id}>
+                                {u.name}
+                              </option>
+                            ))}
+                        </select>
+                      </label>
+                      <div style={{ marginTop: 8, background: "var(--field-bg)", border: "1px solid var(--field-border)", borderRadius: 8, padding: 10 }}>
+                        <div style={{ fontSize: 10.5, fontWeight: 700, color: "#a9c6e5", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8, display: "flex", alignItems: "center", gap: 5 }}>
+                          <Crosshair size={12} /> Bonusy na dálku
+                        </div>
+                        <BonusFieldsGroup
+                          bonus={attackerBonus.ranged}
+                          setBonus={(updater) => setAttackerBonus((s) => ({ ...s, ranged: typeof updater === "function" ? updater(s.ranged) : updater }))}
+                          isRanged
+                        />
+                      </div>
+                      <div style={{ marginTop: 8, background: "var(--field-bg)", border: "1px solid var(--field-border)", borderRadius: 8, padding: 10 }}>
+                        <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--accent-text)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8, display: "flex", alignItems: "center", gap: 5 }}>
+                          <Sword size={12} /> Bonusy na blízko
+                        </div>
+                        <BonusFieldsGroup
+                          bonus={attackerBonus.melee}
+                          setBonus={(updater) => setAttackerBonus((s) => ({ ...s, melee: typeof updater === "function" ? updater(s.melee) : updater }))}
+                        />
+                      </div>
+                      <UnitComposition
+                        unit={effectiveAttackerUnit}
+                        profileChoices={weaponProfileChoice}
+                        onChooseProfile={chooseWeaponProfile}
+                        meltaActive={weaponMeltaActive}
+                        onToggleMelta={toggleWeaponMelta}
+                        rapidFireActive={weaponRapidFireActive}
+                        onToggleRapidFire={toggleWeaponRapidFire}
+                      />
                     </>
                   )}
-                  {pickerOptions.factions.map((o) => (
-                    <PickerRow key={o.type + o.key} icon={SkullIcon} label={o.label} count={o.count} onClick={() => setAttackerFilter(o)} />
-                  ))}
-                </>
-              ) : (
-                <>
-                  <button
-                    onClick={() => {
-                      setAttackerFilter(null);
-                      setAttackerSearch("");
-                    }}
-                    style={{ display: "flex", alignItems: "center", gap: 5, background: "transparent", border: "none", color: "var(--accent-text)", fontSize: 11.5, fontWeight: 700, cursor: "pointer", padding: 0, marginBottom: 10 }}
-                  >
-                    <ArrowLeft size={12} /> {attackerFilter.label}
-                  </button>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: "var(--label)", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 8 }}>Vyber jednotku útočníka</div>
-                  <SearchBox value={attackerSearch} onChange={setAttackerSearch} placeholder="Hledat jednotky…" />
-                  {filteredAttackerList.length === 0 && (
-                    <div style={{ fontSize: 12.5, color: "var(--muted)", background: "var(--field-bg)", border: "1px dashed var(--field-border)", borderRadius: 8, padding: 12 }}>
-                      Nic tu neodpovídá hledání.
-                    </div>
+                </div>
+
+                {/* OBRÁNCE */}
+                <div style={{ background: "var(--panel)", border: "1px solid var(--field-border)", borderRadius: 12, padding: 14 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
+                    <SkullIcon size={13} color="var(--amber)" />
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "var(--label)", textTransform: "uppercase", letterSpacing: 0.6 }}>Obránce</div>
+                  </div>
+
+                  {!defenderUnit ? (
+                    !defenderFilter ? (
+                      <>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: "var(--label)", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 8 }}>Vyber frakci nebo armádu</div>
+                        {pickerOptions.armyOpts.length > 0 && (
+                          <>
+                            <div style={{ fontSize: 10, fontWeight: 700, color: "var(--amber)", textTransform: "uppercase", marginBottom: 4 }}>Moje armády</div>
+                            {pickerOptions.armyOpts.map((o) => (
+                              <PickerRow key={o.type + o.key} icon={Folder} label={o.label} count={o.count} onClick={() => setDefenderFilter(o)} />
+                            ))}
+                            <div style={{ fontSize: 10, fontWeight: 700, color: "var(--amber)", textTransform: "uppercase", margin: "10px 0 4px" }}>Frakce</div>
+                          </>
+                        )}
+                        {pickerOptions.factions.map((o) => (
+                          <PickerRow key={o.type + o.key} icon={SkullIcon} label={o.label} count={o.count} onClick={() => setDefenderFilter(o)} />
+                        ))}
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          onClick={() => {
+                            setDefenderFilter(null);
+                            setDefenderSearch("");
+                          }}
+                          style={{ display: "flex", alignItems: "center", gap: 5, background: "transparent", border: "none", color: "var(--accent-text)", fontSize: 11.5, fontWeight: 700, cursor: "pointer", padding: 0, marginBottom: 10 }}
+                        >
+                          <ArrowLeft size={12} /> {defenderFilter.label}
+                        </button>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: "var(--label)", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 8 }}>Vyber jednotku obránce</div>
+                        <SearchBox value={defenderSearch} onChange={setDefenderSearch} placeholder="Hledat jednotky…" />
+                        {filteredDefenderList.length === 0 && (
+                          <div style={{ fontSize: 12.5, color: "var(--muted)", background: "var(--field-bg)", border: "1px dashed var(--field-border)", borderRadius: 8, padding: 12 }}>
+                            Nic tu neodpovídá hledání.
+                          </div>
+                        )}
+                        <div style={{ maxHeight: 360, overflowY: "auto" }}>
+                          {filteredDefenderList.map((u) => (
+                            <UnitListRow key={u.id} u={u} selected={u.id === defenderUnitId} onClick={() => setDefenderUnitId(u.id)} />
+                          ))}
+                        </div>
+                      </>
+                    )
+                  ) : (
+                    <>
+                      <button
+                        onClick={() => setDefenderUnitId(null)}
+                        style={{ display: "flex", alignItems: "center", gap: 5, background: "transparent", border: "none", color: "var(--accent-text)", fontSize: 11.5, fontWeight: 700, cursor: "pointer", padding: 0, marginBottom: 10 }}
+                      >
+                        <ArrowLeft size={12} /> Změnit jednotku
+                      </button>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                        <SkullLogo size={26} />
+                        <div style={{ fontWeight: 700, fontSize: 13.5 }}>{defenderUnit.name}</div>
+                      </div>
+                      <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 10 }}>
+                        <StatChip label="Toughness" value={defenderUnit.toughness} />
+                        <StatChip label="Save" value={defenderUnit.save + "+"} />
+                        <StatChip label="Invuln." value={defenderUnit.invul > 0 ? defenderUnit.invul + "+" : "—"} />
+                        <StatChip label="Wounds" value={defenderUnit.wounds} />
+                      </div>
+                      <button
+                        onClick={() => setDefenderModifiersOpen((o) => !o)}
+                        style={{ display: "flex", alignItems: "center", gap: 4, background: "transparent", border: "none", color: "var(--accent-text)", fontSize: 11.5, fontWeight: 700, cursor: "pointer", padding: 0, textTransform: "uppercase", letterSpacing: 0.4 }}
+                      >
+                        <Plus size={12} /> Modifikátory (volitelné)
+                        <ChevronDown size={12} style={{ transform: defenderModifiersOpen ? "rotate(180deg)" : "none" }} />
+                      </button>
+                      {defenderModifiersOpen && (
+                        <div style={{ marginTop: 10 }}>
+                          <NumberField label="Počet modelů v jednotce" value={defenderModelCount} onChange={(v) => setDefenderModelCount(Math.max(0, v))} min={0} small />
+                          <Row cols={2}>
+                            <NumberField
+                              label="Toughness (Nurglovy dary)"
+                              value={defenderToughnessMod}
+                              onChange={(v) => setDefenderToughnessMod(v)}
+                              hint="zadej -1 pro zhoršení; pro obě strany"
+                              small
+                            />
+                            <NumberField
+                              label="Save (Nurglovy dary)"
+                              value={defenderSaveMod}
+                              onChange={(v) => setDefenderSaveMod(v)}
+                              hint="zadej -1 pro zhoršení; pro obě strany"
+                              small
+                            />
+                          </Row>
+                          <div style={{ marginTop: 8, background: "var(--panel)", border: "1px solid var(--field-border)", borderRadius: 8, padding: 8 }}>
+                            <div style={{ fontSize: 10, fontWeight: 700, color: "#a9c6e5", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6, display: "flex", alignItems: "center", gap: 4 }}>
+                              <Crosshair size={11} /> Proti útokům na dálku
+                            </div>
+                            <Row cols={4}>
+                              <NumberField
+                                label="FNP (0 = žádný)"
+                                value={defenderFnp.ranged}
+                                onChange={(v) => setDefenderFnp((s) => ({ ...s, ranged: Math.max(0, v) }))}
+                                min={0}
+                                small
+                              />
+                              <NumberField
+                                label="Redukce dmg (0 = žádná)"
+                                value={defenderDamageReduction.ranged}
+                                onChange={(v) => setDefenderDamageReduction((s) => ({ ...s, ranged: Math.max(0, v) }))}
+                                min={0}
+                                small
+                              />
+                              <ToggleField
+                                label="Debuff: -1 WR pokud S > T"
+                                value={defenderWoundDebuff.ranged}
+                                onChange={(v) => setDefenderWoundDebuff((s) => ({ ...s, ranged: v }))}
+                                small
+                              />
+                              <ToggleField
+                                label="Benefit of Cover (-1 BS)"
+                                value={defenderBenefitOfCover}
+                                onChange={setDefenderBenefitOfCover}
+                                hint="jen proti útokům na dálku"
+                                small
+                              />
+                            </Row>
+                          </div>
+                          <div style={{ marginTop: 8, background: "var(--panel)", border: "1px solid var(--field-border)", borderRadius: 8, padding: 8 }}>
+                            <div style={{ fontSize: 10, fontWeight: 700, color: "var(--accent-text)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6, display: "flex", alignItems: "center", gap: 4 }}>
+                              <Sword size={11} /> Proti útokům na blízko
+                            </div>
+                            <Row cols={3}>
+                              <NumberField
+                                label="FNP (0 = žádný)"
+                                value={defenderFnp.melee}
+                                onChange={(v) => setDefenderFnp((s) => ({ ...s, melee: Math.max(0, v) }))}
+                                min={0}
+                                small
+                              />
+                              <NumberField
+                                label="Redukce dmg (0 = žádná)"
+                                value={defenderDamageReduction.melee}
+                                onChange={(v) => setDefenderDamageReduction((s) => ({ ...s, melee: Math.max(0, v) }))}
+                                min={0}
+                                small
+                              />
+                              <ToggleField
+                                label="Debuff: -1 WR pokud S > T"
+                                value={defenderWoundDebuff.melee}
+                                onChange={(v) => setDefenderWoundDebuff((s) => ({ ...s, melee: v }))}
+                                small
+                              />
+                            </Row>
+                          </div>
+                        </div>
+                      )}
+                    </>
                   )}
-                  {filteredAttackerList.map((u) => (
-                    <UnitListRow key={u.id} u={u} selected={u.id === attackerUnitId} onClick={() => setAttackerUnitId(u.id)} onNext={() => setCalcStep(2)} nextLabel="Další" />
-                  ))}
-                </>
-              )}
+                </div>
+              </div>
+
               <button
-                onClick={() => attackerUnitId && setCalcStep(2)}
-                disabled={!attackerUnitId}
+                onClick={() => {
+                  logCalculation();
+                  setCalcStep("result");
+                }}
+                disabled={!attackerUnit || !defenderUnit}
                 className="wh40k-btn"
                 style={{
                   width: "100%",
-                  marginTop: 10,
+                  marginTop: 14,
                   border: "none",
-                  background: attackerUnitId ? "var(--accent)" : "var(--field-border)",
-                  color: attackerUnitId ? "#fff" : "var(--muted)",
+                  background: attackerUnit && defenderUnit ? "var(--accent)" : "var(--field-border)",
+                  color: attackerUnit && defenderUnit ? "#fff" : "var(--muted)",
                   borderRadius: 8,
-                  padding: 11,
-                  fontSize: 13.5,
+                  padding: 13,
+                  fontSize: 14,
                   fontWeight: 700,
-                  cursor: attackerUnitId ? "pointer" : "not-allowed",
+                  cursor: attackerUnit && defenderUnit ? "pointer" : "not-allowed",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
                   gap: 6,
                 }}
               >
-                Další: Úprava <ChevronRight size={15} />
+                <Crosshair size={16} /> Spočítat
               </button>
-            </div>
-          )}
-
-          {calcStep === 2 && attackerUnit && (
-            <div style={{ marginTop: 10 }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: "var(--label)", textTransform: "uppercase", letterSpacing: 0.6 }}>Uprav útočníka</div>
-                <button
-                  onClick={() => setCalcStep(3)}
-                  className="wh40k-btn"
-                  style={{
-                    border: "none",
-                    background: "var(--accent)",
-                    color: "#fff",
-                    borderRadius: 6,
-                    padding: "6px 12px",
-                    fontSize: 11.5,
-                    fontWeight: 700,
-                    cursor: "pointer",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 4,
-                    flexShrink: 0,
-                  }}
-                >
-                  Další <ChevronRight size={13} />
-                </button>
-              </div>
-              <div style={{ background: "var(--panel)", border: "1px solid var(--field-border)", borderRadius: 12, padding: 14 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <SkullLogo size={26} />
-                  <div style={{ fontWeight: 700, fontSize: 13.5 }}>{attackerUnit.name}</div>
-                </div>
-                <label style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 12 }}>
-                  <span style={{ fontSize: 11.5, color: "var(--label)", fontWeight: 600 }}>Připojit vůdce (volitelné)</span>
-                  <select
-                    value={attachedLeaderId || ""}
-                    onChange={(e) => setAttachedLeaderId(e.target.value || null)}
-                    className="wh40k-select"
-                    style={{ background: "var(--field-bg)", border: "1px solid var(--field-border)", borderRadius: 6, color: "var(--text)", padding: "7px 9px", fontSize: 13 }}
-                  >
-                    <option value="">— žádný —</option>
-                    {library
-                      .filter((u) => u.id !== attackerUnitId && u.isLeader && (u.faction || "Bez frakce") === (attackerUnit.faction || "Bez frakce"))
-                      .filter((u, idx, arr) => arr.findIndex((x) => unitSignature(x) === unitSignature(u)) === idx)
-                      .map((u) => (
-                        <option key={u.id} value={u.id}>
-                          {u.name}
-                        </option>
-                      ))}
-                  </select>
-                </label>
-                <div style={{ marginTop: 8, background: "var(--field-bg)", border: "1px solid var(--field-border)", borderRadius: 8, padding: 10 }}>
-                  <div style={{ fontSize: 10.5, fontWeight: 700, color: "#a9c6e5", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8, display: "flex", alignItems: "center", gap: 5 }}>
-                    <Crosshair size={12} /> Bonusy na dálku
-                  </div>
-                  <BonusFieldsGroup
-                    bonus={attackerBonus.ranged}
-                    setBonus={(updater) => setAttackerBonus((s) => ({ ...s, ranged: typeof updater === "function" ? updater(s.ranged) : updater }))}
-                    isRanged
-                  />
-                </div>
-                <div style={{ marginTop: 8, background: "var(--field-bg)", border: "1px solid var(--field-border)", borderRadius: 8, padding: 10 }}>
-                  <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--accent-text)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8, display: "flex", alignItems: "center", gap: 5 }}>
-                    <Sword size={12} /> Bonusy na blízko
-                  </div>
-                  <BonusFieldsGroup
-                    bonus={attackerBonus.melee}
-                    setBonus={(updater) => setAttackerBonus((s) => ({ ...s, melee: typeof updater === "function" ? updater(s.melee) : updater }))}
-                  />
-                </div>
-                <UnitComposition
-                  unit={effectiveAttackerUnit}
-                  profileChoices={weaponProfileChoice}
-                  onChooseProfile={chooseWeaponProfile}
-                  meltaActive={weaponMeltaActive}
-                  onToggleMelta={toggleWeaponMelta}
-                  rapidFireActive={weaponRapidFireActive}
-                  onToggleRapidFire={toggleWeaponRapidFire}
-                />
-              </div>
-              <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-                <button onClick={() => setCalcStep(1)} style={{ flex: 1, border: "1px solid var(--field-border)", background: "transparent", color: "var(--text)", borderRadius: 8, padding: 11, fontSize: 13, cursor: "pointer" }}>
-                  Zpět
-                </button>
-                <button
-                  onClick={() => setCalcStep(3)}
-                  className="wh40k-btn"
-                  style={{ flex: 2, border: "none", background: "var(--accent)", color: "#fff", borderRadius: 8, padding: 11, fontSize: 13.5, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
-                >
-                  Další: Obránce <ChevronRight size={15} />
-                </button>
-              </div>
-            </div>
-          )}
-
-          {calcStep === 3 && (
-            <div style={{ marginTop: 10 }}>
-              {!defenderFilter ? (
-                <>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: "var(--label)", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 8 }}>Vyber frakci nebo armádu</div>
-                  {pickerOptions.armyOpts.length > 0 && (
-                    <>
-                      <div style={{ fontSize: 10, fontWeight: 700, color: "var(--amber)", textTransform: "uppercase", marginBottom: 4 }}>Moje armády</div>
-                      {pickerOptions.armyOpts.map((o) => (
-                        <PickerRow key={o.type + o.key} icon={Folder} label={o.label} count={o.count} onClick={() => setDefenderFilter(o)} />
-                      ))}
-                      <div style={{ fontSize: 10, fontWeight: 700, color: "var(--amber)", textTransform: "uppercase", margin: "10px 0 4px" }}>Frakce</div>
-                    </>
-                  )}
-                  {pickerOptions.factions.map((o) => (
-                    <PickerRow key={o.type + o.key} icon={SkullIcon} label={o.label} count={o.count} onClick={() => setDefenderFilter(o)} />
-                  ))}
-                </>
-              ) : (
-                <>
-                  <button
-                    onClick={() => {
-                      setDefenderFilter(null);
-                      setDefenderSearch("");
-                    }}
-                    style={{ display: "flex", alignItems: "center", gap: 5, background: "transparent", border: "none", color: "var(--accent-text)", fontSize: 11.5, fontWeight: 700, cursor: "pointer", padding: 0, marginBottom: 10 }}
-                  >
-                    <ArrowLeft size={12} /> {defenderFilter.label}
-                  </button>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: "var(--label)", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 8 }}>Vyber jednotku obránce</div>
-                  <SearchBox value={defenderSearch} onChange={setDefenderSearch} placeholder="Hledat jednotky…" />
-                  {filteredDefenderList.length === 0 && (
-                    <div style={{ fontSize: 12.5, color: "var(--muted)", background: "var(--field-bg)", border: "1px dashed var(--field-border)", borderRadius: 8, padding: 12 }}>
-                      Nic tu neodpovídá hledání.
-                    </div>
-                  )}
-                  {filteredDefenderList.map((u) => (
-                    <UnitListRow
-                      key={u.id}
-                      u={u}
-                      selected={u.id === defenderUnitId}
-                      onClick={() => setDefenderUnitId(u.id)}
-                      onNext={() => selectDefenderAndCalculate(u.id)}
-                      nextLabel="Spočítat"
-                    />
-                  ))}
-                </>
-              )}
-
-              {defenderUnit && (
-                <div style={{ background: "var(--panel)", border: "1px solid var(--field-border)", borderRadius: 12, padding: 14, marginTop: 10 }}>
-                  <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 10 }}>
-                    <StatChip label="Toughness" value={defenderUnit.toughness} />
-                    <StatChip label="Save" value={defenderUnit.save + "+"} />
-                    <StatChip label="Invuln." value={defenderUnit.invul > 0 ? defenderUnit.invul + "+" : "—"} />
-                    <StatChip label="Wounds" value={defenderUnit.wounds} />
-                  </div>
-                  <button
-                    onClick={() => setDefenderModifiersOpen((o) => !o)}
-                    style={{ display: "flex", alignItems: "center", gap: 4, background: "transparent", border: "none", color: "var(--accent-text)", fontSize: 11.5, fontWeight: 700, cursor: "pointer", padding: 0, textTransform: "uppercase", letterSpacing: 0.4 }}
-                  >
-                    <Plus size={12} /> Modifikátory (volitelné)
-                    <ChevronDown size={12} style={{ transform: defenderModifiersOpen ? "rotate(180deg)" : "none" }} />
-                  </button>
-                  {defenderModifiersOpen && (
-                    <div style={{ marginTop: 10 }}>
-                      <NumberField label="Počet modelů v jednotce" value={defenderModelCount} onChange={(v) => setDefenderModelCount(Math.max(0, v))} min={0} small />
-                      <Row cols={2}>
-                        <NumberField
-                          label="Toughness (Nurglovy dary)"
-                          value={defenderToughnessMod}
-                          onChange={(v) => setDefenderToughnessMod(v)}
-                          hint="zadej -1 pro zhoršení; pro obě strany"
-                          small
-                        />
-                        <NumberField
-                          label="Save (Nurglovy dary)"
-                          value={defenderSaveMod}
-                          onChange={(v) => setDefenderSaveMod(v)}
-                          hint="zadej -1 pro zhoršení; pro obě strany"
-                          small
-                        />
-                      </Row>
-                      <div style={{ marginTop: 8, background: "var(--panel)", border: "1px solid var(--field-border)", borderRadius: 8, padding: 8 }}>
-                        <div style={{ fontSize: 10, fontWeight: 700, color: "#a9c6e5", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6, display: "flex", alignItems: "center", gap: 4 }}>
-                          <Crosshair size={11} /> Proti útokům na dálku
-                        </div>
-                        <Row cols={4}>
-                          <NumberField
-                            label="FNP (0 = žádný)"
-                            value={defenderFnp.ranged}
-                            onChange={(v) => setDefenderFnp((s) => ({ ...s, ranged: Math.max(0, v) }))}
-                            min={0}
-                            small
-                          />
-                          <NumberField
-                            label="Redukce dmg (0 = žádná)"
-                            value={defenderDamageReduction.ranged}
-                            onChange={(v) => setDefenderDamageReduction((s) => ({ ...s, ranged: Math.max(0, v) }))}
-                            min={0}
-                            small
-                          />
-                          <ToggleField
-                            label="Debuff: -1 WR pokud S > T"
-                            value={defenderWoundDebuff.ranged}
-                            onChange={(v) => setDefenderWoundDebuff((s) => ({ ...s, ranged: v }))}
-                            small
-                          />
-                          <ToggleField
-                            label="Benefit of Cover (-1 BS)"
-                            value={defenderBenefitOfCover}
-                            onChange={setDefenderBenefitOfCover}
-                            hint="jen proti útokům na dálku"
-                            small
-                          />
-                        </Row>
-                      </div>
-                      <div style={{ marginTop: 8, background: "var(--panel)", border: "1px solid var(--field-border)", borderRadius: 8, padding: 8 }}>
-                        <div style={{ fontSize: 10, fontWeight: 700, color: "var(--accent-text)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6, display: "flex", alignItems: "center", gap: 4 }}>
-                          <Sword size={11} /> Proti útokům na blízko
-                        </div>
-                        <Row cols={3}>
-                          <NumberField
-                            label="FNP (0 = žádný)"
-                            value={defenderFnp.melee}
-                            onChange={(v) => setDefenderFnp((s) => ({ ...s, melee: Math.max(0, v) }))}
-                            min={0}
-                            small
-                          />
-                          <NumberField
-                            label="Redukce dmg (0 = žádná)"
-                            value={defenderDamageReduction.melee}
-                            onChange={(v) => setDefenderDamageReduction((s) => ({ ...s, melee: Math.max(0, v) }))}
-                            min={0}
-                            small
-                          />
-                          <ToggleField
-                            label="Debuff: -1 WR pokud S > T"
-                            value={defenderWoundDebuff.melee}
-                            onChange={(v) => setDefenderWoundDebuff((s) => ({ ...s, melee: v }))}
-                            small
-                          />
-                        </Row>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-                <button onClick={() => setCalcStep(2)} style={{ flex: 1, border: "1px solid var(--field-border)", background: "transparent", color: "var(--text)", borderRadius: 8, padding: 11, fontSize: 13, cursor: "pointer" }}>
-                  Zpět
-                </button>
-                <button
-                  onClick={() => {
-                    logCalculation();
-                    setCalcStep("result");
-                  }}
-                  disabled={!defenderUnit}
-                  className="wh40k-btn"
-                  style={{
-                    flex: 2,
-                    border: "none",
-                    background: defenderUnit ? "var(--accent)" : "var(--field-border)",
-                    color: defenderUnit ? "#fff" : "var(--muted)",
-                    borderRadius: 8,
-                    padding: 11,
-                    fontSize: 13.5,
-                    fontWeight: 700,
-                    cursor: defenderUnit ? "pointer" : "not-allowed",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    gap: 6,
-                  }}
-                >
-                  <Crosshair size={15} /> Spočítat
-                </button>
-              </div>
             </div>
           )}
 
           {calcStep === "result" && result && (
             <div style={{ marginTop: 2 }}>
               <button
-                onClick={() => setCalcStep(3)}
+                onClick={() => setCalcStep("setup")}
                 style={{ display: "flex", alignItems: "center", gap: 5, background: "transparent", border: "none", color: "var(--muted)", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, cursor: "pointer", padding: 0, marginBottom: 12 }}
               >
                 <ArrowLeft size={13} /> Kalkulačka
