@@ -2353,16 +2353,27 @@ function LayoutSwatch({ layout, selected, onClick }) {
   );
 }
 
-function BoardTokenView({ token, unit, containerRef, sizePctW, sizePctH, onMove, onCommit, onRemove }) {
+function BoardTokenView({ token, unit, containerRef, sizePctW, sizePctH, selected, onMove, onCommit, onRemove, onSelect }) {
   const draggingRef = useRef(false);
+  // Distinguishes a drag from a plain click/tap: if the pointer never moves
+  // more than a few px between down and up, treat it as a click (used to
+  // pick attacker/target for a quick matchup) instead of a (no-op) drag.
+  const movedRef = useRef(false);
+  const startRef = useRef({ x: 0, y: 0 });
 
   const handlePointerDown = (e) => {
     e.stopPropagation();
     e.currentTarget.setPointerCapture(e.pointerId);
     draggingRef.current = true;
+    movedRef.current = false;
+    startRef.current = { x: e.clientX, y: e.clientY };
   };
   const handlePointerMove = (e) => {
     if (!draggingRef.current || !containerRef.current) return;
+    if (!movedRef.current && Math.hypot(e.clientX - startRef.current.x, e.clientY - startRef.current.y) > 4) {
+      movedRef.current = true;
+    }
+    if (!movedRef.current) return;
     const rect = containerRef.current.getBoundingClientRect();
     const xPct = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
     const yPct = Math.max(0, Math.min(100, ((e.clientY - rect.top) / rect.height) * 100));
@@ -2371,7 +2382,11 @@ function BoardTokenView({ token, unit, containerRef, sizePctW, sizePctH, onMove,
   const handlePointerUp = () => {
     if (!draggingRef.current) return;
     draggingRef.current = false;
-    onCommit();
+    if (movedRef.current) {
+      onCommit();
+    } else {
+      onSelect(token);
+    }
   };
 
   const label = unit ? unit.name.slice(0, 3).toUpperCase() : "?";
@@ -2388,7 +2403,7 @@ function BoardTokenView({ token, unit, containerRef, sizePctW, sizePctH, onMove,
         e.stopPropagation();
         onRemove(token.id);
       }}
-      title={unit ? `${unit.name} — táhni pro přesun, dvojklik pro odebrání` : "dvojklik pro odebrání"}
+      title={unit ? `${unit.name} — klik pro výběr do souboje, táhni pro přesun, dvojklik pro odebrání` : "dvojklik pro odebrání"}
       style={{
         position: "absolute",
         left: `${token.xPct}%`,
@@ -2400,7 +2415,8 @@ function BoardTokenView({ token, unit, containerRef, sizePctW, sizePctH, onMove,
         minHeight: 14,
         borderRadius: "50%",
         background: color,
-        border: "2px solid rgba(255,255,255,0.85)",
+        border: selected ? "2px solid #fff" : "2px solid rgba(255,255,255,0.85)",
+        boxShadow: selected ? "0 0 0 3px rgba(255,255,255,0.55), 0 2px 6px rgba(0,0,0,0.4)" : "0 2px 6px rgba(0,0,0,0.4)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -2411,8 +2427,7 @@ function BoardTokenView({ token, unit, containerRef, sizePctW, sizePctH, onMove,
         cursor: "grab",
         userSelect: "none",
         touchAction: "none",
-        boxShadow: "0 2px 6px rgba(0,0,0,0.4)",
-        zIndex: 2,
+        zIndex: selected ? 3 : 2,
       }}
     >
       {label}
@@ -3396,6 +3411,7 @@ function ManualView({ onBack }) {
             <>Rozměry desky (šířka/výška v palcích) jdou upravit nahoře — token si přepočítá velikost podle nich.</>,
             <>Jeden token = celá jednotka (počet modelů je v odznáčku v rohu), ne model po modelu.</>,
             <><b>Rozložení výsadku</b> — čtyři barevné náhledy nad deskou; vyber si podle tvaru, žádné se neváže na konkrétní misi ani jméno dispozice.</>,
+            <><b>Rychlý souboj</b> — klikni na svůj token, pak na token protihráče. Appka spočítá zabité modely/damage jen z vestavěných schopností obou jednotek (žádné bonusy). „Otevřít v kalkulačce“ tě přenese do plné kalkulačky s modifikátory.</>,
           ]}
         />
         <ManualNote>
@@ -3904,6 +3920,40 @@ export default function Wh40kCalculator({ session }) {
   // The "Deska" board's DOM node, so token drag can turn pointer coordinates
   // into a percentage position via getBoundingClientRect.
   const boardContainerRef = useRef(null);
+  // Click-to-calculate on the board: pick a "mine" token (attacker), then a
+  // "theirs" token (target), and see a quick matchup result right there.
+  const [boardAttackerTokenId, setBoardAttackerTokenId] = useState(null);
+  const [boardMatchup, setBoardMatchup] = useState(null); // { attackerUnit, defenderUnit, res } | null
+
+  const handleBoardTokenSelect = (token) => {
+    const unit = library.find((u) => u.id === token.unitId);
+    if (!unit) return;
+    if (token.side === "mine") {
+      setBoardAttackerTokenId((prev) => (prev === token.id ? null : token.id));
+      setBoardMatchup(null);
+      return;
+    }
+    // Clicked a "theirs" token — need an attacker already picked.
+    if (!boardAttackerTokenId) return;
+    const attackerToken = board.tokens.find((t) => t.id === boardAttackerTokenId);
+    const attackerUnit = attackerToken && library.find((u) => u.id === attackerToken.unitId);
+    if (!attackerUnit) return;
+    // Baseline matchup — each unit's own built-in stats/abilities, no extra
+    // bonuses or debuffs layered on (same "baseline" convention the cheat
+    // sheet uses), since there's no per-matchup modifier UI here.
+    const res = computeUnitVsUnit(attackerUnit, defenderProfile(unit), emptyBonus());
+    setBoardMatchup({ attackerUnit, defenderUnit: unit, res });
+  };
+
+  // If the selected attacker's token gets removed from the board (double
+  // click, clear, etc.) drop the dangling selection instead of pointing at
+  // nothing.
+  useEffect(() => {
+    if (boardAttackerTokenId && !board.tokens.some((t) => t.id === boardAttackerTokenId)) {
+      setBoardAttackerTokenId(null);
+      setBoardMatchup(null);
+    }
+  }, [board.tokens, boardAttackerTokenId]);
 
   useEffect(() => {
     if (restoringFromHistoryRef.current) return;
@@ -5784,13 +5834,65 @@ export default function Wh40kCalculator({ session }) {
                   containerRef={boardContainerRef}
                   sizePctW={sizePctW}
                   sizePctH={sizePctH}
+                  selected={t.id === boardAttackerTokenId}
                   onMove={moveBoardToken}
                   onCommit={commitBoardTokenMove}
                   onRemove={removeBoardToken}
+                  onSelect={handleBoardTokenSelect}
                 />
               );
             })}
           </div>
+
+          <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 8, textAlign: "center" }}>
+            {boardAttackerTokenId
+              ? "Klikni na token protihráče pro rychlý výpočet souboje."
+              : "Klikni na svůj token, pak na token protihráče, pro rychlý výpočet souboje."}
+          </div>
+
+          {boardMatchup && (
+            <div style={{ marginTop: 10, background: "var(--panel)", border: "1px solid var(--accent)", borderRadius: 10, padding: 12 }}>
+              <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
+                <div style={{ fontSize: 12.5, fontWeight: 700 }}>
+                  {boardMatchup.attackerUnit.name} <span style={{ color: "var(--muted)", fontWeight: 400 }}>→</span> {boardMatchup.defenderUnit.name}
+                </div>
+                <button
+                  onClick={() => setBoardMatchup(null)}
+                  style={{ background: "transparent", border: "none", color: "var(--muted)", cursor: "pointer", padding: 0, fontSize: 13, lineHeight: 1 }}
+                  title="Zavřít"
+                >
+                  ✕
+                </button>
+              </div>
+              <div style={{ display: "flex", gap: 16, marginTop: 8 }}>
+                <div>
+                  <div style={{ fontSize: 9.5, color: "var(--muted)", textTransform: "uppercase" }}>Zabité modely</div>
+                  <div style={{ fontSize: 18, fontWeight: 800, fontFamily: "var(--mono)", color: "var(--accent-text)" }}>{fmt(boardMatchup.res.killedModels)}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 9.5, color: "var(--muted)", textTransform: "uppercase" }}>Damage</div>
+                  <div style={{ fontSize: 18, fontWeight: 800, fontFamily: "var(--mono)", color: "var(--text)" }}>{fmt(boardMatchup.res.totalDamage)}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 9.5, color: "var(--muted)", textTransform: "uppercase" }}>Zbývá z jednotky</div>
+                  <div style={{ fontSize: 18, fontWeight: 800, fontFamily: "var(--mono)", color: "var(--text)" }}>{pct(boardMatchup.res.remainingPct)}</div>
+                </div>
+              </div>
+              <div style={{ fontSize: 10.5, color: "var(--muted)", marginTop: 6 }}>Jen vestavěné schopnosti obou jednotek, bez dalších bonusů/modifikátorů.</div>
+              <button
+                onClick={() => {
+                  setAttackerUnitId(boardMatchup.attackerUnit.id);
+                  setDefenderUnitId(boardMatchup.defenderUnit.id);
+                  setCalcStep("setup");
+                  setView("calculator");
+                }}
+                className="wh40k-btn"
+                style={{ marginTop: 10, border: "none", background: "var(--accent)", color: "#fff", borderRadius: 6, padding: "7px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}
+              >
+                Otevřít v kalkulačce (s modifikátory)
+              </button>
+            </div>
+          )}
         </div>
       )}
 
