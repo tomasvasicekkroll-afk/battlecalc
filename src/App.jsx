@@ -165,7 +165,19 @@ function betterReroll(a, b) {
 // Looks at what a unit's weapons already have built in, so the quick attack-bonus
 // panel starts pre-checked to match reality rather than always defaulting to off.
 function emptyBonus() {
-  return { lethalHits: false, sustained: 0, rerollHit: "none", rerollWound: "none", apMod: 0, hitMod: 0, woundMod: 0, mortalWounds: 0 };
+  return {
+    lethalHits: false,
+    sustained: 0,
+    rerollHit: "none",
+    rerollWound: "none",
+    apMod: 0,
+    hitMod: 0,
+    woundMod: 0,
+    mortalWounds: 0,
+    // Fire Overwatch stratagem: only ranged attacks, hits only on an
+    // unmodified roll of 6 (see computeWeapon's effectiveHitX handling).
+    fireOverwatch: false,
+  };
 }
 
 // Cheat sheet only: a "slot" (Útočníci or Cíle) can hold BOTH offensive and
@@ -246,7 +258,13 @@ function computeWeapon(weapon, modelCount, def, bonus) {
   // ranged attacks — def.benefitOfCover is only ever set on the ranged
   // defender profile, so this naturally never applies to melee weapons.
   const coverPenalty = def.benefitOfCover ? 1 : 0;
-  const effectiveHitX = att.hitX <= 1 ? att.hitX : Math.max(2, Math.min(6, att.hitX - (b.hitMod || 0) + coverPenalty));
+  // Fire Overwatch stratagem: the unit can only score a hit on an unmodified
+  // hit roll of 6 — ignores the weapon's normal BS and every hit modifier
+  // (including cover above). Reusing effectiveHitX = 6 for this means every
+  // downstream formula (reroll-hit, Sustained Hits, Lethal Hits, "reroll one
+  // hit") keeps working unchanged, since they only ever look at the
+  // resulting probability, not at hitX itself.
+  const effectiveHitX = att.hitX <= 1 ? att.hitX : b.fireOverwatch ? 6 : Math.max(2, Math.min(6, att.hitX - (b.hitMod || 0) + coverPenalty));
 
   const pHitBase = (7 - effectiveHitX) / 6;
   const pHitAdj =
@@ -2689,13 +2707,25 @@ function PickerRow({ icon: Icon, label, count, onClick }) {
   );
 }
 
-function BonusFieldsGroup({ bonus, setBonus }) {
+function BonusFieldsGroup({ bonus, setBonus, isRanged }) {
   return (
     <>
       <Row cols={2}>
         <ToggleField label="Lethal Hits" value={bonus.lethalHits} onChange={(v) => setBonus((s) => ({ ...s, lethalHits: v }))} small />
         <NumberField label="Sustained (extra)" value={bonus.sustained} onChange={(v) => setBonus((s) => ({ ...s, sustained: v }))} min={0} small />
       </Row>
+      {isRanged && (
+        <Row cols={2}>
+          <ToggleField
+            label="Fire Overwatch (stratagem)"
+            value={bonus.fireOverwatch}
+            onChange={(v) => setBonus((s) => ({ ...s, fireOverwatch: v }))}
+            hint="zásah jen na neupravenou 6, ignoruje ostatní hit modifikátory; jen na dálku"
+            small
+          />
+          <div />
+        </Row>
+      )}
       <Row cols={2}>
         <SelectField label="Přehoz hit rollu" value={bonus.rerollHit} onChange={(v) => setBonus((s) => ({ ...s, rerollHit: v }))} options={REROLL_OPTIONS} small />
         <SelectField label="Přehoz wound rollu" value={bonus.rerollWound} onChange={(v) => setBonus((s) => ({ ...s, rerollWound: v }))} options={REROLL_OPTIONS} small />
@@ -2746,7 +2776,7 @@ function BonusFieldsGroup({ bonus, setBonus }) {
 function FullModifierFields({ mod, setMod, isRanged }) {
   return (
     <>
-      <BonusFieldsGroup bonus={mod} setBonus={setMod} />
+      <BonusFieldsGroup bonus={mod} setBonus={setMod} isRanged={isRanged} />
       <Row cols={isRanged ? 4 : 3}>
         <NumberField label="FNP (0 = jen vlastní)" value={mod.fnp} onChange={(v) => setMod((s) => ({ ...s, fnp: Math.max(0, v) }))} min={0} small />
         <NumberField
@@ -3015,6 +3045,7 @@ function ManualView({ onBack }) {
           items={[
             <><b>Připojit vůdce</b> — dočasně spojí jednotku s postavou z knihovny (jen pro tenhle výpočet).</>,
             <><b>Bonusy na dálku / na blízko zvlášť</b> — Lethal Hits, Sustained, přehoz zásahu/zranění, modifikátor hit rollu, wound rollu, AP bonus, mortal wounds navíc.</>,
+            <><b>Fire Overwatch</b> — jen bonusy na dálku. Zásah jen na neupravenou 6, ignoruje ostatní hit modifikátory (přesně dle strategemu).</>,
             <><b>Profil zbraně</b> — pokud má zbraň víc profilů (např. Sweep/Strike), zvolíš který se použije.</>,
             <><b>Melta</b> — přepínač „v polovičním dosahu“ u zbraní s Meltou X.</>,
             <><b>Rapid Fire</b> — přepínač „v polovičním dosahu“ u zbraní s Rapid Fire X (přidá X útoků).</>,
@@ -4371,6 +4402,7 @@ export default function Wh40kCalculator({ session }) {
                   <BonusFieldsGroup
                     bonus={attackerBonus.ranged}
                     setBonus={(updater) => setAttackerBonus((s) => ({ ...s, ranged: typeof updater === "function" ? updater(s.ranged) : updater }))}
+                    isRanged
                   />
                 </div>
                 <div style={{ marginTop: 8, background: "var(--field-bg)", border: "1px solid var(--field-border)", borderRadius: 8, padding: 10 }}>
