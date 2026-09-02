@@ -51,6 +51,35 @@ const WEAPON_TYPE_OPTIONS = [
 const MOD_OPTIONS_3 = [-3, -2, -1, 0, 1, 2, 3].map((n) => ({ value: String(n), label: n > 0 ? `+${n}` : String(n) }));
 
 
+// Deployment-zone shapes for the battlefield board — generic geometric
+// patterns (opposite edges, opposite corners, offset diagonal bands, one big
+// zone + one small pocket), not a redraw of any official GW mission map and
+// not tied to any named mission/disposition. Picked purely by its little
+// two-tone color preview, not by a label. `mine` is always the lower-half
+// shape, `theirs` the upper-half shape (matches how tokens stage by side).
+const DEPLOYMENT_LAYOUTS = [
+  {
+    id: "edges",
+    mineClip: "polygon(0% 100%, 100% 100%, 100% 82%, 0% 82%)",
+    theirsClip: "polygon(0% 0%, 100% 0%, 100% 18%, 0% 18%)",
+  },
+  {
+    id: "corners",
+    mineClip: "polygon(0% 100%, 55% 100%, 0% 45%)",
+    theirsClip: "polygon(100% 0%, 45% 0%, 100% 55%)",
+  },
+  {
+    id: "diagonal",
+    mineClip: "polygon(0% 100%, 100% 100%, 100% 58%, 0% 78%)",
+    theirsClip: "polygon(0% 0%, 100% 0%, 100% 22%, 0% 42%)",
+  },
+  {
+    id: "pocket",
+    mineClip: "polygon(0% 100%, 100% 100%, 100% 72%, 0% 72%)",
+    theirsClip: "polygon(0% 0%, 32% 0%, 32% 22%, 0% 22%)",
+  },
+];
+
 // Anti-X Y+: against a unit with keyword X, an unmodified wound roll of Y+
 // always counts as a Critical Wound (auto-wounds), regardless of the normal
 // S vs T table. Modeled as taking the better (lower) of the two thresholds —
@@ -2296,6 +2325,34 @@ function StatChip({ label, value }) {
 // container's actual rendered pixel size (see the "Deska" view for the math:
 // width-%/height-% both derive from the same base-size-in-inches, just
 // divided by the board's width-in-inches vs height-in-inches respectively).
+// Picker for DEPLOYMENT_LAYOUTS — a small two-tone preview of the shape
+// itself (same clip-paths the board uses), no text label. Selecting one is
+// purely "pick by how it looks", per the color/shape swatch, not by a
+// mission or disposition name.
+function LayoutSwatch({ layout, selected, onClick }) {
+  return (
+    <button
+      onClick={onClick}
+      title="Rozložení výsadku"
+      style={{
+        position: "relative",
+        width: 44,
+        height: 34,
+        borderRadius: 6,
+        border: `2px solid ${selected ? "var(--accent)" : "var(--field-border)"}`,
+        background: "#2b3a2e",
+        overflow: "hidden",
+        cursor: "pointer",
+        padding: 0,
+        flexShrink: 0,
+      }}
+    >
+      <div style={{ position: "absolute", inset: 0, background: "var(--accent)", opacity: 0.55, clipPath: layout.theirsClip }} />
+      <div style={{ position: "absolute", inset: 0, background: "#c0392b", opacity: 0.55, clipPath: layout.mineClip }} />
+    </button>
+  );
+}
+
 function BoardTokenView({ token, unit, containerRef, sizePctW, sizePctH, onMove, onCommit, onRemove }) {
   const draggingRef = useRef(false);
 
@@ -3338,10 +3395,11 @@ function ManualView({ onBack }) {
             <>Dvojklik na token ho odebere z desky (odškrtne se i v seznamu).</>,
             <>Rozměry desky (šířka/výška v palcích) jdou upravit nahoře — token si přepočítá velikost podle nich.</>,
             <>Jeden token = celá jednotka (počet modelů je v odznáčku v rohu), ne model po modelu.</>,
+            <><b>Rozložení výsadku</b> — čtyři barevné náhledy nad deskou; vyber si podle tvaru, žádné se neváže na konkrétní misi ani jméno dispozice.</>,
           ]}
         />
         <ManualNote>
-          Zatím bez automatického nahrávání mise/deployment mapy — přijde v další verzi.
+          Rozložení výsadku jsou obecné geometrické tvary, ne přesná kopie oficiálních GW map — appka schválně nemá žádnou oficiální databázi misí.
         </ManualNote>
       </ManualSection>
 
@@ -3458,7 +3516,7 @@ export default function Wh40kCalculator({ session }) {
 
   const [armies, setArmies] = useState([]);
   const [armiesLoaded, setArmiesLoaded] = useState(false);
-  const [board, setBoard] = useState({ widthIn: 44, heightIn: 60, tokens: [] });
+  const [board, setBoard] = useState({ widthIn: 44, heightIn: 60, tokens: [], layoutId: DEPLOYMENT_LAYOUTS[0].id });
   const [boardLoaded, setBoardLoaded] = useState(false);
   // Mirrors `board` synchronously so drag-end can read the latest tokens
   // without depending on a stale render closure (see commitBoardTokenMove).
@@ -3648,6 +3706,7 @@ export default function Wh40kCalculator({ session }) {
 
   const clearBoardTokens = () => persistBoard({ ...board, tokens: [] });
   const setBoardSize = (widthIn, heightIn) => persistBoard({ ...board, widthIn, heightIn });
+  const setBoardLayout = (layoutId) => persistBoard({ ...board, layoutId });
 
   const saveArmy = (army) => {
     const exists = armies.some((a) => a.id === army.id);
@@ -5633,6 +5692,15 @@ export default function Wh40kCalculator({ session }) {
             </div>
           </Row>
 
+          <div style={{ marginTop: 10, marginBottom: 4 }}>
+            <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--label)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>Rozložení výsadku</div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {DEPLOYMENT_LAYOUTS.map((l) => (
+                <LayoutSwatch key={l.id} layout={l} selected={(board.layoutId || DEPLOYMENT_LAYOUTS[0].id) === l.id} onClick={() => setBoardLayout(l.id)} />
+              ))}
+            </div>
+          </div>
+
           <div className="wh40k-vs-columns" style={{ marginTop: 10, marginBottom: 12 }}>
             <div style={{ background: "var(--panel)", border: "1px solid var(--accent)", borderRadius: 10, padding: 12, maxHeight: 220, overflowY: "auto" }}>
               <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--accent-text)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8, position: "sticky", top: 0, background: "var(--panel)" }}>
@@ -5692,16 +5760,17 @@ export default function Wh40kCalculator({ session }) {
               touchAction: "none",
             }}
           >
-            {/* Just a directional tint (my side / their side) — not any official deployment-zone shape. */}
-            <div
-              style={{
-                position: "absolute",
-                inset: 0,
-                background:
-                  "linear-gradient(to bottom, rgba(47,143,232,0.16) 0%, rgba(47,143,232,0.16) 38%, transparent 38%, transparent 62%, rgba(192,57,43,0.16) 62%, rgba(192,57,43,0.16) 100%)",
-                pointerEvents: "none",
-              }}
-            />
+            {/* Deployment zones — picked from DEPLOYMENT_LAYOUTS above by its
+                color/shape swatch, not a redraw of any official mission map. */}
+            {(() => {
+              const layout = DEPLOYMENT_LAYOUTS.find((l) => l.id === board.layoutId) || DEPLOYMENT_LAYOUTS[0];
+              return (
+                <>
+                  <div style={{ position: "absolute", inset: 0, background: "var(--accent)", opacity: 0.16, clipPath: layout.theirsClip, pointerEvents: "none" }} />
+                  <div style={{ position: "absolute", inset: 0, background: "#c0392b", opacity: 0.16, clipPath: layout.mineClip, pointerEvents: "none" }} />
+                </>
+              );
+            })()}
             {board.tokens.map((t) => {
               const unit = library.find((u) => u.id === t.unitId);
               const baseSizeIn = (unit ? unit.baseSize || 32 : 32) / 25.4;
