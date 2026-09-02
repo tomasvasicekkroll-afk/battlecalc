@@ -4333,6 +4333,33 @@ export default function Wh40kCalculator({ session }) {
                 <ArrowLeft size={13} /> Kalkulačka
               </button>
 
+              <button
+                onClick={() => {
+                  logCalculation();
+                  setCalcStep("result");
+                }}
+                disabled={!attackerUnit || !defenderUnit}
+                className="wh40k-btn"
+                style={{
+                  width: "100%",
+                  marginBottom: 14,
+                  border: "none",
+                  background: attackerUnit && defenderUnit ? "var(--accent)" : "var(--field-border)",
+                  color: attackerUnit && defenderUnit ? "#fff" : "var(--muted)",
+                  borderRadius: 8,
+                  padding: 13,
+                  fontSize: 14,
+                  fontWeight: 700,
+                  cursor: attackerUnit && defenderUnit ? "pointer" : "not-allowed",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 6,
+                }}
+              >
+                <Crosshair size={16} /> Spočítat
+              </button>
+
               {/* ÚTOČNÍK a OBRÁNCE naproti sobě — jeden sloupec na mobilu, dva na širším displeji. */}
               <div className="wh40k-vs-columns">
                 {/* ÚTOČNÍK */}
@@ -4626,33 +4653,6 @@ export default function Wh40kCalculator({ session }) {
                   )}
                 </div>
               </div>
-
-              <button
-                onClick={() => {
-                  logCalculation();
-                  setCalcStep("result");
-                }}
-                disabled={!attackerUnit || !defenderUnit}
-                className="wh40k-btn"
-                style={{
-                  width: "100%",
-                  marginTop: 14,
-                  border: "none",
-                  background: attackerUnit && defenderUnit ? "var(--accent)" : "var(--field-border)",
-                  color: attackerUnit && defenderUnit ? "#fff" : "var(--muted)",
-                  borderRadius: 8,
-                  padding: 13,
-                  fontSize: 14,
-                  fontWeight: 700,
-                  cursor: attackerUnit && defenderUnit ? "pointer" : "not-allowed",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: 6,
-                }}
-              >
-                <Crosshair size={16} /> Spočítat
-              </button>
             </div>
           )}
 
