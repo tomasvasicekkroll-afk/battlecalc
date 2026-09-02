@@ -29,6 +29,7 @@ import {
   HelpCircle,
   LayoutGrid,
   ArrowLeftRight,
+  Map as MapIcon,
 } from "lucide-react";
 import { storage } from "./lib/storage";
 import { supabase } from "./lib/supabaseClient";
@@ -114,6 +115,10 @@ const emptyUnit = () => ({
   woundDebuff: false,
   damageReduction: 0,
   keywords: { monster: false, vehicle: false, character: false, infantry: false },
+  // Model base diameter in mm, for the battlefield board (token size). Just a
+  // display default — editable per unit, not sourced from any official GW
+  // base-size chart.
+  baseSize: 32,
   members: [emptyMember()],
   needsStats: false,
   isLeader: false,
@@ -1611,6 +1616,16 @@ function UnitForm({ initial, onSave, onCancel }) {
         <NumberField label="Invul (0 = žádný)" value={u.invul} onChange={set("invul")} min={0} />
         <NumberField label="Wounds na model" value={u.wounds} onChange={set("wounds")} min={0} />
       </Row>
+      <Row cols={2}>
+        <NumberField
+          label="Base (mm, pro Desku)"
+          value={u.baseSize || 32}
+          onChange={set("baseSize")}
+          min={1}
+          hint="průměr base pro token na Desce"
+        />
+        <div />
+      </Row>
       <Row cols={3}>
         <NumberField label="Feel No Pain (0 = žádný)" value={u.fnp} onChange={set("fnp")} min={0} />
         <NumberField
@@ -2272,6 +2287,96 @@ function StatChip({ label, value }) {
     >
       <span style={{ fontSize: 8.5, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.3, lineHeight: 1.3 }}>{label}</span>
       <span style={{ fontSize: 12, fontWeight: 700, fontFamily: "var(--mono)", color: "var(--text)", lineHeight: 1.3 }}>{value}</span>
+    </div>
+  );
+}
+
+// A draggable token on the battlefield board — sized in both dimensions as a
+// % of the board container so it renders as a true circle regardless of the
+// container's actual rendered pixel size (see the "Deska" view for the math:
+// width-%/height-% both derive from the same base-size-in-inches, just
+// divided by the board's width-in-inches vs height-in-inches respectively).
+function BoardTokenView({ token, unit, containerRef, sizePctW, sizePctH, onMove, onCommit, onRemove }) {
+  const draggingRef = useRef(false);
+
+  const handlePointerDown = (e) => {
+    e.stopPropagation();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    draggingRef.current = true;
+  };
+  const handlePointerMove = (e) => {
+    if (!draggingRef.current || !containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const xPct = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
+    const yPct = Math.max(0, Math.min(100, ((e.clientY - rect.top) / rect.height) * 100));
+    onMove(token.id, xPct, yPct);
+  };
+  const handlePointerUp = () => {
+    if (!draggingRef.current) return;
+    draggingRef.current = false;
+    onCommit();
+  };
+
+  const label = unit ? unit.name.slice(0, 3).toUpperCase() : "?";
+  const count = unit ? totalModels(unit) : 1;
+  const color = token.side === "mine" ? "var(--accent)" : "#c0392b";
+
+  return (
+    <div
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerUp}
+      onDoubleClick={(e) => {
+        e.stopPropagation();
+        onRemove(token.id);
+      }}
+      title={unit ? `${unit.name} — táhni pro přesun, dvojklik pro odebrání` : "dvojklik pro odebrání"}
+      style={{
+        position: "absolute",
+        left: `${token.xPct}%`,
+        top: `${token.yPct}%`,
+        width: `${sizePctW}%`,
+        height: `${sizePctH}%`,
+        transform: "translate(-50%, -50%)",
+        minWidth: 14,
+        minHeight: 14,
+        borderRadius: "50%",
+        background: color,
+        border: "2px solid rgba(255,255,255,0.85)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        overflow: "hidden",
+        fontSize: 8,
+        fontWeight: 800,
+        color: "#fff",
+        cursor: "grab",
+        userSelect: "none",
+        touchAction: "none",
+        boxShadow: "0 2px 6px rgba(0,0,0,0.4)",
+        zIndex: 2,
+      }}
+    >
+      {label}
+      {count > 1 && (
+        <span
+          style={{
+            position: "absolute",
+            bottom: -5,
+            right: -5,
+            background: "#0a121e",
+            border: "1px solid rgba(255,255,255,0.6)",
+            borderRadius: 8,
+            fontSize: 8,
+            lineHeight: 1.4,
+            padding: "0 3px",
+            fontWeight: 700,
+          }}
+        >
+          {count}
+        </span>
+      )}
     </div>
   );
 }
@@ -3224,13 +3329,29 @@ function ManualView({ onBack }) {
         <ManualP muted>Tlačítko <b>Prohodit útočníky a cíle</b> prohodí obě zaškrtnutí najednou.</ManualP>
       </ManualSection>
 
-      <ManualSection num="08" title="Historie">
+      <ManualSection num="08" title="Deska">
+        <ManualP>
+          <ManualPath>Deska</ManualPath> — vizuální bojiště na míru. Zaškrtni jednotky z knihovny do <b>Moje jednotky</b> nebo <b>Jednotky protihráče</b> — objeví se jako token, přetáhni ho na místo. Velikost tokenu vychází z pole <b>Base (mm)</b> v editaci jednotky.
+        </ManualP>
+        <ManualUl
+          items={[
+            <>Dvojklik na token ho odebere z desky (odškrtne se i v seznamu).</>,
+            <>Rozměry desky (šířka/výška v palcích) jdou upravit nahoře — token si přepočítá velikost podle nich.</>,
+            <>Jeden token = celá jednotka (počet modelů je v odznáčku v rohu), ne model po modelu.</>,
+          ]}
+        />
+        <ManualNote>
+          Zatím bez automatického nahrávání mise/deployment mapy — přijde v další verzi.
+        </ManualNote>
+      </ManualSection>
+
+      <ManualSection num="09" title="Historie">
         <ManualP>
           Každý spočítaný výsledek se uloží do <ManualPath>Historie</ManualPath>. <b>Kopírovat</b> zkopíruje čitelný textový přehled, <b>Upravit</b> tě vrátí do kalkulačky se stejným nastavením.
         </ManualP>
       </ManualSection>
 
-      <ManualSection num="09" title="Menu a zobrazení">
+      <ManualSection num="10" title="Menu a zobrazení">
         <ManualP muted>Ikona ☰ vlevo nahoře otevře rychlé menu:</ManualP>
         <ManualUl
           items={[
@@ -3242,7 +3363,7 @@ function ManualView({ onBack }) {
         />
       </ManualSection>
 
-      <ManualSection num="10" title="Časté dotazy">
+      <ManualSection num="11" title="Časté dotazy">
         <ManualH>Proč se mi po smazání jednotky nezobrazuje armáda?</ManualH>
         <ManualP muted>Smazání jednotky ji odstraní i ze všech armád, které ji obsahovaly — a armádu, která by zůstala prázdná, appka smaže celou.</ManualP>
         <ManualH>Uvidí moji knihovnu někdo jiný?</ManualH>
@@ -3337,6 +3458,14 @@ export default function Wh40kCalculator({ session }) {
 
   const [armies, setArmies] = useState([]);
   const [armiesLoaded, setArmiesLoaded] = useState(false);
+  const [board, setBoard] = useState({ widthIn: 44, heightIn: 60, tokens: [] });
+  const [boardLoaded, setBoardLoaded] = useState(false);
+  // Mirrors `board` synchronously so drag-end can read the latest tokens
+  // without depending on a stale render closure (see commitBoardTokenMove).
+  const boardRef = useRef(board);
+  useEffect(() => {
+    boardRef.current = board;
+  }, [board]);
   const [armiesOpen, setArmiesOpen] = useState(false);
   const [editingArmy, setEditingArmy] = useState(null);
   const [textArmyOpen, setTextArmyOpen] = useState(false);
@@ -3443,6 +3572,16 @@ export default function Wh40kCalculator({ session }) {
         setHistoryLoaded(true);
       }
     })();
+    (async () => {
+      try {
+        const res = await withTimeout(storage.get("board_v1", false));
+        if (res && res.value) setBoard(JSON.parse(res.value));
+      } catch (e) {
+        // nothing saved yet, or the request stalled
+      } finally {
+        setBoardLoaded(true);
+      }
+    })();
   }, []);
 
   const persistLibrary = useCallback(async (next) => {
@@ -3462,6 +3601,53 @@ export default function Wh40kCalculator({ session }) {
       console.error("Nepodařilo se uložit armády", e);
     }
   }, []);
+
+  const persistBoard = useCallback(async (next) => {
+    setBoard(next);
+    try {
+      await storage.set("board_v1", JSON.stringify(next), false);
+    } catch (e) {
+      console.error("Nepodařilo se uložit desku", e);
+    }
+  }, []);
+
+  // Toggling a unit on/off the board's roster places/removes a single token
+  // for the whole unit (not one per model) — simplest way to get an army onto
+  // the table; drag it into position afterward.
+  const toggleUnitOnBoard = (unitId, side) => {
+    const exists = board.tokens.some((t) => t.unitId === unitId && t.side === side);
+    if (exists) {
+      persistBoard({ ...board, tokens: board.tokens.filter((t) => !(t.unitId === unitId && t.side === side)) });
+      return;
+    }
+    // Stage new tokens along that side's baseline, spaced out a bit so they
+    // don't all land in an identical pile — nudged by how many are already
+    // staged on that side.
+    const sideCount = board.tokens.filter((t) => t.side === side).length;
+    const xPct = 8 + (sideCount % 8) * 11;
+    const yPct = side === "mine" ? 90 : 10;
+    persistBoard({
+      ...board,
+      tokens: [...board.tokens, { id: crypto.randomUUID(), unitId, side, xPct, yPct }],
+    });
+  };
+
+  const removeBoardToken = (tokenId) => persistBoard({ ...board, tokens: board.tokens.filter((t) => t.id !== tokenId) });
+
+  const moveBoardToken = (tokenId, xPct, yPct) => {
+    setBoard((s) => ({ ...s, tokens: s.tokens.map((t) => (t.id === tokenId ? { ...t, xPct, yPct } : t)) }));
+  };
+  // Only write to storage once the drag actually ends — dragging fires
+  // moveBoardToken on every pointer move (fast setState, no network), and
+  // persisting every intermediate frame would spam the backend. Reads
+  // boardRef instead of the `board` closure variable, since setState from
+  // moveBoardToken above won't be reflected in this render's `board` yet.
+  const commitBoardTokenMove = () => {
+    storage.set("board_v1", JSON.stringify(boardRef.current), false).catch((e) => console.error("Nepodařilo se uložit desku", e));
+  };
+
+  const clearBoardTokens = () => persistBoard({ ...board, tokens: [] });
+  const setBoardSize = (widthIn, heightIn) => persistBoard({ ...board, widthIn, heightIn });
 
   const saveArmy = (army) => {
     const exists = armies.some((a) => a.id === army.id);
@@ -3656,6 +3842,9 @@ export default function Wh40kCalculator({ session }) {
   // Skipped while restoring a saved history entry, so it doesn't clobber the
   // bonuses/modifiers that entry actually used.
   const restoringFromHistoryRef = useRef(false);
+  // The "Deska" board's DOM node, so token drag can turn pointer coordinates
+  // into a percentage position via getBoundingClientRect.
+  const boardContainerRef = useRef(null);
 
   useEffect(() => {
     if (restoringFromHistoryRef.current) return;
@@ -5414,11 +5603,134 @@ export default function Wh40kCalculator({ session }) {
         </div>
       )}
 
+      {view === "board" && (
+        <div className="no-print" style={{ padding: "4px 14px 16px" }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "var(--label)", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 10 }}>Deska</div>
+          <div style={{ fontSize: 11.5, color: "var(--muted)", marginBottom: 10, lineHeight: 1.5 }}>
+            Zaškrtni jednotky z knihovny do své strany nebo strany protihráče — objeví se jako token na desce, který přetáhneš na místo. Dvojklik na token ho odebere.
+          </div>
+
+          <Row cols={3}>
+            <NumberField label="Šířka desky (in)" value={board.widthIn} onChange={(v) => setBoardSize(Math.max(1, v), board.heightIn)} min={1} small />
+            <NumberField label="Výška desky (in)" value={board.heightIn} onChange={(v) => setBoardSize(board.widthIn, Math.max(1, v))} min={1} small />
+            <div style={{ display: "flex", alignItems: "flex-end" }}>
+              <button
+                onClick={clearBoardTokens}
+                disabled={board.tokens.length === 0}
+                style={{
+                  width: "100%",
+                  border: "1px solid var(--field-border)",
+                  background: "transparent",
+                  color: board.tokens.length === 0 ? "var(--muted)" : "var(--text)",
+                  borderRadius: 6,
+                  padding: "6px 9px",
+                  fontSize: 12,
+                  cursor: board.tokens.length === 0 ? "not-allowed" : "pointer",
+                }}
+              >
+                Vyčistit desku
+              </button>
+            </div>
+          </Row>
+
+          <div className="wh40k-vs-columns" style={{ marginTop: 10, marginBottom: 12 }}>
+            <div style={{ background: "var(--panel)", border: "1px solid var(--accent)", borderRadius: 10, padding: 12, maxHeight: 220, overflowY: "auto" }}>
+              <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--accent-text)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8, position: "sticky", top: 0, background: "var(--panel)" }}>
+                Moje jednotky
+              </div>
+              {Object.entries(groupedLibrary).map(([faction, units]) => (
+                <div key={faction} style={{ marginBottom: 8 }}>
+                  <div style={{ fontSize: 9.5, fontWeight: 700, color: "var(--amber)", textTransform: "uppercase", marginBottom: 3 }}>{faction}</div>
+                  {units.map((u) => (
+                    <label key={u.id} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, padding: "2px 0", cursor: "pointer" }}>
+                      <input type="checkbox" checked={board.tokens.some((t) => t.unitId === u.id && t.side === "mine")} onChange={() => toggleUnitOnBoard(u.id, "mine")} />
+                      {u.name}
+                    </label>
+                  ))}
+                </div>
+              ))}
+              {library.length === 0 && <div style={{ fontSize: 12, color: "var(--muted)" }}>Knihovna je prázdná.</div>}
+            </div>
+            <div style={{ background: "var(--panel)", border: "1px solid #c0392b", borderRadius: 10, padding: 12, maxHeight: 220, overflowY: "auto" }}>
+              <div style={{ fontSize: 10.5, fontWeight: 700, color: "#e0857c", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8, position: "sticky", top: 0, background: "var(--panel)" }}>
+                Jednotky protihráče
+              </div>
+              {Object.entries(groupedLibrary).map(([faction, units]) => (
+                <div key={faction} style={{ marginBottom: 8 }}>
+                  <div style={{ fontSize: 9.5, fontWeight: 700, color: "var(--amber)", textTransform: "uppercase", marginBottom: 3 }}>{faction}</div>
+                  {units.map((u) => (
+                    <label key={u.id} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, padding: "2px 0", cursor: "pointer" }}>
+                      <input type="checkbox" checked={board.tokens.some((t) => t.unitId === u.id && t.side === "theirs")} onChange={() => toggleUnitOnBoard(u.id, "theirs")} />
+                      {u.name}
+                    </label>
+                  ))}
+                </div>
+              ))}
+              {library.length === 0 && <div style={{ fontSize: 12, color: "var(--muted)" }}>Knihovna je prázdná.</div>}
+            </div>
+          </div>
+
+          <div
+            ref={boardContainerRef}
+            style={{
+              position: "relative",
+              width: "100%",
+              // Cap how tall a portrait-shaped board (e.g. 44x60") can render
+              // — without this, "width: 100%" alone forces the height to
+              // whatever the aspect ratio demands, which can run to way more
+              // than a screen's height and turn the page into an endless
+              // scroll. 68vh keeps the whole board on screen on most
+              // displays; the aspect-ratio then also caps the width so it
+              // never overflows the column horizontally either.
+              maxWidth: `calc(68vh * ${board.widthIn} / ${board.heightIn})`,
+              aspectRatio: `${board.widthIn} / ${board.heightIn}`,
+              margin: "0 auto",
+              background: "#2b3a2e",
+              border: "2px solid var(--field-border)",
+              borderRadius: 8,
+              overflow: "hidden",
+              touchAction: "none",
+            }}
+          >
+            {/* Just a directional tint (my side / their side) — not any official deployment-zone shape. */}
+            <div
+              style={{
+                position: "absolute",
+                inset: 0,
+                background:
+                  "linear-gradient(to bottom, rgba(47,143,232,0.16) 0%, rgba(47,143,232,0.16) 38%, transparent 38%, transparent 62%, rgba(192,57,43,0.16) 62%, rgba(192,57,43,0.16) 100%)",
+                pointerEvents: "none",
+              }}
+            />
+            {board.tokens.map((t) => {
+              const unit = library.find((u) => u.id === t.unitId);
+              const baseSizeIn = (unit ? unit.baseSize || 32 : 32) / 25.4;
+              const sizePctW = Math.max(1.2, (baseSizeIn / board.widthIn) * 100);
+              const sizePctH = Math.max(1.2, (baseSizeIn / board.heightIn) * 100);
+              return (
+                <BoardTokenView
+                  key={t.id}
+                  token={t}
+                  unit={unit}
+                  containerRef={boardContainerRef}
+                  sizePctW={sizePctW}
+                  sizePctH={sizePctH}
+                  onMove={moveBoardToken}
+                  onCommit={commitBoardTokenMove}
+                  onRemove={removeBoardToken}
+                />
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* BOTTOM NAV */}
       <div className="no-print" style={{ position: "absolute", bottom: 0, left: 0, right: 0, display: "flex", borderTop: "1px solid var(--field-border)", background: "rgba(8,14,23,0.97)", backdropFilter: "blur(8px)" }}>
         {[
           ["home", Home, "Domů"],
           ["calculator", Crosshair, "Kalkulačka"],
+          ["board", MapIcon, "Deska"],
           ["library", SkullIcon, "Knihovna"],
           ["history", Clock, "Historie"],
           ["lists", List, "Cheat sheet"],
