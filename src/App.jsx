@@ -59,6 +59,7 @@ const ANTI_KEYWORD_OPTIONS = [
   { value: "monster", label: "MONSTER" },
   { value: "vehicle", label: "VEHICLE" },
   { value: "character", label: "CHARACTER" },
+  { value: "infantry", label: "INFANTRY" },
 ];
 
 const emptyWeapon = () => ({
@@ -72,6 +73,9 @@ const emptyWeapon = () => ({
   damage: 1,
   lethalHits: false,
   sustained: 0,
+  critHitsOn: 6,
+  critWoundOn: 6,
+  devastatingWounds: false,
   melta: 0,
   rapidFire: 0,
   antiKeyword: "none",
@@ -109,7 +113,7 @@ const emptyUnit = () => ({
   psychicFnp: 0,
   woundDebuff: false,
   damageReduction: 0,
-  keywords: { monster: false, vehicle: false, character: false },
+  keywords: { monster: false, vehicle: false, character: false, infantry: false },
   members: [emptyMember()],
   needsStats: false,
   isLeader: false,
@@ -190,6 +194,7 @@ function emptyFullModifier() {
     woundDebuff: false,
     damageReduction: 0,
     benefitOfCover: false, // only meaningful for the ranged slice — cover doesn't apply in melee
+    saveReroll: "none",
   };
 }
 function emptySlotModifiers() {
@@ -247,6 +252,12 @@ function computeWeapon(weapon, modelCount, def, bonus) {
     damage: weapon.damage + rerollDamageBonus,
     lethalHits: weapon.lethalHits || b.lethalHits,
     sustained: Math.max(weapon.sustained, b.sustained),
+    // Critical Hit/Wound threshold: normally an unmodified 6, but some
+    // abilities lower it (e.g. "Critical Hits on 5+"). A lower number is
+    // "better" (easier), so an unset weapon field just falls back to 6.
+    critHitsOn: Math.max(2, Math.min(6, weapon.critHitsOn || 6)),
+    critWoundOn: Math.max(2, Math.min(6, weapon.critWoundOn || 6)),
+    devastatingWounds: !!weapon.devastatingWounds,
     antiKeyword: weapon.antiKeyword || "none",
     antiValue: weapon.antiValue || 0,
     rerollHit: betterReroll(betterReroll(weapon.rerollHit || "none", b.rerollHit), rerollKeywordActive ? "all" : "none"),
@@ -273,12 +284,18 @@ function computeWeapon(weapon, modelCount, def, bonus) {
       : att.rerollHit === "all"
       ? 1 - (1 - pHitBase) ** 2
       : pHitBase;
+  // Critical Hit: normally only an unmodified roll of 6, but some weapons
+  // score one on a lower unmodified roll (e.g. "Critical Hits on 5+") — the
+  // "1/6" chance-of-a-fresh-crit below generalizes to that threshold, while
+  // the leading "1/6" (chance the original roll was a natural 1, eligible
+  // for a "re-roll ones") stays fixed regardless of the crit threshold.
+  const pCritBase = (7 - att.critHitsOn) / 6;
   const pCritAdj =
     att.rerollHit === "ones"
-      ? 1 / 6 + (1 / 6) * (1 / 6)
+      ? pCritBase + (1 / 6) * pCritBase
       : att.rerollHit === "all"
-      ? 1 / 6 + (1 - pHitBase) * (1 / 6)
-      : 1 / 6;
+      ? pCritBase + (1 - pHitBase) * pCritBase
+      : pCritBase;
 
   const attacks = att.models * att.attacks;
   const hitsNormal = attacks * pHitAdj;
@@ -325,11 +342,38 @@ function computeWeapon(weapon, modelCount, def, bonus) {
   const rerollOneWoundBonus = weapon.rerollOneWound && hitsForWound > 0 ? (1 - (1 - pWoundAdj) ** hitsForWound) * pWoundAdj : 0;
   const woundsTotal = woundsFromRoll + autoWounds + rerollOneWoundBonus;
 
+  // Devastating Wounds: a Critical Wound (an unmodified wound roll of 6, or
+  // lower via an ability) inflicts its damage directly as mortal wounds —
+  // no saving throw of any kind, normal or invulnerable. A critical wound is
+  // always also a successful one, so it's a subset of woundsFromRoll here;
+  // simplification: only the main wound-roll bucket is eligible (not the
+  // Lethal Hits auto-wounds, which never rolled to wound at all, nor the
+  // one-shot "re-roll one wound" attempt, kept out to avoid double-counting).
+  const pCritWoundBase = (7 - att.critWoundOn) / 6;
+  const pCritWoundAdj =
+    att.rerollWound === "ones"
+      ? pCritWoundBase + (1 / 6) * pCritWoundBase
+      : att.rerollWound === "all"
+      ? pCritWoundBase + (1 - pWoundBase) * pCritWoundBase
+      : pCritWoundBase;
+  const devWounds = att.devastatingWounds ? hitsForWound * pCritWoundAdj : 0;
+  const normalWoundsPortion = woundsTotal - devWounds;
+
   const apAbs = Math.abs(att.ap);
   const normalSave = Math.min(def.save + apAbs, 7);
   const effSave = def.invul > 0 && def.invul < normalSave ? def.invul : normalSave;
-  const failProb = Math.min(1, Math.max(0, (effSave - 1) / 6));
-  const through = woundsTotal * failProb;
+  const pSaveSuccessBase = Math.min(1, Math.max(0, (7 - effSave) / 6));
+  // Re-roll Saving Throws (defender ability) — same "ones" vs "all" reroll
+  // convention as the attacker's hit/wound rerolls, just applied to the
+  // defender's own save success chance instead.
+  const pSaveSuccessAdj =
+    def.saveReroll === "ones"
+      ? pSaveSuccessBase + (1 / 6) * pSaveSuccessBase
+      : def.saveReroll === "all"
+      ? 1 - (1 - pSaveSuccessBase) ** 2
+      : pSaveSuccessBase;
+  const failProb = 1 - pSaveSuccessAdj;
+  const through = normalWoundsPortion * failProb + devWounds;
 
   // Some units have a Feel No Pain that only applies against a specific kind
   // of attack (e.g. a Culexus Assassin: FNP 2+ against Psychic Attacks) —
@@ -520,6 +564,10 @@ function defenderProfile(unit, overrides) {
     // against ranged attacks — read by computeWeapon, not applied here,
     // since it worsens the hit roll rather than any defender characteristic.
     benefitOfCover: !!o.benefitOfCover,
+    // Re-roll Saving Throws (of 1s, or all failed ones) — a defender-side
+    // ability, so it lives here alongside the other defender modifiers
+    // rather than in the attacker's bonus object.
+    saveReroll: o.saveReroll || "none",
     invul: clampSave(unit.invul, 0),
     wounds: Math.max(1, clampNum(unit.wounds, 1)),
     models: o.models !== undefined && o.models !== null ? Math.max(0, clampNum(o.models, 1)) : totalModels(unit) || 1,
@@ -1362,6 +1410,31 @@ function WeaponEditor({ weapon, onChange, onRemove }) {
         <SelectField label="Přehoz hit rollu" value={weapon.rerollHit} onChange={set("rerollHit")} options={REROLL_OPTIONS} small />
         <SelectField label="Přehoz wound rollu" value={weapon.rerollWound} onChange={set("rerollWound")} options={REROLL_OPTIONS} small />
       </Row>
+      <Row cols={3}>
+        <NumberField
+          label="Critical Hit na (X+)"
+          value={weapon.critHitsOn || 6}
+          onChange={set("critHitsOn")}
+          min={2}
+          hint="normálně 6; např. Critical Hits on 5+"
+          small
+        />
+        <NumberField
+          label="Critical Wound na (X+)"
+          value={weapon.critWoundOn || 6}
+          onChange={set("critWoundOn")}
+          min={2}
+          hint="normálně 6; např. Critical Wounds on 5+"
+          small
+        />
+        <ToggleField
+          label="Devastating Wounds"
+          value={weapon.devastatingWounds}
+          onChange={set("devastatingWounds")}
+          hint="Critical Wound = mortal wounds mimo jakýkoli save"
+          small
+        />
+      </Row>
       <Row cols={2}>
         <ToggleField label="Přehoz 1 hitu (jednorázově)" value={weapon.rerollOneHit} onChange={set("rerollOneHit")} small />
         <ToggleField label="Přehoz 1 woundu (jednorázově)" value={weapon.rerollOneWound} onChange={set("rerollOneWound")} small />
@@ -1573,6 +1646,7 @@ function UnitForm({ initial, onSave, onCancel }) {
         <ToggleField label="Klíčové slovo: MONSTER" value={!!(u.keywords || {}).monster} onChange={setKeyword("monster")} hint="pro Anti-MONSTER X+ u útočníkových zbraní" small />
         <ToggleField label="Klíčové slovo: VEHICLE" value={!!(u.keywords || {}).vehicle} onChange={setKeyword("vehicle")} hint="pro Anti-VEHICLE X+ u útočníkových zbraní" small />
         <ToggleField label="Klíčové slovo: CHARACTER" value={!!(u.keywords || {}).character} onChange={setKeyword("character")} hint="pro Anti-CHARACTER X+ u útočníkových zbraní" small />
+        <ToggleField label="Klíčové slovo: INFANTRY" value={!!(u.keywords || {}).infantry} onChange={setKeyword("infantry")} hint="pro Anti-INFANTRY X+ u útočníkových zbraní" small />
       </Row>
 
       <SectionLabel>Modely a jejich zbraně</SectionLabel>
@@ -2250,6 +2324,21 @@ function UnitComposition({ unit, profileChoices, onChooseProfile, meltaActive, o
                   Lethal
                 </span>
               )}
+              {(w.critHitsOn || 6) < 6 && (
+                <span style={{ fontSize: 8.5, fontWeight: 700, color: "var(--accent-text)", border: "1px solid var(--accent)", borderRadius: 4, padding: "0 4px", textTransform: "uppercase" }}>
+                  Crit Hit {w.critHitsOn}+
+                </span>
+              )}
+              {(w.critWoundOn || 6) < 6 && (
+                <span style={{ fontSize: 8.5, fontWeight: 700, color: "var(--accent-text)", border: "1px solid var(--accent)", borderRadius: 4, padding: "0 4px", textTransform: "uppercase" }}>
+                  Crit Wound {w.critWoundOn}+
+                </span>
+              )}
+              {w.devastatingWounds && (
+                <span style={{ fontSize: 8.5, fontWeight: 700, color: "var(--accent-text)", border: "1px solid var(--accent)", borderRadius: 4, padding: "0 4px", textTransform: "uppercase" }}>
+                  Dev. Wounds
+                </span>
+              )}
               {w.sustained > 0 && (
                 <span style={{ fontSize: 8.5, fontWeight: 700, color: "#a9c6e5", border: "1px solid var(--blue)", borderRadius: 4, padding: "0 4px", textTransform: "uppercase" }}>
                   Sust. {fmtNum(w.sustained)}
@@ -2797,6 +2886,16 @@ function FullModifierFields({ mod, setMod, isRanged }) {
           />
         )}
       </Row>
+      <Row cols={2}>
+        <SelectField
+          label="Přehoz save hodu"
+          value={mod.saveReroll || "none"}
+          onChange={(v) => setMod((s) => ({ ...s, saveReroll: v }))}
+          options={REROLL_OPTIONS}
+          small
+        />
+        <div />
+      </Row>
     </>
   );
 }
@@ -3038,9 +3137,8 @@ function ManualView({ onBack }) {
 
       <ManualSection num="03" title="Kalkulačka">
         <ManualP muted>Hlavní obrazovka appky, tři kroky:</ManualP>
-        <ManualH>Krok 1 — Útočník</ManualH>
-        <ManualP>Vyber frakci nebo uloženou armádu, pak konkrétní jednotku z knihovny.</ManualP>
-        <ManualH>Krok 2 — Úprava</ManualH>
+        <ManualP>Útočník a obránce jsou naproti sobě ve dvou kartách (na mobilu pod sebou) — vyber jednotku v obou, uprav co potřebuješ, dole klikni Spočítat.</ManualP>
+        <ManualH>Karta útočníka</ManualH>
         <ManualUl
           items={[
             <><b>Připojit vůdce</b> — dočasně spojí jednotku s postavou z knihovny (jen pro tenhle výpočet).</>,
@@ -3051,9 +3149,9 @@ function ManualView({ onBack }) {
             <><b>Rapid Fire</b> — přepínač „v polovičním dosahu“ u zbraní s Rapid Fire X (přidá X útoků).</>,
           ]}
         />
-        <ManualH>Krok 3 — Obránce</ManualH>
+        <ManualH>Karta obránce</ManualH>
         <ManualP>
-          Vyber cílovou jednotku. Volitelně rozklikni <b>Modifikátory</b> pro úpravu počtu modelů, FNP nebo debuffu. Klikni <b>Spočítat</b>.
+          Vyber cílovou jednotku. Volitelně rozklikni <b>Modifikátory</b> pro úpravu počtu modelů, FNP, debuffu, Benefit of Cover nebo <b>přehozu save hodu</b> (Jedničky / Vše). Klikni <b>Spočítat</b>.
         </ManualP>
       </ManualSection>
 
@@ -3076,13 +3174,16 @@ function ManualView({ onBack }) {
         <ManualP>Tohle je potřeba doplnit/zkontrolovat ručně v editaci jednotky nebo zbraně (tužka v knihovně):</ManualP>
         <ManualUl
           items={[
-            <><b>Anti-X Y+</b> — zbraň → „Anti- klíčové slovo“ + práh. Proti MONSTER/VEHICLE/CHARACTER automaticky zraní na hod Y+.</>,
+            <><b>Anti-X Y+</b> — zbraň → „Anti- klíčové slovo“ + práh. Proti MONSTER/VEHICLE/CHARACTER/INFANTRY automaticky zraní na hod Y+.</>,
             <><b>Přehoz vše proti keywordu</b> — zbraň → „vs MONSTER/VEHICLE/CHARACTER“. Přehoz zásahu i zranění jen proti danému keywordu (např. GMNDK).</>,
             <><b>Přehoz 1 hitu / 1 woundu</b> — zbraň → zaškrtávátko. Jednorázový přehoz, jiná matematika než „všechny“/„jedničky“.</>,
             <><b>Přehoz 1 damage rollu</b> — zbraň → vyplň „Kostky Damage“ (např. D6, 2D6, D3+3) a zaškrtni přehoz. Appka spočítá optimální strategii (přehodit jen nízké hody).</>,
+            <><b>Critical Hit / Critical Wound na X+</b> — zbraň → obě pole, normálně 6. Snižuje práh, kdy se hit/wound počítá jako kritický (ovlivňuje Lethal Hits, Sustained Hits i Devastating Wounds).</>,
+            <><b>Devastating Wounds</b> — zbraň → zaškrtávátko. Critical Wound = mortal wounds rovné Damage, mimo jakýkoli save (ani invulnerable).</>,
+            <><b>Přehoz save hodu</b> — obránce → Modifikátory → „Přehoz save hodu“ (Jedničky / Vše), zvlášť na dálku/na blízko.</>,
             <><b>FNP proti Psychic</b> — jednotka → „FNP proti Psychic“. Funguje jen proti zbraním označeným jako „Psychický útok“ (např. Culexus).</>,
-            <><b>Klíčová slova jednotky</b> — MONSTER / VEHICLE / CHARACTER. Nutné pro Anti-X a keyword-rerolly výše.</>,
-            <><b>Mortal wounds navíc</b> — kalkulačka krok 2, bonusový panel. Jednorázově za celou jednotku, mimo save.</>,
+            <><b>Klíčová slova jednotky</b> — MONSTER / VEHICLE / CHARACTER / INFANTRY. Nutné pro Anti-X a keyword-rerolly výše.</>,
+            <><b>Mortal wounds navíc</b> — karta útočníka, bonusový panel. Jednorázově za celou jednotku, mimo save.</>,
           ]}
         />
       </ManualSection>
@@ -3232,6 +3333,7 @@ export default function Wh40kCalculator({ session }) {
   const [defenderToughnessMod, setDefenderToughnessMod] = useState(0);
   const [defenderSaveMod, setDefenderSaveMod] = useState(0);
   const [defenderBenefitOfCover, setDefenderBenefitOfCover] = useState(false);
+  const [defenderSaveReroll, setDefenderSaveReroll] = useState({ ranged: "none", melee: "none" });
 
   const [armies, setArmies] = useState([]);
   const [armiesLoaded, setArmiesLoaded] = useState(false);
@@ -3577,6 +3679,7 @@ export default function Wh40kCalculator({ session }) {
     setDefenderFnp({ ranged: fnp, melee: fnp });
     setDefenderWoundDebuff({ ranged: debuff, melee: debuff });
     setDefenderDamageReduction({ ranged: dmgReduction, melee: dmgReduction });
+    setDefenderSaveReroll({ ranged: "none", melee: "none" });
   }, [defenderUnitId]);
 
   const result = useMemo(() => {
@@ -3590,6 +3693,7 @@ export default function Wh40kCalculator({ session }) {
         toughnessMod: defenderToughnessMod,
         saveMod: defenderSaveMod,
         benefitOfCover: defenderBenefitOfCover,
+        saveReroll: defenderSaveReroll.ranged,
       }),
       melee: defenderProfile(defenderUnit, {
         models: defenderModelCount,
@@ -3598,6 +3702,7 @@ export default function Wh40kCalculator({ session }) {
         damageReduction: defenderDamageReduction.melee,
         toughnessMod: defenderToughnessMod,
         saveMod: defenderSaveMod,
+        saveReroll: defenderSaveReroll.melee,
       }),
     };
     return computeUnitVsUnit(effectiveAttackerUnit, defByType, attackerBonus);
@@ -3612,6 +3717,7 @@ export default function Wh40kCalculator({ session }) {
     defenderToughnessMod,
     defenderSaveMod,
     defenderBenefitOfCover,
+    defenderSaveReroll,
   ]);
 
   const fmt = (n, d = 2) => (Number.isFinite(n) ? n.toFixed(d) : "0");
@@ -3646,6 +3752,7 @@ export default function Wh40kCalculator({ session }) {
             toughnessMod: cheatSlotB.toughnessMod,
             saveMod: cheatSlotB.saveMod,
             benefitOfCover: cheatSlotB.ranged.benefitOfCover,
+            saveReroll: cheatSlotB.ranged.saveReroll,
           }),
           melee: defenderProfile(tgt, {
             fnp: Math.max(clampNum(tgt.fnp, 0), cheatSlotB.melee.fnp),
@@ -3653,6 +3760,7 @@ export default function Wh40kCalculator({ session }) {
             damageReduction: Math.max(clampNum(tgt.damageReduction, 0), cheatSlotB.melee.damageReduction),
             toughnessMod: cheatSlotB.toughnessMod,
             saveMod: cheatSlotB.saveMod,
+            saveReroll: cheatSlotB.melee.saveReroll,
           }),
         };
         const boostedRes = computeUnitVsUnit(att, boostedProfile, { ranged: cheatSlotA.ranged, melee: cheatSlotA.melee });
@@ -3740,6 +3848,7 @@ export default function Wh40kCalculator({ session }) {
       defenderFnp,
       defenderWoundDebuff,
       defenderDamageReduction,
+      defenderSaveReroll,
     };
     persistHistory([entry, ...history].slice(0, 60));
   };
@@ -3762,6 +3871,7 @@ export default function Wh40kCalculator({ session }) {
     if (h.defenderFnp) setDefenderFnp(h.defenderFnp);
     if (h.defenderWoundDebuff) setDefenderWoundDebuff(h.defenderWoundDebuff);
     if (h.defenderDamageReduction) setDefenderDamageReduction(h.defenderDamageReduction);
+    if (h.defenderSaveReroll) setDefenderSaveReroll(h.defenderSaveReroll);
     setCalcStep("result");
     setView("calculator");
     // Clear the guard on the next tick, once React has finished processing all
@@ -4467,13 +4577,20 @@ export default function Wh40kCalculator({ session }) {
                                 hint="jen proti útokům na dálku"
                                 small
                               />
+                              <SelectField
+                                label="Přehoz save hodu"
+                                value={defenderSaveReroll.ranged}
+                                onChange={(v) => setDefenderSaveReroll((s) => ({ ...s, ranged: v }))}
+                                options={REROLL_OPTIONS}
+                                small
+                              />
                             </Row>
                           </div>
                           <div style={{ marginTop: 8, background: "var(--panel)", border: "1px solid var(--field-border)", borderRadius: 8, padding: 8 }}>
                             <div style={{ fontSize: 10, fontWeight: 700, color: "var(--accent-text)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6, display: "flex", alignItems: "center", gap: 4 }}>
                               <Sword size={11} /> Proti útokům na blízko
                             </div>
-                            <Row cols={3}>
+                            <Row cols={4}>
                               <NumberField
                                 label="FNP (0 = žádný)"
                                 value={defenderFnp.melee}
@@ -4492,6 +4609,13 @@ export default function Wh40kCalculator({ session }) {
                                 label="Debuff: -1 WR pokud S > T"
                                 value={defenderWoundDebuff.melee}
                                 onChange={(v) => setDefenderWoundDebuff((s) => ({ ...s, melee: v }))}
+                                small
+                              />
+                              <SelectField
+                                label="Přehoz save hodu"
+                                value={defenderSaveReroll.melee}
+                                onChange={(v) => setDefenderSaveReroll((s) => ({ ...s, melee: v }))}
+                                options={REROLL_OPTIONS}
                                 small
                               />
                             </Row>
