@@ -80,6 +80,19 @@ const DEPLOYMENT_LAYOUTS = [
   },
 ];
 
+// Terrain "stavebnice" (building blocks) for the board — generic, original
+// shapes (not traced from any terrain kit or official layout) the person
+// drags onto their own board to sketch their actual table. Default sizes
+// are just reasonable starting points; width/height are freely editable
+// per piece once placed.
+const TERRAIN_SHAPES = [
+  { id: "ruin", label: "Ruina", widthIn: 8, heightIn: 5, bg: "#5c5c52", border: "2px dashed #8f8f7e", radius: 4 },
+  { id: "wall", label: "Zeď", widthIn: 6, heightIn: 1, bg: "#6b6b61", border: "1px solid #8f8f7e", radius: 2 },
+  { id: "crater", label: "Kráter", widthIn: 5, heightIn: 5, bg: "#4a4436", border: "2px dashed #8a7a4f", radius: "50%" },
+  { id: "forest", label: "Les", widthIn: 6, heightIn: 6, bg: "rgba(58,92,58,0.6)", border: "2px dashed #5e9a5e", radius: "50%" },
+  { id: "container", label: "Kontejner", widthIn: 3, heightIn: 2, bg: "#5a6b7d", border: "1px solid #82a0b8", radius: 3 },
+];
+
 // Anti-X Y+: against a unit with keyword X, an unmodified wound roll of Y+
 // always counts as a Critical Wound (auto-wounds), regardless of the normal
 // S vs T table. Modeled as taking the better (lower) of the two thresholds —
@@ -2353,6 +2366,73 @@ function LayoutSwatch({ layout, selected, onClick }) {
   );
 }
 
+// A draggable/rotatable terrain piece from TERRAIN_SHAPES — same click-vs-
+// drag distinction as BoardTokenView (see there), sized as width%/height% of
+// the board so it keeps true proportions regardless of the board's own
+// aspect ratio, same math as token sizing.
+function TerrainPieceView({ piece, shape, containerRef, sizePctW, sizePctH, selected, onMove, onCommit, onRemove, onSelect }) {
+  const draggingRef = useRef(false);
+  const movedRef = useRef(false);
+  const startRef = useRef({ x: 0, y: 0 });
+
+  const handlePointerDown = (e) => {
+    e.stopPropagation();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    draggingRef.current = true;
+    movedRef.current = false;
+    startRef.current = { x: e.clientX, y: e.clientY };
+  };
+  const handlePointerMove = (e) => {
+    if (!draggingRef.current || !containerRef.current) return;
+    if (!movedRef.current && Math.hypot(e.clientX - startRef.current.x, e.clientY - startRef.current.y) > 4) {
+      movedRef.current = true;
+    }
+    if (!movedRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const xPct = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
+    const yPct = Math.max(0, Math.min(100, ((e.clientY - rect.top) / rect.height) * 100));
+    onMove(piece.id, xPct, yPct);
+  };
+  const handlePointerUp = () => {
+    if (!draggingRef.current) return;
+    draggingRef.current = false;
+    if (movedRef.current) onCommit();
+    else onSelect(piece.id);
+  };
+
+  return (
+    <div
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerUp}
+      onDoubleClick={(e) => {
+        e.stopPropagation();
+        onRemove(piece.id);
+      }}
+      title={`${shape.label} — táhni pro přesun, klik pro úpravy, dvojklik pro odebrání`}
+      style={{
+        position: "absolute",
+        left: `${piece.xPct}%`,
+        top: `${piece.yPct}%`,
+        width: `${sizePctW}%`,
+        height: `${sizePctH}%`,
+        transform: `translate(-50%, -50%) rotate(${piece.rotationDeg || 0}deg)`,
+        minWidth: 10,
+        minHeight: 10,
+        borderRadius: shape.radius,
+        background: shape.bg,
+        border: shape.border,
+        boxShadow: selected ? "0 0 0 2px #fff, 0 2px 6px rgba(0,0,0,0.4)" : "0 2px 6px rgba(0,0,0,0.4)",
+        cursor: "grab",
+        userSelect: "none",
+        touchAction: "none",
+        zIndex: selected ? 2 : 1,
+      }}
+    />
+  );
+}
+
 function BoardTokenView({ token, unit, containerRef, sizePctW, sizePctH, selected, onMove, onCommit, onRemove, onSelect }) {
   const draggingRef = useRef(false);
   // Distinguishes a drag from a plain click/tap: if the pointer never moves
@@ -3412,6 +3492,7 @@ function ManualView({ onBack }) {
             <>Jeden token = celá jednotka (počet modelů je v odznáčku v rohu), ne model po modelu.</>,
             <><b>Rozložení výsadku</b> — čtyři barevné náhledy nad deskou; vyber si podle tvaru, žádné se neváže na konkrétní misi ani jméno dispozice.</>,
             <><b>Rychlý souboj</b> — klikni na svůj token, pak na token protihráče. Appka spočítá zabité modely/damage jen z vestavěných schopností obou jednotek (žádné bonusy). „Otevřít v kalkulačce“ tě přenese do plné kalkulačky s modifikátory.</>,
+            <><b>Terén (stavebnice)</b> — klikni na Ruina/Zeď/Kráter/Les/Kontejner pro přidání kusu doprostřed desky, pak ho přetáhni na místo. Klik na terén otevře dole šířku/výšku/otočení, dvojklik ho odebere.</>,
           ]}
         />
         <ManualNote>
@@ -3532,7 +3613,7 @@ export default function Wh40kCalculator({ session }) {
 
   const [armies, setArmies] = useState([]);
   const [armiesLoaded, setArmiesLoaded] = useState(false);
-  const [board, setBoard] = useState({ widthIn: 44, heightIn: 60, tokens: [], layoutId: DEPLOYMENT_LAYOUTS[0].id });
+  const [board, setBoard] = useState({ widthIn: 44, heightIn: 60, tokens: [], terrain: [], layoutId: DEPLOYMENT_LAYOUTS[0].id });
   const [boardLoaded, setBoardLoaded] = useState(false);
   // Mirrors `board` synchronously so drag-end can read the latest tokens
   // without depending on a stale render closure (see commitBoardTokenMove).
@@ -3723,6 +3804,33 @@ export default function Wh40kCalculator({ session }) {
   const clearBoardTokens = () => persistBoard({ ...board, tokens: [] });
   const setBoardSize = (widthIn, heightIn) => persistBoard({ ...board, widthIn, heightIn });
   const setBoardLayout = (layoutId) => persistBoard({ ...board, layoutId });
+
+  // Terrain "stavebnice" — original generic pieces (see TERRAIN_SHAPES), not
+  // tied to any unit/army. Dropped in the middle of the board by default;
+  // drag into place afterward. Reuses commitBoardTokenMove for drag-end
+  // persistence since that just writes whatever boardRef.current holds,
+  // regardless of whether a token or a terrain piece moved.
+  const addTerrainPiece = (shapeId) => {
+    const shape = TERRAIN_SHAPES.find((s) => s.id === shapeId);
+    if (!shape) return;
+    const piece = { id: crypto.randomUUID(), shapeId, xPct: 50, yPct: 50, widthIn: shape.widthIn, heightIn: shape.heightIn, rotationDeg: 0 };
+    persistBoard({ ...board, terrain: [...(board.terrain || []), piece] });
+    setSelectedTerrainId(piece.id);
+  };
+  const removeTerrainPiece = (pieceId) => {
+    persistBoard({ ...board, terrain: (board.terrain || []).filter((p) => p.id !== pieceId) });
+    setSelectedTerrainId((s) => (s === pieceId ? null : s));
+  };
+  const moveTerrainPiece = (pieceId, xPct, yPct) => {
+    setBoard((s) => ({ ...s, terrain: (s.terrain || []).map((p) => (p.id === pieceId ? { ...p, xPct, yPct } : p)) }));
+  };
+  const updateTerrainPiece = (pieceId, patch) => {
+    persistBoard({ ...board, terrain: (board.terrain || []).map((p) => (p.id === pieceId ? { ...p, ...patch } : p)) });
+  };
+  const clearTerrain = () => {
+    persistBoard({ ...board, terrain: [] });
+    setSelectedTerrainId(null);
+  };
 
   const saveArmy = (army) => {
     const exists = armies.some((a) => a.id === army.id);
@@ -3924,6 +4032,8 @@ export default function Wh40kCalculator({ session }) {
   // "theirs" token (target), and see a quick matchup result right there.
   const [boardAttackerTokenId, setBoardAttackerTokenId] = useState(null);
   const [boardMatchup, setBoardMatchup] = useState(null); // { attackerUnit, defenderUnit, res } | null
+  // Currently selected terrain piece (for the width/height/rotate controls).
+  const [selectedTerrainId, setSelectedTerrainId] = useState(null);
 
   const handleBoardTokenSelect = (token) => {
     const unit = library.find((u) => u.id === token.unitId);
@@ -5751,6 +5861,42 @@ export default function Wh40kCalculator({ session }) {
             </div>
           </div>
 
+          <div style={{ marginTop: 10, marginBottom: 4 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+              <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--label)", textTransform: "uppercase", letterSpacing: 0.5 }}>Terén (stavebnice)</div>
+              {board.terrain && board.terrain.length > 0 && (
+                <button onClick={clearTerrain} style={{ background: "transparent", border: "none", color: "var(--muted)", fontSize: 10.5, cursor: "pointer", padding: 0 }}>
+                  Vyčistit terén
+                </button>
+              )}
+            </div>
+            <div style={{ fontSize: 10.5, color: "var(--muted)", marginBottom: 6 }}>Klikni pro přidání kus terénu doprostřed desky, pak ho přetáhni a uprav dole.</div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {TERRAIN_SHAPES.map((s) => (
+                <button
+                  key={s.id}
+                  onClick={() => addTerrainPiece(s.id)}
+                  title={`Přidat: ${s.label}`}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                    border: "1px solid var(--field-border)",
+                    background: "var(--field-bg)",
+                    color: "var(--text)",
+                    borderRadius: 6,
+                    padding: "5px 9px 5px 6px",
+                    fontSize: 11,
+                    cursor: "pointer",
+                  }}
+                >
+                  <span style={{ display: "inline-block", width: 16, height: 12, background: s.bg, border: s.border, borderRadius: s.radius }} />
+                  {s.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
           <div className="wh40k-vs-columns" style={{ marginTop: 10, marginBottom: 12 }}>
             <div style={{ background: "var(--panel)", border: "1px solid var(--accent)", borderRadius: 10, padding: 12, maxHeight: 220, overflowY: "auto" }}>
               <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--accent-text)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8, position: "sticky", top: 0, background: "var(--panel)" }}>
@@ -5790,6 +5936,13 @@ export default function Wh40kCalculator({ session }) {
 
           <div
             ref={boardContainerRef}
+            onClick={(e) => {
+              // Clicking empty board space (not a token/terrain piece)
+              // clears whatever's currently selected.
+              if (e.target === e.currentTarget) {
+                setSelectedTerrainId(null);
+              }
+            }}
             style={{
               position: "relative",
               width: "100%",
@@ -5821,6 +5974,27 @@ export default function Wh40kCalculator({ session }) {
                 </>
               );
             })()}
+            {(board.terrain || []).map((p) => {
+              const shape = TERRAIN_SHAPES.find((s) => s.id === p.shapeId);
+              if (!shape) return null;
+              const sizePctW = Math.max(0.8, ((p.widthIn || shape.widthIn) / board.widthIn) * 100);
+              const sizePctH = Math.max(0.8, ((p.heightIn || shape.heightIn) / board.heightIn) * 100);
+              return (
+                <TerrainPieceView
+                  key={p.id}
+                  piece={p}
+                  shape={shape}
+                  containerRef={boardContainerRef}
+                  sizePctW={sizePctW}
+                  sizePctH={sizePctH}
+                  selected={p.id === selectedTerrainId}
+                  onMove={moveTerrainPiece}
+                  onCommit={commitBoardTokenMove}
+                  onRemove={removeTerrainPiece}
+                  onSelect={setSelectedTerrainId}
+                />
+              );
+            })}
             {board.tokens.map((t) => {
               const unit = library.find((u) => u.id === t.unitId);
               const baseSizeIn = (unit ? unit.baseSize || 32 : 32) / 25.4;
@@ -5843,6 +6017,58 @@ export default function Wh40kCalculator({ session }) {
               );
             })}
           </div>
+
+          {selectedTerrainId &&
+            (() => {
+              const piece = (board.terrain || []).find((p) => p.id === selectedTerrainId);
+              const shape = piece && TERRAIN_SHAPES.find((s) => s.id === piece.shapeId);
+              if (!piece || !shape) return null;
+              return (
+                <div style={{ marginTop: 10, background: "var(--panel)", border: "1px solid var(--field-border)", borderRadius: 10, padding: 12 }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                    <div style={{ fontSize: 12.5, fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}>
+                      <span style={{ display: "inline-block", width: 16, height: 12, background: shape.bg, border: shape.border, borderRadius: shape.radius }} />
+                      {shape.label}
+                    </div>
+                    <button
+                      onClick={() => setSelectedTerrainId(null)}
+                      style={{ background: "transparent", border: "none", color: "var(--muted)", cursor: "pointer", padding: 0, fontSize: 13, lineHeight: 1 }}
+                      title="Zavřít"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                  <Row cols={3}>
+                    <NumberField
+                      label="Šířka (in)"
+                      value={piece.widthIn}
+                      onChange={(v) => updateTerrainPiece(piece.id, { widthIn: Math.max(0.5, v) })}
+                      min={0.5}
+                      small
+                    />
+                    <NumberField
+                      label="Výška (in)"
+                      value={piece.heightIn}
+                      onChange={(v) => updateTerrainPiece(piece.id, { heightIn: Math.max(0.5, v) })}
+                      min={0.5}
+                      small
+                    />
+                    <NumberField
+                      label="Otočení (°)"
+                      value={piece.rotationDeg || 0}
+                      onChange={(v) => updateTerrainPiece(piece.id, { rotationDeg: ((v % 360) + 360) % 360 })}
+                      small
+                    />
+                  </Row>
+                  <button
+                    onClick={() => removeTerrainPiece(piece.id)}
+                    style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 5, border: "1px solid #c0392b", background: "transparent", color: "#e0857c", borderRadius: 6, padding: "6px 10px", fontSize: 12, cursor: "pointer" }}
+                  >
+                    <Trash2 size={13} /> Odebrat kus terénu
+                  </button>
+                </div>
+              );
+            })()}
 
           <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 8, textAlign: "center" }}>
             {boardAttackerTokenId
