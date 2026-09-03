@@ -3768,6 +3768,7 @@ function ManualView({ onBack }) {
             <>Jeden token = celá jednotka (počet modelů je v odznáčku v rohu), ne model po modelu.</>,
             <><b>Rozložení výsadku</b> — čtyři barevné náhledy nad deskou; vyber si podle tvaru, žádné se neváže na konkrétní misi ani jméno dispozice.</>,
             <><b>Nakreslit vlastní výsadek</b> — klikni „Nakreslit mou zónu“ nebo „Nakreslit zónu protihráče“, pak stiskni na desce a táhni jako štětcem (min. 3 body), a klikni Dokončit. Přebije daný náhled jen pro tu stranu; „Zpět na přednastavené rozložení“ obě strany zase vrátí na náhled. Čísla po 5 palcích podél okrajů desky se zapínají/vypínají spolu s mřížkou.</>,
+            <><b>Zóna čísly (v palcích)</b> — pod tlačítky pro kreslení: zadej Od X/Y a Do X/Y podle čísel na okraji desky a klikni Nastavit zónu. Spolehlivá alternativa, když myš/touchpad nesedí přesně.</>,
             <><b>Rychlý souboj</b> — klikni na svůj token, pak na token protihráče. Appka spočítá zabité modely/damage jen z vestavěných schopností obou jednotek (žádné bonusy). „Otevřít v kalkulačce“ tě přenese do plné kalkulačky s modifikátory.</>,
             <><b>Terén (stavebnice)</b> — klikni na Ruina/Zeď/Kráter/Les/Kontejner pro přidání kusu doprostřed desky, pak ho přetáhni na místo. Klik na terén otevře dole šířku/výšku/otočení, dvojklik ho odebere.</>,
             <><b>Mřížka po 1 palci</b> — přepínač u rozměrů desky, čtvercová síť odpovídající skutečným palcům na stole.</>,
@@ -4247,6 +4248,19 @@ export default function Wh40kCalculator({ session }) {
   const clearCustomZones = () => persistBoard({ ...board, customZones: { mine: null, theirs: null } });
   const pointsToClipPath = (points) => `polygon(${points.map((p) => `${p.x}% ${p.y}%`).join(", ")})`;
 
+  // Alternative to click/drag drawing: a rectangle typed as inch corners
+  // (read straight off the on-board ruler), no mouse precision involved.
+  const setZoneFromNumbers = () => {
+    const { side, x1, y1, x2, y2 } = zoneForm;
+    const xMin = Math.max(0, Math.min(x1, x2));
+    const xMax = Math.min(board.widthIn, Math.max(x1, x2));
+    const yMin = Math.max(0, Math.min(y1, y2));
+    const yMax = Math.min(board.heightIn, Math.max(y1, y2));
+    const toPct = (xIn, yIn) => ({ x: (xIn / board.widthIn) * 100, y: (yIn / board.heightIn) * 100 });
+    const points = [toPct(xMin, yMin), toPct(xMax, yMin), toPct(xMax, yMax), toPct(xMin, yMax)];
+    persistBoard({ ...board, customZones: { ...(board.customZones || {}), [side]: points } });
+  };
+
   const saveArmy = (army) => {
     const exists = armies.some((a) => a.id === army.id);
     const next = exists ? armies.map((a) => (a.id === army.id ? army : a)) : [...armies, army];
@@ -4459,6 +4473,10 @@ export default function Wh40kCalculator({ session }) {
   // a render on its own, only the drawPoints it produces do.
   const drawStrokeActiveRef = useRef(false);
   const lastDrawPointRef = useRef(null);
+  // Alternative to click/drag drawing: type the zone's corners in inches
+  // directly (reading them off the on-board ruler), no mouse precision
+  // needed at all.
+  const [zoneForm, setZoneForm] = useState({ side: "mine", x1: 0, y1: 0, x2: 10, y2: 10 });
   const [newPresetName, setNewPresetName] = useState("");
   const [boardShareOpen, setBoardShareOpen] = useState(false);
   const [customFormOpen, setCustomFormOpen] = useState(false);
@@ -6331,6 +6349,40 @@ export default function Wh40kCalculator({ session }) {
               >
                 Zpět na přednastavené rozložení
               </button>
+            )}
+
+            {!drawMode && (
+              <div style={{ marginTop: 10, background: "var(--field-bg)", border: "1px solid var(--field-border)", borderRadius: 8, padding: 8 }}>
+                <div style={{ fontSize: 10.5, color: "var(--muted)", marginBottom: 6 }}>
+                  Nebo zadej obdélníkovou zónu čísly v palcích (podle čísel na okraji desky):
+                </div>
+                <Row cols={2}>
+                  <SelectField
+                    label="Strana"
+                    value={zoneForm.side}
+                    onChange={(v) => setZoneForm((s) => ({ ...s, side: v }))}
+                    options={[
+                      { value: "mine", label: "Moje zóna" },
+                      { value: "theirs", label: "Zóna protihráče" },
+                    ]}
+                    small
+                  />
+                  <div />
+                </Row>
+                <Row cols={4}>
+                  <NumberField label="Od X" value={zoneForm.x1} onChange={(v) => setZoneForm((s) => ({ ...s, x1: v }))} small />
+                  <NumberField label="Od Y" value={zoneForm.y1} onChange={(v) => setZoneForm((s) => ({ ...s, y1: v }))} small />
+                  <NumberField label="Do X" value={zoneForm.x2} onChange={(v) => setZoneForm((s) => ({ ...s, x2: v }))} small />
+                  <NumberField label="Do Y" value={zoneForm.y2} onChange={(v) => setZoneForm((s) => ({ ...s, y2: v }))} small />
+                </Row>
+                <button
+                  onClick={setZoneFromNumbers}
+                  className="wh40k-btn"
+                  style={{ border: "none", background: "var(--accent)", color: "#fff", borderRadius: 6, padding: "6px 12px", fontSize: 11.5, fontWeight: 700, cursor: "pointer" }}
+                >
+                  Nastavit zónu
+                </button>
+              </div>
             )}
           </div>
 
