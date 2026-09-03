@@ -85,12 +85,17 @@ const DEPLOYMENT_LAYOUTS = [
 // drags onto their own board to sketch their actual table. Default sizes
 // are just reasonable starting points; width/height are freely editable
 // per piece once placed.
+// `layer` decides stacking order on the board: "base" pieces (a plinth/mat a
+// terrain piece stands on) always render underneath "terrain" pieces,
+// regardless of the order either were placed in — see the board.terrain
+// render, which sorts base-layer pieces first.
 const TERRAIN_SHAPES = [
-  { id: "ruin", label: "Ruina", widthIn: 8, heightIn: 5, bg: "#5c5c52", border: "2px dashed #8f8f7e", radius: 4 },
-  { id: "wall", label: "Zeď", widthIn: 6, heightIn: 1, bg: "#6b6b61", border: "1px solid #8f8f7e", radius: 2 },
-  { id: "crater", label: "Kráter", widthIn: 5, heightIn: 5, bg: "#4a4436", border: "2px dashed #8a7a4f", radius: "50%" },
-  { id: "forest", label: "Les", widthIn: 6, heightIn: 6, bg: "rgba(58,92,58,0.6)", border: "2px dashed #5e9a5e", radius: "50%" },
-  { id: "container", label: "Kontejner", widthIn: 3, heightIn: 2, bg: "#5a6b7d", border: "1px solid #82a0b8", radius: 3 },
+  { id: "ruin", label: "Ruina", layer: "terrain", widthIn: 8, heightIn: 5, bg: "#5c5c52", border: "2px dashed #8f8f7e", radius: 4 },
+  { id: "wall", label: "Zeď", layer: "terrain", widthIn: 6, heightIn: 1, bg: "#6b6b61", border: "1px solid #8f8f7e", radius: 2 },
+  { id: "crater", label: "Kráter", layer: "terrain", widthIn: 5, heightIn: 5, bg: "#4a4436", border: "2px dashed #8a7a4f", radius: "50%" },
+  { id: "forest", label: "Les", layer: "terrain", widthIn: 6, heightIn: 6, bg: "rgba(58,92,58,0.6)", border: "2px dashed #5e9a5e", radius: "50%" },
+  { id: "container", label: "Kontejner", layer: "terrain", widthIn: 3, heightIn: 2, bg: "#5a6b7d", border: "1px solid #82a0b8", radius: 3 },
+  { id: "base-plinth", label: "Podložka", layer: "base", widthIn: 6, heightIn: 4, bg: "rgba(160,150,120,0.5)", border: "1px solid rgba(210,200,170,0.7)", radius: 3 },
 ];
 
 // Anti-X Y+: against a unit with keyword X, an unmodified wound roll of Y+
@@ -3689,6 +3694,7 @@ function ManualView({ onBack }) {
             <><b>Rychlý souboj</b> — klikni na svůj token, pak na token protihráče. Appka spočítá zabité modely/damage jen z vestavěných schopností obou jednotek (žádné bonusy). „Otevřít v kalkulačce“ tě přenese do plné kalkulačky s modifikátory.</>,
             <><b>Terén (stavebnice)</b> — klikni na Ruina/Zeď/Kráter/Les/Kontejner pro přidání kusu doprostřed desky, pak ho přetáhni na místo. Klik na terén otevře dole šířku/výšku/otočení, dvojklik ho odebere.</>,
             <><b>Mřížka po 1 palci</b> — přepínač u rozměrů desky, čtvercová síť odpovídající skutečným palcům na stole.</>,
+            <><b>Vytvořit vlastní terén / podložku</b> — vlastní název, tvar (obdélník/kruh), rozměry a barva. „Vrstva“ určuje, jestli kus stojí nahoře (terén) nebo dole (podložka, na které terén stojí) — appka je vždy vykreslí ve správném pořadí.</>,
             <><b>Moje podložky</b> — ulož rozměry + rozložení výsadku + rozestavěný terén (bez jednotek) pod jménem, kdykoli znovu načti. <b>Sdílet podložku</b> stáhne/nahraje soubor stejně jako sdílení knihovny.</>,
           ]}
         />
@@ -3818,6 +3824,12 @@ export default function Wh40kCalculator({ session }) {
   // which is the one currently being worked on.
   const [boardPresets, setBoardPresets] = useState([]);
   const [boardPresetsLoaded, setBoardPresetsLoaded] = useState(false);
+  // User-created terrain/base shapes (see TERRAIN_SHAPES for the built-in
+  // ones) — same shape, just defined by the person instead of shipped with
+  // the app. Each has a `layer` ("base" = a plinth terrain stands on, or
+  // "terrain") like the built-ins do.
+  const [customPieceTypes, setCustomPieceTypes] = useState([]);
+  const [customPieceTypesLoaded, setCustomPieceTypesLoaded] = useState(false);
   // Mirrors `board` synchronously so drag-end can read the latest tokens
   // without depending on a stale render closure (see commitBoardTokenMove).
   const boardRef = useRef(board);
@@ -3950,6 +3962,16 @@ export default function Wh40kCalculator({ session }) {
         setBoardPresetsLoaded(true);
       }
     })();
+    (async () => {
+      try {
+        const res = await withTimeout(storage.get("custom_pieces_v1", false));
+        if (res && res.value) setCustomPieceTypes(JSON.parse(res.value));
+      } catch (e) {
+        // nothing saved yet, or the request stalled
+      } finally {
+        setCustomPieceTypesLoaded(true);
+      }
+    })();
   }, []);
 
   const persistLibrary = useCallback(async (next) => {
@@ -4016,6 +4038,25 @@ export default function Wh40kCalculator({ session }) {
   };
   const deleteBoardPreset = (id) => persistBoardPresets(boardPresets.filter((p) => p.id !== id));
 
+  const persistCustomPieceTypes = useCallback(async (next) => {
+    setCustomPieceTypes(next);
+    try {
+      await storage.set("custom_pieces_v1", JSON.stringify(next), false);
+    } catch (e) {
+      console.error("Nepodařilo se uložit vlastní terén", e);
+    }
+  }, []);
+  const addCustomPieceType = (def) => {
+    const piece = { id: crypto.randomUUID(), ...def };
+    persistCustomPieceTypes([...customPieceTypes, piece]);
+    return piece.id;
+  };
+  const deleteCustomPieceType = (id) => persistCustomPieceTypes(customPieceTypes.filter((s) => s.id !== id));
+  // Looks up a shape definition by id across both the built-in TERRAIN_SHAPES
+  // and the user's own saved custom types — so placed pieces, the palette,
+  // and the selected-piece panel can all treat them identically.
+  const findShapeDef = (shapeId) => TERRAIN_SHAPES.find((s) => s.id === shapeId) || customPieceTypes.find((s) => s.id === shapeId);
+
   // Toggling a unit on/off the board's roster places/removes a single token
   // for the whole unit (not one per model) — simplest way to get an army onto
   // the table; drag it into position afterward.
@@ -4061,7 +4102,7 @@ export default function Wh40kCalculator({ session }) {
   // persistence since that just writes whatever boardRef.current holds,
   // regardless of whether a token or a terrain piece moved.
   const addTerrainPiece = (shapeId) => {
-    const shape = TERRAIN_SHAPES.find((s) => s.id === shapeId);
+    const shape = findShapeDef(shapeId);
     if (!shape) return;
     const piece = { id: crypto.randomUUID(), shapeId, xPct: 50, yPct: 50, widthIn: shape.widthIn, heightIn: shape.heightIn, rotationDeg: 0 };
     persistBoard({ ...board, terrain: [...(board.terrain || []), piece] });
@@ -4287,6 +4328,8 @@ export default function Wh40kCalculator({ session }) {
   const [showBoardGrid, setShowBoardGrid] = useState(true);
   const [newPresetName, setNewPresetName] = useState("");
   const [boardShareOpen, setBoardShareOpen] = useState(false);
+  const [customFormOpen, setCustomFormOpen] = useState(false);
+  const [customForm, setCustomForm] = useState({ name: "", layer: "terrain", shape: "rect", widthIn: 4, heightIn: 4, color: "#5c5c52" });
 
   const handleBoardTokenSelect = (token) => {
     const unit = library.find((u) => u.id === token.unitId);
@@ -6148,7 +6191,118 @@ export default function Wh40kCalculator({ session }) {
                   {s.label}
                 </button>
               ))}
+              {customPieceTypes.map((s) => (
+                <div
+                  key={s.id}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 4,
+                    border: "1px solid var(--accent)",
+                    background: "var(--field-bg)",
+                    color: "var(--text)",
+                    borderRadius: 6,
+                    padding: "5px 6px 5px 6px",
+                    fontSize: 11,
+                  }}
+                >
+                  <button
+                    onClick={() => addTerrainPiece(s.id)}
+                    title={`Přidat: ${s.label}`}
+                    style={{ display: "flex", alignItems: "center", gap: 6, background: "transparent", border: "none", color: "var(--text)", padding: 0, cursor: "pointer", fontSize: 11 }}
+                  >
+                    <span style={{ display: "inline-block", width: 16, height: 12, background: s.bg, border: s.border, borderRadius: s.radius }} />
+                    {s.label}
+                  </button>
+                  <button
+                    onClick={() => askConfirm(`Smazat vlastní typ „${s.label}“? (Kusy už umístěné na desce zůstanou.)`, () => deleteCustomPieceType(s.id))}
+                    title="Smazat vlastní typ"
+                    style={{ background: "transparent", border: "none", color: "var(--muted)", cursor: "pointer", padding: "0 0 0 2px", display: "flex" }}
+                  >
+                    <Trash2 size={11} />
+                  </button>
+                </div>
+              ))}
             </div>
+
+            <button
+              onClick={() => setCustomFormOpen((o) => !o)}
+              style={{ display: "flex", alignItems: "center", gap: 4, background: "transparent", border: "none", color: "var(--accent-text)", fontSize: 11.5, fontWeight: 700, cursor: "pointer", padding: 0, marginTop: 8, textTransform: "uppercase", letterSpacing: 0.4 }}
+            >
+              <Plus size={12} /> Vytvořit vlastní terén / podložku
+              <ChevronDown size={12} style={{ transform: customFormOpen ? "rotate(180deg)" : "none" }} />
+            </button>
+            {customFormOpen && (
+              <div style={{ marginTop: 8, background: "var(--panel)", border: "1px solid var(--field-border)", borderRadius: 8, padding: 10 }}>
+                <TextField label="Název" value={customForm.name} onChange={(v) => setCustomForm((s) => ({ ...s, name: v }))} placeholder="např. Bunkr, Skalní podložka…" small />
+                <Row cols={2}>
+                  <SelectField
+                    label="Vrstva"
+                    value={customForm.layer}
+                    onChange={(v) => setCustomForm((s) => ({ ...s, layer: v }))}
+                    options={[
+                      { value: "terrain", label: "Terén (nahoře)" },
+                      { value: "base", label: "Podložka (dole, terén na ni stojí)" },
+                    ]}
+                    small
+                  />
+                  <SelectField
+                    label="Tvar"
+                    value={customForm.shape}
+                    onChange={(v) => setCustomForm((s) => ({ ...s, shape: v }))}
+                    options={[
+                      { value: "rect", label: "Obdélník" },
+                      { value: "circle", label: "Kruh / ovál" },
+                    ]}
+                    small
+                  />
+                </Row>
+                <Row cols={3}>
+                  <NumberField label="Šířka (in)" value={customForm.widthIn} onChange={(v) => setCustomForm((s) => ({ ...s, widthIn: Math.max(0.5, v) }))} min={0.5} small />
+                  <NumberField label="Výška (in)" value={customForm.heightIn} onChange={(v) => setCustomForm((s) => ({ ...s, heightIn: Math.max(0.5, v) }))} min={0.5} small />
+                  <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                    <span style={{ fontSize: 11, color: "var(--label)", fontWeight: 600 }}>Barva</span>
+                    <input
+                      type="color"
+                      value={customForm.color}
+                      onChange={(e) => setCustomForm((s) => ({ ...s, color: e.target.value }))}
+                      style={{ width: "100%", height: 30, border: "1px solid var(--field-border)", borderRadius: 6, background: "var(--field-bg)", padding: 2, cursor: "pointer" }}
+                    />
+                  </label>
+                </Row>
+                <button
+                  onClick={() => {
+                    if (!customForm.name.trim()) return;
+                    addCustomPieceType({
+                      label: customForm.name.trim(),
+                      layer: customForm.layer,
+                      widthIn: customForm.widthIn,
+                      heightIn: customForm.heightIn,
+                      bg: customForm.color,
+                      border: customForm.layer === "base" ? "1px solid rgba(255,255,255,0.65)" : "2px dashed rgba(255,255,255,0.5)",
+                      radius: customForm.shape === "circle" ? "50%" : 3,
+                    });
+                    setCustomForm((s) => ({ ...s, name: "" }));
+                    setCustomFormOpen(false);
+                  }}
+                  disabled={!customForm.name.trim()}
+                  className="wh40k-btn"
+                  style={{
+                    marginTop: 4,
+                    border: "none",
+                    background: customForm.name.trim() ? "var(--accent)" : "var(--field-border)",
+                    color: customForm.name.trim() ? "#fff" : "var(--muted)",
+                    borderRadius: 6,
+                    padding: "7px 12px",
+                    fontSize: 12,
+                    fontWeight: 700,
+                    cursor: customForm.name.trim() ? "pointer" : "not-allowed",
+                  }}
+                >
+                  Přidat do palety
+                </button>
+              </div>
+            )}
           </div>
 
           <div style={{ marginTop: 10, marginBottom: 4, background: "var(--field-bg)", border: "1px dashed var(--field-border)", borderRadius: 8, padding: 10 }}>
@@ -6327,8 +6481,16 @@ export default function Wh40kCalculator({ session }) {
                 </>
               );
             })()}
-            {(board.terrain || []).map((p) => {
-              const shape = TERRAIN_SHAPES.find((s) => s.id === p.shapeId);
+            {[...(board.terrain || [])]
+              .sort((a, b) => {
+                // Base-layer pieces (a plinth) always render under terrain,
+                // no matter the order they were placed/dragged in.
+                const la = findShapeDef(a.shapeId)?.layer === "base" ? 0 : 1;
+                const lb = findShapeDef(b.shapeId)?.layer === "base" ? 0 : 1;
+                return la - lb;
+              })
+              .map((p) => {
+              const shape = findShapeDef(p.shapeId);
               if (!shape) return null;
               const sizePctW = Math.max(0.8, ((p.widthIn || shape.widthIn) / board.widthIn) * 100);
               const sizePctH = Math.max(0.8, ((p.heightIn || shape.heightIn) / board.heightIn) * 100);
@@ -6374,7 +6536,7 @@ export default function Wh40kCalculator({ session }) {
           {selectedTerrainId &&
             (() => {
               const piece = (board.terrain || []).find((p) => p.id === selectedTerrainId);
-              const shape = piece && TERRAIN_SHAPES.find((s) => s.id === piece.shapeId);
+              const shape = piece && findShapeDef(piece.shapeId);
               if (!piece || !shape) return null;
               return (
                 <div style={{ marginTop: 10, background: "var(--panel)", border: "1px solid var(--field-border)", borderRadius: 10, padding: 12 }}>
