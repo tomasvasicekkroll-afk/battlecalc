@@ -2600,6 +2600,12 @@ function TerrainPieceView({ piece, shape, containerRef, sizePctW, sizePctH, sele
   const draggingRef = useRef(false);
   const movedRef = useRef(false);
   const startRef = useRef({ x: 0, y: 0 });
+  // Where on the piece you actually grabbed it, relative to its own center —
+  // without this, the piece's center would snap straight to the cursor on
+  // the very first move, which looks like a jump ("it clicks a bit off")
+  // whenever you don't grab exactly dead-center — the bigger the piece
+  // (a large podložka, say), the more that jump stands out.
+  const grabOffsetRef = useRef({ dx: 0, dy: 0 });
 
   const handlePointerDown = (e) => {
     e.stopPropagation();
@@ -2607,6 +2613,12 @@ function TerrainPieceView({ piece, shape, containerRef, sizePctW, sizePctH, sele
     draggingRef.current = true;
     movedRef.current = false;
     startRef.current = { x: e.clientX, y: e.clientY };
+    if (containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect();
+      const cursorXPct = ((e.clientX - rect.left) / rect.width) * 100;
+      const cursorYPct = ((e.clientY - rect.top) / rect.height) * 100;
+      grabOffsetRef.current = { dx: piece.xPct - cursorXPct, dy: piece.yPct - cursorYPct };
+    }
   };
   const handlePointerMove = (e) => {
     if (!draggingRef.current || !containerRef.current) return;
@@ -2615,8 +2627,11 @@ function TerrainPieceView({ piece, shape, containerRef, sizePctW, sizePctH, sele
     }
     if (!movedRef.current) return;
     const rect = containerRef.current.getBoundingClientRect();
-    const xPct = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
-    const yPct = Math.max(0, Math.min(100, ((e.clientY - rect.top) / rect.height) * 100));
+    const cursorXPct = ((e.clientX - rect.left) / rect.width) * 100;
+    const cursorYPct = ((e.clientY - rect.top) / rect.height) * 100;
+    const { dx, dy } = grabOffsetRef.current;
+    const xPct = Math.max(0, Math.min(100, cursorXPct + dx));
+    const yPct = Math.max(0, Math.min(100, cursorYPct + dy));
     onMove(piece.id, xPct, yPct);
   };
   const handlePointerUp = () => {
@@ -2687,6 +2702,11 @@ function BoardTokenView({ token, unit, containerRef, sizePctW, sizePctH, selecte
   // pick attacker/target for a quick matchup) instead of a (no-op) drag.
   const movedRef = useRef(false);
   const startRef = useRef({ x: 0, y: 0 });
+  // Where on the token you actually grabbed it, relative to its own center —
+  // without this, the token's center would snap straight to the cursor on
+  // the very first move, which looks like a jump ("it clicks a bit off")
+  // whenever you don't grab exactly dead-center, worse the bigger the token.
+  const grabOffsetRef = useRef({ dx: 0, dy: 0 });
 
   const handlePointerDown = (e) => {
     e.stopPropagation();
@@ -2694,6 +2714,12 @@ function BoardTokenView({ token, unit, containerRef, sizePctW, sizePctH, selecte
     draggingRef.current = true;
     movedRef.current = false;
     startRef.current = { x: e.clientX, y: e.clientY };
+    if (containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect();
+      const cursorXPct = ((e.clientX - rect.left) / rect.width) * 100;
+      const cursorYPct = ((e.clientY - rect.top) / rect.height) * 100;
+      grabOffsetRef.current = { dx: token.xPct - cursorXPct, dy: token.yPct - cursorYPct };
+    }
   };
   const handlePointerMove = (e) => {
     if (!draggingRef.current || !containerRef.current) return;
@@ -2702,8 +2728,11 @@ function BoardTokenView({ token, unit, containerRef, sizePctW, sizePctH, selecte
     }
     if (!movedRef.current) return;
     const rect = containerRef.current.getBoundingClientRect();
-    const xPct = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
-    const yPct = Math.max(0, Math.min(100, ((e.clientY - rect.top) / rect.height) * 100));
+    const cursorXPct = ((e.clientX - rect.left) / rect.width) * 100;
+    const cursorYPct = ((e.clientY - rect.top) / rect.height) * 100;
+    const { dx, dy } = grabOffsetRef.current;
+    const xPct = Math.max(0, Math.min(100, cursorXPct + dx));
+    const yPct = Math.max(0, Math.min(100, cursorYPct + dy));
     onMove(token.id, xPct, yPct);
   };
   const handlePointerUp = () => {
