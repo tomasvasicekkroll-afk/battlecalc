@@ -3738,7 +3738,7 @@ function ManualView({ onBack }) {
             <>Rozměry desky (šířka/výška v palcích) jdou upravit nahoře — token si přepočítá velikost podle nich.</>,
             <>Jeden token = celá jednotka (počet modelů je v odznáčku v rohu), ne model po modelu.</>,
             <><b>Rozložení výsadku</b> — čtyři barevné náhledy nad deskou; vyber si podle tvaru, žádné se neváže na konkrétní misi ani jméno dispozice.</>,
-            <><b>Nakreslit vlastní výsadek</b> — klikni „Nakreslit mou zónu“ nebo „Nakreslit zónu protihráče“, pak postupně klikej body na desku (min. 3), a klikni Dokončit. Přebije daný náhled jen pro tu stranu; „Zpět na přednastavené rozložení“ obě strany zase vrátí na náhled.</>,
+            <><b>Nakreslit vlastní výsadek</b> — klikni „Nakreslit mou zónu“ nebo „Nakreslit zónu protihráče“, pak stiskni na desce a táhni jako štětcem (min. 3 body), a klikni Dokončit. Přebije daný náhled jen pro tu stranu; „Zpět na přednastavené rozložení“ obě strany zase vrátí na náhled. Čísla po 5 palcích podél okrajů desky se zapínají/vypínají spolu s mřížkou.</>,
             <><b>Rychlý souboj</b> — klikni na svůj token, pak na token protihráče. Appka spočítá zabité modely/damage jen z vestavěných schopností obou jednotek (žádné bonusy). „Otevřít v kalkulačce“ tě přenese do plné kalkulačky s modifikátory.</>,
             <><b>Terén (stavebnice)</b> — klikni na Ruina/Zeď/Kráter/Les/Kontejner pro přidání kusu doprostřed desky, pak ho přetáhni na místo. Klik na terén otevře dole šířku/výšku/otočení, dvojklik ho odebere.</>,
             <><b>Mřížka po 1 palci</b> — přepínač u rozměrů desky, čtvercová síť odpovídající skutečným palcům na stole.</>,
@@ -4425,6 +4425,11 @@ export default function Wh40kCalculator({ session }) {
   // polygon for "mine" or "theirs", overriding that side's swatch shape.
   const [drawMode, setDrawMode] = useState(null); // null | "mine" | "theirs"
   const [drawPoints, setDrawPoints] = useState([]); // [{x,y}] as % of board
+  // Drag state for painting a zone (press, drag, release) rather than
+  // click-per-vertex — doesn't need to be React state since it never drives
+  // a render on its own, only the drawPoints it produces do.
+  const drawStrokeActiveRef = useRef(false);
+  const lastDrawPointRef = useRef(null);
   const [newPresetName, setNewPresetName] = useState("");
   const [boardShareOpen, setBoardShareOpen] = useState(false);
   const [customFormOpen, setCustomFormOpen] = useState(false);
@@ -6635,7 +6640,7 @@ export default function Wh40kCalculator({ session }) {
               }}
             >
               <span style={{ fontSize: 11.5, fontWeight: 700, color: drawMode === "mine" ? "var(--accent-text)" : "#e0857c" }}>
-                Kreslíš {drawMode === "mine" ? "svou zónu" : "zónu protihráče"} — klikej na desku ({drawPoints.length} {drawPoints.length === 1 ? "bod" : "body"})
+                Kreslíš {drawMode === "mine" ? "svou zónu" : "zónu protihráče"} — stiskni na desce a táhni jako štětcem ({drawPoints.length} {drawPoints.length === 1 ? "bod" : "body"})
               </span>
               <div style={{ flex: 1 }} />
               <button
@@ -6711,14 +6716,40 @@ export default function Wh40kCalculator({ session }) {
 
           <div
             ref={boardContainerRef}
+            onPointerDown={(e) => {
+              if (!drawMode) return;
+              e.currentTarget.setPointerCapture(e.pointerId);
+              drawStrokeActiveRef.current = true;
+              const rect = boardContainerRef.current.getBoundingClientRect();
+              const xPct = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
+              const yPct = Math.max(0, Math.min(100, ((e.clientY - rect.top) / rect.height) * 100));
+              lastDrawPointRef.current = { x: xPct, y: yPct };
+              addDrawPoint(xPct, yPct);
+            }}
+            onPointerMove={(e) => {
+              if (!drawMode || !drawStrokeActiveRef.current) return;
+              const rect = boardContainerRef.current.getBoundingClientRect();
+              const xPct = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
+              const yPct = Math.max(0, Math.min(100, ((e.clientY - rect.top) / rect.height) * 100));
+              const last = lastDrawPointRef.current;
+              // Sample by distance, not by every pointermove event — a fast
+              // drag can fire dozens of these a second, which would flood
+              // the point list (and React) with far more detail than the
+              // shape actually needs.
+              if (last && Math.hypot(xPct - last.x, yPct - last.y) < 1.2) return;
+              lastDrawPointRef.current = { x: xPct, y: yPct };
+              addDrawPoint(xPct, yPct);
+            }}
+            onPointerUp={() => {
+              drawStrokeActiveRef.current = false;
+              lastDrawPointRef.current = null;
+            }}
+            onPointerCancel={() => {
+              drawStrokeActiveRef.current = false;
+              lastDrawPointRef.current = null;
+            }}
             onClick={(e) => {
-              if (drawMode) {
-                const rect = boardContainerRef.current.getBoundingClientRect();
-                const xPct = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
-                const yPct = Math.max(0, Math.min(100, ((e.clientY - rect.top) / rect.height) * 100));
-                addDrawPoint(xPct, yPct);
-                return;
-              }
+              if (drawMode) return;
               // Clicking empty board space (not a token/terrain piece)
               // clears whatever's currently selected.
               if (e.target === e.currentTarget) {
@@ -6769,6 +6800,48 @@ export default function Wh40kCalculator({ session }) {
                 </>
               );
             })()}
+            {/* Ruler numbers every 5" along the top and left edges — tied to
+                the same grid toggle, since they're a reference for it. */}
+            {showBoardGrid && (
+              <>
+                {Array.from({ length: Math.floor(board.widthIn / 5) + 1 }, (_, i) => i * 5).map((n) => (
+                  <div
+                    key={`ruler-x-${n}`}
+                    style={{
+                      position: "absolute",
+                      left: `${(n / board.widthIn) * 100}%`,
+                      top: 1,
+                      transform: "translateX(2px)",
+                      fontSize: 8,
+                      lineHeight: 1,
+                      color: "rgba(255,255,255,0.55)",
+                      fontFamily: "var(--mono)",
+                      pointerEvents: "none",
+                    }}
+                  >
+                    {n}
+                  </div>
+                ))}
+                {Array.from({ length: Math.floor(board.heightIn / 5) + 1 }, (_, i) => i * 5).map((n) => (
+                  <div
+                    key={`ruler-y-${n}`}
+                    style={{
+                      position: "absolute",
+                      top: `${(n / board.heightIn) * 100}%`,
+                      left: 1,
+                      transform: "translateY(2px)",
+                      fontSize: 8,
+                      lineHeight: 1,
+                      color: "rgba(255,255,255,0.55)",
+                      fontFamily: "var(--mono)",
+                      pointerEvents: "none",
+                    }}
+                  >
+                    {n}
+                  </div>
+                ))}
+              </>
+            )}
             {/* In-progress freehand drawing overlay — the points the person
                 has clicked so far, plus the closed shape once there are
                 enough to form a polygon. */}
