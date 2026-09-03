@@ -2570,6 +2570,32 @@ function LayoutSwatch({ layout, selected, onClick }) {
 // drag distinction as BoardTokenView (see there), sized as width%/height% of
 // the board so it keeps true proportions regardless of the board's own
 // aspect ratio, same math as token sizing.
+// Small palette-button preview of a terrain/base shape — for a "combo"
+// piece (podložka s terénem na ni), shows the terrain swatch nested inside
+// the base swatch, same relationship as the real piece on the board.
+function PieceSwatch({ shape }) {
+  if (shape.combo) {
+    return (
+      <span style={{ position: "relative", display: "inline-block", width: 16, height: 12, background: shape.bg, border: shape.border, borderRadius: shape.radius, flexShrink: 0 }}>
+        <span
+          style={{
+            position: "absolute",
+            left: "50%",
+            top: "50%",
+            transform: "translate(-50%, -50%)",
+            width: "60%",
+            height: "60%",
+            background: shape.terrainBg,
+            border: shape.terrainBorder,
+            borderRadius: shape.terrainRadius,
+          }}
+        />
+      </span>
+    );
+  }
+  return <span style={{ display: "inline-block", width: 16, height: 12, background: shape.bg, border: shape.border, borderRadius: shape.radius, flexShrink: 0 }} />;
+}
+
 function TerrainPieceView({ piece, shape, containerRef, sizePctW, sizePctH, selected, onMove, onCommit, onRemove, onSelect }) {
   const draggingRef = useRef(false);
   const movedRef = useRef(false);
@@ -2629,7 +2655,28 @@ function TerrainPieceView({ piece, shape, containerRef, sizePctW, sizePctH, sele
         touchAction: "none",
         zIndex: selected ? 2 : 1,
       }}
-    />
+    >
+      {/* A "combo" piece (podložka + terén na ni) is one rigid unit — the
+          outer div above IS the base, and this inner div is the terrain
+          shape sized/centered as a % of it, so resizing the outer piece
+          (see the selected-piece panel) scales both together automatically. */}
+      {shape.combo && (
+        <div
+          style={{
+            position: "absolute",
+            left: "50%",
+            top: "50%",
+            width: `${(shape.terrainWidthIn / shape.widthIn) * 100}%`,
+            height: `${(shape.terrainHeightIn / shape.heightIn) * 100}%`,
+            transform: "translate(-50%, -50%)",
+            borderRadius: shape.terrainRadius,
+            background: shape.terrainBg,
+            border: shape.terrainBorder,
+            pointerEvents: "none",
+          }}
+        />
+      )}
+    </div>
   );
 }
 
@@ -3694,7 +3741,7 @@ function ManualView({ onBack }) {
             <><b>Rychlý souboj</b> — klikni na svůj token, pak na token protihráče. Appka spočítá zabité modely/damage jen z vestavěných schopností obou jednotek (žádné bonusy). „Otevřít v kalkulačce“ tě přenese do plné kalkulačky s modifikátory.</>,
             <><b>Terén (stavebnice)</b> — klikni na Ruina/Zeď/Kráter/Les/Kontejner pro přidání kusu doprostřed desky, pak ho přetáhni na místo. Klik na terén otevře dole šířku/výšku/otočení, dvojklik ho odebere.</>,
             <><b>Mřížka po 1 palci</b> — přepínač u rozměrů desky, čtvercová síť odpovídající skutečným palcům na stole.</>,
-            <><b>Vytvořit vlastní terén / podložku</b> — vlastní název, tvar (obdélník/kruh), rozměry a barva. „Vrstva“ určuje, jestli kus stojí nahoře (terén) nebo dole (podložka, na které terén stojí) — appka je vždy vykreslí ve správném pořadí.</>,
+            <><b>Vytvořit vlastní terén / podložku</b> — vlastní název, tvar (obdélník/kruh), rozměry a barva. „Vrstva“ určuje, jestli kus stojí nahoře (terén), dole (podložka, na které terén stojí), nebo <b>obojí najednou</b> (podložka s terénem přilepeným na ní — jeden kus, co se táhne a otáčí spolu).</>,
             <><b>Moje podložky</b> — ulož rozměry + rozložení výsadku + rozestavěný terén (bez jednotek) pod jménem, kdykoli znovu načti. <b>Sdílet podložku</b> stáhne/nahraje soubor stejně jako sdílení knihovny.</>,
           ]}
         />
@@ -4329,7 +4376,7 @@ export default function Wh40kCalculator({ session }) {
   const [newPresetName, setNewPresetName] = useState("");
   const [boardShareOpen, setBoardShareOpen] = useState(false);
   const [customFormOpen, setCustomFormOpen] = useState(false);
-  const [customForm, setCustomForm] = useState({ name: "", layer: "terrain", shape: "rect", widthIn: 4, heightIn: 4, color: "#5c5c52" });
+  const [customForm, setCustomForm] = useState({ name: "", layer: "terrain", shape: "rect", widthIn: 4, heightIn: 4, color: "#5c5c52", baseMarginIn: 1, baseColor: "#8a8a78" });
 
   const handleBoardTokenSelect = (token) => {
     const unit = library.find((u) => u.id === token.unitId);
@@ -6187,7 +6234,7 @@ export default function Wh40kCalculator({ session }) {
                     cursor: "pointer",
                   }}
                 >
-                  <span style={{ display: "inline-block", width: 16, height: 12, background: s.bg, border: s.border, borderRadius: s.radius }} />
+                  <PieceSwatch shape={s} />
                   {s.label}
                 </button>
               ))}
@@ -6211,7 +6258,7 @@ export default function Wh40kCalculator({ session }) {
                     title={`Přidat: ${s.label}`}
                     style={{ display: "flex", alignItems: "center", gap: 6, background: "transparent", border: "none", color: "var(--text)", padding: 0, cursor: "pointer", fontSize: 11 }}
                   >
-                    <span style={{ display: "inline-block", width: 16, height: 12, background: s.bg, border: s.border, borderRadius: s.radius }} />
+                    <PieceSwatch shape={s} />
                     {s.label}
                   </button>
                   <button
@@ -6243,6 +6290,7 @@ export default function Wh40kCalculator({ session }) {
                     options={[
                       { value: "terrain", label: "Terén (nahoře)" },
                       { value: "base", label: "Podložka (dole, terén na ni stojí)" },
+                      { value: "combo", label: "Podložka s terénem (obojí najednou)" },
                     ]}
                     small
                   />
@@ -6258,10 +6306,10 @@ export default function Wh40kCalculator({ session }) {
                   />
                 </Row>
                 <Row cols={3}>
-                  <NumberField label="Šířka (in)" value={customForm.widthIn} onChange={(v) => setCustomForm((s) => ({ ...s, widthIn: Math.max(0.5, v) }))} min={0.5} small />
-                  <NumberField label="Výška (in)" value={customForm.heightIn} onChange={(v) => setCustomForm((s) => ({ ...s, heightIn: Math.max(0.5, v) }))} min={0.5} small />
+                  <NumberField label={customForm.layer === "combo" ? "Šířka terénu (in)" : "Šířka (in)"} value={customForm.widthIn} onChange={(v) => setCustomForm((s) => ({ ...s, widthIn: Math.max(0.5, v) }))} min={0.5} small />
+                  <NumberField label={customForm.layer === "combo" ? "Výška terénu (in)" : "Výška (in)"} value={customForm.heightIn} onChange={(v) => setCustomForm((s) => ({ ...s, heightIn: Math.max(0.5, v) }))} min={0.5} small />
                   <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                    <span style={{ fontSize: 11, color: "var(--label)", fontWeight: 600 }}>Barva</span>
+                    <span style={{ fontSize: 11, color: "var(--label)", fontWeight: 600 }}>{customForm.layer === "combo" ? "Barva terénu" : "Barva"}</span>
                     <input
                       type="color"
                       value={customForm.color}
@@ -6270,18 +6318,58 @@ export default function Wh40kCalculator({ session }) {
                     />
                   </label>
                 </Row>
+                {customForm.layer === "combo" && (
+                  <Row cols={2}>
+                    <NumberField
+                      label="Přesah podložky (in)"
+                      value={customForm.baseMarginIn}
+                      onChange={(v) => setCustomForm((s) => ({ ...s, baseMarginIn: Math.max(0.1, v) }))}
+                      min={0.1}
+                      hint="o kolik je podložka větší než terén na ní, na každou stranu"
+                      small
+                    />
+                    <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                      <span style={{ fontSize: 11, color: "var(--label)", fontWeight: 600 }}>Barva podložky</span>
+                      <input
+                        type="color"
+                        value={customForm.baseColor}
+                        onChange={(e) => setCustomForm((s) => ({ ...s, baseColor: e.target.value }))}
+                        style={{ width: "100%", height: 30, border: "1px solid var(--field-border)", borderRadius: 6, background: "var(--field-bg)", padding: 2, cursor: "pointer" }}
+                      />
+                    </label>
+                  </Row>
+                )}
                 <button
                   onClick={() => {
                     if (!customForm.name.trim()) return;
-                    addCustomPieceType({
-                      label: customForm.name.trim(),
-                      layer: customForm.layer,
-                      widthIn: customForm.widthIn,
-                      heightIn: customForm.heightIn,
-                      bg: customForm.color,
-                      border: customForm.layer === "base" ? "1px solid rgba(255,255,255,0.65)" : "2px dashed rgba(255,255,255,0.5)",
-                      radius: customForm.shape === "circle" ? "50%" : 3,
-                    });
+                    const radius = customForm.shape === "circle" ? "50%" : 3;
+                    if (customForm.layer === "combo") {
+                      addCustomPieceType({
+                        label: customForm.name.trim(),
+                        layer: "terrain",
+                        combo: true,
+                        widthIn: customForm.widthIn + 2 * customForm.baseMarginIn,
+                        heightIn: customForm.heightIn + 2 * customForm.baseMarginIn,
+                        bg: customForm.baseColor,
+                        border: "1px solid rgba(255,255,255,0.65)",
+                        radius,
+                        terrainWidthIn: customForm.widthIn,
+                        terrainHeightIn: customForm.heightIn,
+                        terrainBg: customForm.color,
+                        terrainBorder: "2px dashed rgba(255,255,255,0.5)",
+                        terrainRadius: radius,
+                      });
+                    } else {
+                      addCustomPieceType({
+                        label: customForm.name.trim(),
+                        layer: customForm.layer,
+                        widthIn: customForm.widthIn,
+                        heightIn: customForm.heightIn,
+                        bg: customForm.color,
+                        border: customForm.layer === "base" ? "1px solid rgba(255,255,255,0.65)" : "2px dashed rgba(255,255,255,0.5)",
+                        radius,
+                      });
+                    }
                     setCustomForm((s) => ({ ...s, name: "" }));
                     setCustomFormOpen(false);
                   }}
