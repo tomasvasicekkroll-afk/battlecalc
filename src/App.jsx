@@ -4039,6 +4039,31 @@ export default function Wh40kCalculator({ session }) {
     }
   }, []);
 
+  // Self-heal armies that reference a unit id no longer in the library —
+  // deleteUnit already prunes on the spot when a unit is deleted through this
+  // session, but a unit can also disappear from underneath a saved army via a
+  // stale write from another device/tab (loads the old armies array, then
+  // persists it back after this session already deleted a unit), which
+  // otherwise leaves the army looking selectable but silently empty. Runs
+  // once, only after both library and armies have actually finished loading
+  // (armies loads in parallel with the library, so checking too early would
+  // see an empty library and wrongly prune everything).
+  const armiesPrunedRef = useRef(false);
+  useEffect(() => {
+    if (armiesPrunedRef.current || !loaded || !armiesLoaded) return;
+    armiesPrunedRef.current = true;
+    const libraryIds = new Set(library.map((u) => u.id));
+    let danglingFound = false;
+    const pruned = [];
+    armies.forEach((a) => {
+      const keptIds = (a.unitIds || []).filter((id) => libraryIds.has(id));
+      if (keptIds.length !== (a.unitIds || []).length) danglingFound = true;
+      if (keptIds.length > 0) pruned.push({ ...a, unitIds: keptIds });
+      else danglingFound = true;
+    });
+    if (danglingFound) persistArmies(pruned);
+  }, [loaded, armiesLoaded, library, armies, persistArmies]);
+
   const persistBoard = useCallback(async (next) => {
     setBoard(next);
     try {
