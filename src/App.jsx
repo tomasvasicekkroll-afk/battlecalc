@@ -2150,6 +2150,201 @@ function ExportImportBox({ library, armies, onImport }) {
   );
 }
 
+// Export/import for board presets ("podložky") — same download-a-file /
+// paste-as-text pattern as ExportImportBox above, just for boardPresets
+// instead of the unit library. Exports every saved preset at once; on
+// import, names that collide with an existing preset get " (import)"
+// appended rather than silently overwriting anything.
+function BoardShareBox({ boardPresets, onImport }) {
+  const [mode, setMode] = useState("export");
+  const [importText, setImportText] = useState("");
+  const [importSummary, setImportSummary] = useState(null);
+  const [importFileName, setImportFileName] = useState("");
+  const [copied, setCopied] = useState(false);
+
+  const exportPayload = JSON.stringify({ battlecalcBoardPresets: true, presets: boardPresets }, null, 2);
+  const exportFileName = `battlecalc-podlozky-${new Date().toISOString().slice(0, 10)}.json`;
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(exportPayload);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (e) {
+      setCopied(false);
+    }
+  };
+
+  const handleDownload = () => {
+    const blob = new Blob([exportPayload], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = exportFileName;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const importFromText = (text) => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    let data;
+    try {
+      data = JSON.parse(trimmed);
+    } catch (e) {
+      setImportSummary({ error: true, message: "Tohle nevypadá jako platný export podložek z Battlecalc (neplatný JSON)." });
+      return;
+    }
+    const presets = Array.isArray(data.presets) ? data.presets : Array.isArray(data) ? data : null;
+    if (!presets) {
+      setImportSummary({ error: true, message: "Tohle nevypadá jako platný export podložek z Battlecalc." });
+      return;
+    }
+    const { added } = onImport(presets);
+    setImportSummary({ error: false, added });
+    setImportText("");
+    setImportFileName("");
+  };
+
+  const handleImportFile = (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    setImportFileName(file.name);
+    const reader = new FileReader();
+    reader.onload = (ev) => importFromText(String(ev.target.result || ""));
+    reader.onerror = () => setImportSummary({ error: true, message: "Soubor se nepodařilo přečíst." });
+    reader.readAsText(file);
+  };
+
+  return (
+    <div style={{ background: "var(--panel)", border: "1px dashed var(--field-border)", borderRadius: 8, padding: 10, marginTop: 8 }}>
+      <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
+        <button
+          onClick={() => setMode("export")}
+          style={{
+            flex: 1,
+            border: "1px solid " + (mode === "export" ? "var(--accent)" : "var(--field-border)"),
+            background: mode === "export" ? "var(--accent-dim)" : "transparent",
+            color: mode === "export" ? "var(--accent-text)" : "var(--text)",
+            borderRadius: 6,
+            padding: "6px 0",
+            fontSize: 12,
+            fontWeight: 700,
+            cursor: "pointer",
+          }}
+        >
+          Export (pošli kamarádovi)
+        </button>
+        <button
+          onClick={() => setMode("import")}
+          style={{
+            flex: 1,
+            border: "1px solid " + (mode === "import" ? "var(--accent)" : "var(--field-border)"),
+            background: mode === "import" ? "var(--accent-dim)" : "transparent",
+            color: mode === "import" ? "var(--accent-text)" : "var(--text)",
+            borderRadius: 6,
+            padding: "6px 0",
+            fontSize: 12,
+            fontWeight: 700,
+            cursor: "pointer",
+          }}
+        >
+          Import (od kamaráda)
+        </button>
+      </div>
+
+      {mode === "export" ? (
+        <>
+          <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 8 }}>
+            Stáhni soubor a pošli ho kamarádovi. On si ho pak v téhle appce nahraje přes záložku "Import".
+          </div>
+          <button
+            onClick={handleDownload}
+            disabled={boardPresets.length === 0}
+            className="wh40k-btn"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              border: "none",
+              background: boardPresets.length === 0 ? "var(--field-border)" : "var(--accent)",
+              color: boardPresets.length === 0 ? "var(--muted)" : "#fff",
+              borderRadius: 6,
+              padding: "7px 14px",
+              fontSize: 13,
+              fontWeight: 600,
+              cursor: boardPresets.length === 0 ? "not-allowed" : "pointer",
+            }}
+          >
+            <Save size={14} /> Stáhnout jako soubor
+          </button>
+          <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 6, marginBottom: 10 }}>
+            Obsahuje {boardPresets.length} podložek ({exportFileName}).
+          </div>
+          <details>
+            <summary style={{ fontSize: 11.5, color: "var(--muted)", cursor: "pointer" }}>Nebo zkopírovat jako text</summary>
+            <textarea
+              readOnly
+              value={exportPayload}
+              rows={5}
+              style={{ width: "100%", boxSizing: "border-box", marginTop: 8, background: "var(--field-bg)", border: "1px solid var(--field-border)", borderRadius: 6, color: "var(--text)", padding: "8px 9px", fontSize: 11, fontFamily: "var(--mono)", resize: "vertical" }}
+              onFocus={(e) => e.target.select()}
+            />
+            <button
+              onClick={handleCopy}
+              className="wh40k-btn"
+              style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 6, border: "1px solid var(--field-border)", background: "transparent", color: "var(--text)", borderRadius: 6, padding: "6px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
+            >
+              {copied ? "Zkopírováno ✓" : "Kopírovat"}
+            </button>
+          </details>
+        </>
+      ) : (
+        <>
+          <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 8 }}>Nahraj soubor, který ti poslal kamarád, nebo vlož jeho obsah jako text.</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+            <label
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                border: "1px solid var(--field-border)",
+                borderRadius: 6,
+                padding: "6px 12px",
+                fontSize: 12.5,
+                cursor: "pointer",
+                color: "var(--text)",
+              }}
+            >
+              <Upload size={13} /> Nahrát soubor (.json)
+              <input type="file" accept=".json,application/json" onChange={handleImportFile} style={{ display: "none" }} />
+            </label>
+            {importFileName && <span style={{ fontSize: 12, color: "var(--muted)" }}>{importFileName}</span>}
+          </div>
+          <textarea
+            value={importText}
+            onChange={(e) => setImportText(e.target.value)}
+            rows={5}
+            placeholder="…nebo sem vlož exportovaný text…"
+            style={{ width: "100%", boxSizing: "border-box", background: "var(--field-bg)", border: "1px solid var(--field-border)", borderRadius: 6, color: "var(--text)", padding: "8px 9px", fontSize: 11, fontFamily: "var(--mono)", resize: "vertical" }}
+          />
+          <button
+            onClick={() => importFromText(importText)}
+            className="wh40k-btn"
+            style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 6, border: "none", background: "var(--accent)", color: "#fff", borderRadius: 6, padding: "7px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
+          >
+            Importovat
+          </button>
+          {importSummary && !importSummary.error && <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 6 }}>Přidáno {importSummary.added} podložek.</div>}
+          {importSummary && importSummary.error && <div style={{ fontSize: 12, color: "#e0857c", marginTop: 6 }}>{importSummary.message}</div>}
+        </>
+      )}
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Unit picker (Faction -> Unit dropdowns)
 // ---------------------------------------------------------------------------
@@ -3493,6 +3688,8 @@ function ManualView({ onBack }) {
             <><b>Rozložení výsadku</b> — čtyři barevné náhledy nad deskou; vyber si podle tvaru, žádné se neváže na konkrétní misi ani jméno dispozice.</>,
             <><b>Rychlý souboj</b> — klikni na svůj token, pak na token protihráče. Appka spočítá zabité modely/damage jen z vestavěných schopností obou jednotek (žádné bonusy). „Otevřít v kalkulačce“ tě přenese do plné kalkulačky s modifikátory.</>,
             <><b>Terén (stavebnice)</b> — klikni na Ruina/Zeď/Kráter/Les/Kontejner pro přidání kusu doprostřed desky, pak ho přetáhni na místo. Klik na terén otevře dole šířku/výšku/otočení, dvojklik ho odebere.</>,
+            <><b>Mřížka po 1 palci</b> — přepínač u rozměrů desky, čtvercová síť odpovídající skutečným palcům na stole.</>,
+            <><b>Moje podložky</b> — ulož rozměry + rozložení výsadku + rozestavěný terén (bez jednotek) pod jménem, kdykoli znovu načti. <b>Sdílet podložku</b> stáhne/nahraje soubor stejně jako sdílení knihovny.</>,
           ]}
         />
         <ManualNote>
@@ -3615,6 +3812,12 @@ export default function Wh40kCalculator({ session }) {
   const [armiesLoaded, setArmiesLoaded] = useState(false);
   const [board, setBoard] = useState({ widthIn: 44, heightIn: 60, tokens: [], terrain: [], layoutId: DEPLOYMENT_LAYOUTS[0].id });
   const [boardLoaded, setBoardLoaded] = useState(false);
+  // Saved "podložky" — named board presets (size + deployment layout +
+  // terrain arrangement, no units) a person can save, reload later, or
+  // export/import to share with someone else. Separate from `board` itself,
+  // which is the one currently being worked on.
+  const [boardPresets, setBoardPresets] = useState([]);
+  const [boardPresetsLoaded, setBoardPresetsLoaded] = useState(false);
   // Mirrors `board` synchronously so drag-end can read the latest tokens
   // without depending on a stale render closure (see commitBoardTokenMove).
   const boardRef = useRef(board);
@@ -3737,6 +3940,16 @@ export default function Wh40kCalculator({ session }) {
         setBoardLoaded(true);
       }
     })();
+    (async () => {
+      try {
+        const res = await withTimeout(storage.get("board_presets_v1", false));
+        if (res && res.value) setBoardPresets(JSON.parse(res.value));
+      } catch (e) {
+        // nothing saved yet, or the request stalled
+      } finally {
+        setBoardPresetsLoaded(true);
+      }
+    })();
   }, []);
 
   const persistLibrary = useCallback(async (next) => {
@@ -3765,6 +3978,43 @@ export default function Wh40kCalculator({ session }) {
       console.error("Nepodařilo se uložit desku", e);
     }
   }, []);
+
+  const persistBoardPresets = useCallback(async (next) => {
+    setBoardPresets(next);
+    try {
+      await storage.set("board_presets_v1", JSON.stringify(next), false);
+    } catch (e) {
+      console.error("Nepodařilo se uložit podložky", e);
+    }
+  }, []);
+
+  // A "podložka" (mat) preset is the board's size, deployment layout and
+  // terrain arrangement — deliberately NOT the units on it, since presets
+  // are meant to be reusable/shareable tables, not someone's specific army.
+  const saveBoardPreset = (name) => {
+    const preset = {
+      id: crypto.randomUUID(),
+      name: name.trim() || "Podložka",
+      widthIn: board.widthIn,
+      heightIn: board.heightIn,
+      layoutId: board.layoutId,
+      terrain: board.terrain || [],
+    };
+    persistBoardPresets([...boardPresets, preset]);
+  };
+  const loadBoardPreset = (id) => {
+    const preset = boardPresets.find((p) => p.id === id);
+    if (!preset) return;
+    persistBoard({
+      ...board,
+      widthIn: preset.widthIn,
+      heightIn: preset.heightIn,
+      layoutId: preset.layoutId,
+      terrain: preset.terrain,
+    });
+    setSelectedTerrainId(null);
+  };
+  const deleteBoardPreset = (id) => persistBoardPresets(boardPresets.filter((p) => p.id !== id));
 
   // Toggling a unit on/off the board's roster places/removes a single token
   // for the whole unit (not one per model) — simplest way to get an army onto
@@ -4034,6 +4284,9 @@ export default function Wh40kCalculator({ session }) {
   const [boardMatchup, setBoardMatchup] = useState(null); // { attackerUnit, defenderUnit, res } | null
   // Currently selected terrain piece (for the width/height/rotate controls).
   const [selectedTerrainId, setSelectedTerrainId] = useState(null);
+  const [showBoardGrid, setShowBoardGrid] = useState(true);
+  const [newPresetName, setNewPresetName] = useState("");
+  const [boardShareOpen, setBoardShareOpen] = useState(false);
 
   const handleBoardTokenSelect = (token) => {
     const unit = library.find((u) => u.id === token.unitId);
@@ -5829,9 +6082,10 @@ export default function Wh40kCalculator({ session }) {
             Zaškrtni jednotky z knihovny do své strany nebo strany protihráče — objeví se jako token na desce, který přetáhneš na místo. Dvojklik na token ho odebere.
           </div>
 
-          <Row cols={3}>
+          <Row cols={4}>
             <NumberField label="Šířka desky (in)" value={board.widthIn} onChange={(v) => setBoardSize(Math.max(1, v), board.heightIn)} min={1} small />
             <NumberField label="Výška desky (in)" value={board.heightIn} onChange={(v) => setBoardSize(board.widthIn, Math.max(1, v))} min={1} small />
+            <ToggleField label="Mřížka po 1 palci" value={showBoardGrid} onChange={setShowBoardGrid} small />
             <div style={{ display: "flex", alignItems: "flex-end" }}>
               <button
                 onClick={clearBoardTokens}
@@ -5897,6 +6151,97 @@ export default function Wh40kCalculator({ session }) {
             </div>
           </div>
 
+          <div style={{ marginTop: 10, marginBottom: 4, background: "var(--field-bg)", border: "1px dashed var(--field-border)", borderRadius: 8, padding: 10 }}>
+            <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--label)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>Moje podložky</div>
+            <div style={{ fontSize: 10.5, color: "var(--muted)", marginBottom: 8 }}>
+              Ulož rozměry + rozložení výsadku + rozestavěný terén (bez jednotek) jako pojmenovanou podložku — kdykoli ji zase načteš, nebo pošli soubor kamarádovi přes „Sdílet podložku“.
+            </div>
+            <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+              <input
+                type="text"
+                value={newPresetName}
+                onChange={(e) => setNewPresetName(e.target.value)}
+                placeholder="Název podložky…"
+                className="wh40k-input"
+                style={{ flex: 1, background: "var(--panel)", border: "1px solid var(--field-border)", borderRadius: 6, color: "var(--text)", padding: "7px 9px", fontSize: 12.5 }}
+              />
+              <button
+                onClick={() => {
+                  if (!newPresetName.trim()) return;
+                  saveBoardPreset(newPresetName);
+                  setNewPresetName("");
+                }}
+                disabled={!newPresetName.trim()}
+                className="wh40k-btn"
+                style={{
+                  border: "none",
+                  background: newPresetName.trim() ? "var(--accent)" : "var(--field-border)",
+                  color: newPresetName.trim() ? "#fff" : "var(--muted)",
+                  borderRadius: 6,
+                  padding: "7px 12px",
+                  fontSize: 12,
+                  fontWeight: 700,
+                  cursor: newPresetName.trim() ? "pointer" : "not-allowed",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                Uložit jako podložku
+              </button>
+            </div>
+
+            {boardPresetsLoaded && boardPresets.length === 0 && <div style={{ fontSize: 12, color: "var(--muted)" }}>Zatím žádné uložené podložky.</div>}
+            {!boardPresetsLoaded && <div style={{ fontSize: 12, color: "var(--muted)" }}>Načítám podložky…</div>}
+            {boardPresets.map((p) => (
+              <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 8, background: "var(--panel)", border: "1px solid var(--field-border)", borderRadius: 8, padding: "7px 9px", marginBottom: 6 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</div>
+                  <div style={{ fontSize: 10.5, color: "var(--muted)" }}>
+                    {p.widthIn}×{p.heightIn}″ · {(p.terrain || []).length} ks terénu
+                  </div>
+                </div>
+                <button
+                  onClick={() => loadBoardPreset(p.id)}
+                  className="wh40k-btn"
+                  style={{ border: "1px solid var(--accent)", background: "transparent", color: "var(--accent-text)", borderRadius: 6, padding: "5px 10px", fontSize: 11.5, fontWeight: 700, cursor: "pointer", flexShrink: 0 }}
+                >
+                  Načíst
+                </button>
+                <button
+                  onClick={() => askConfirm(`Smazat podložku „${p.name}“?`, () => deleteBoardPreset(p.id))}
+                  title="Smazat"
+                  style={{ background: "transparent", border: "none", color: "var(--muted)", cursor: "pointer", padding: 4, flexShrink: 0 }}
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            ))}
+
+            <button
+              onClick={() => setBoardShareOpen((o) => !o)}
+              style={{ display: "flex", alignItems: "center", gap: 4, background: "transparent", border: "none", color: "var(--accent-text)", fontSize: 11.5, fontWeight: 700, cursor: "pointer", padding: 0, marginTop: 4, textTransform: "uppercase", letterSpacing: 0.4 }}
+            >
+              <Save size={12} /> Sdílet podložku
+              <ChevronDown size={12} style={{ transform: boardShareOpen ? "rotate(180deg)" : "none" }} />
+            </button>
+            {boardShareOpen && (
+              <BoardShareBox
+                boardPresets={boardPresets}
+                onImport={(presets) => {
+                  const existingNames = new Set(boardPresets.map((p) => p.name));
+                  let added = 0;
+                  const withNewIds = presets.map((p) => {
+                    added += 1;
+                    let name = p.name || "Podložka";
+                    if (existingNames.has(name)) name = `${name} (import)`;
+                    return { ...p, id: crypto.randomUUID(), name };
+                  });
+                  persistBoardPresets([...boardPresets, ...withNewIds]);
+                  return { added };
+                }}
+              />
+            )}
+          </div>
+
           <div className="wh40k-vs-columns" style={{ marginTop: 10, marginBottom: 12 }}>
             <div style={{ background: "var(--panel)", border: "1px solid var(--accent)", borderRadius: 10, padding: 12, maxHeight: 220, overflowY: "auto" }}>
               <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--accent-text)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8, position: "sticky", top: 0, background: "var(--panel)" }}>
@@ -5950,13 +6295,21 @@ export default function Wh40kCalculator({ session }) {
               // — without this, "width: 100%" alone forces the height to
               // whatever the aspect ratio demands, which can run to way more
               // than a screen's height and turn the page into an endless
-              // scroll. 68vh keeps the whole board on screen on most
-              // displays; the aspect-ratio then also caps the width so it
-              // never overflows the column horizontally either.
-              maxWidth: `calc(68vh * ${board.widthIn} / ${board.heightIn})`,
+              // scroll. 88vh keeps the whole board on screen on most
+              // displays while still using most of it; the aspect-ratio then
+              // also caps the width so it never overflows the column either.
+              maxWidth: `calc(88vh * ${board.widthIn} / ${board.heightIn})`,
               aspectRatio: `${board.widthIn} / ${board.heightIn}`,
               margin: "0 auto",
               background: "#2b3a2e",
+              backgroundImage: showBoardGrid
+                ? "repeating-linear-gradient(to right, rgba(255,255,255,0.18) 0, rgba(255,255,255,0.18) 1px, transparent 1px, transparent 100%), repeating-linear-gradient(to bottom, rgba(255,255,255,0.18) 0, rgba(255,255,255,0.18) 1px, transparent 1px, transparent 100%)"
+                : "none",
+              // One grid cell = 1 real inch, in both directions independently
+              // (matches how token/terrain sizing works — % of width for the
+              // x-axis, % of height for the y-axis — so the cells stay
+              // square regardless of the board's own aspect ratio).
+              backgroundSize: `${100 / board.widthIn}% ${100 / board.heightIn}%`,
               border: "2px solid var(--field-border)",
               borderRadius: 8,
               overflow: "hidden",
