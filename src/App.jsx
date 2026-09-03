@@ -4867,6 +4867,15 @@ export default function Wh40kCalculator({ session }) {
         @media (min-width: 900px) {
           .wh40k-shell:not(.wh40k-compact) .wh40k-vs-columns { grid-template-columns: 1fr 1fr; gap: 16px; }
         }
+        /* Deska: setup controls in a sidebar, board itself in a big canvas
+           column beside it — one column (sidebar content flows above the
+           canvas) on a phone-width shell, side by side once there's room. */
+        .wh40k-board-layout { display: block; }
+        .wh40k-board-sidebar { min-width: 0; }
+        @media (min-width: 900px) {
+          .wh40k-shell:not(.wh40k-compact) .wh40k-board-layout { display: grid; grid-template-columns: 300px 1fr; gap: 16px; align-items: start; }
+          .wh40k-shell:not(.wh40k-compact) .wh40k-board-sidebar { max-height: 88vh; overflow-y: auto; padding-right: 4px; }
+        }
         * { box-sizing: border-box; }
       `}</style>
 
@@ -6172,28 +6181,11 @@ export default function Wh40kCalculator({ session }) {
             Zaškrtni jednotky z knihovny do své strany nebo strany protihráče — objeví se jako token na desce, který přetáhneš na místo. Dvojklik na token ho odebere.
           </div>
 
-          <Row cols={4}>
+          <div className="wh40k-board-layout">
+            <div className="wh40k-board-sidebar">
+          <Row cols={2}>
             <NumberField label="Šířka desky (in)" value={board.widthIn} onChange={(v) => setBoardSize(Math.max(1, v), board.heightIn)} min={1} small />
             <NumberField label="Výška desky (in)" value={board.heightIn} onChange={(v) => setBoardSize(board.widthIn, Math.max(1, v))} min={1} small />
-            <ToggleField label="Mřížka po 1 palci" value={showBoardGrid} onChange={setShowBoardGrid} small />
-            <div style={{ display: "flex", alignItems: "flex-end" }}>
-              <button
-                onClick={clearBoardTokens}
-                disabled={board.tokens.length === 0}
-                style={{
-                  width: "100%",
-                  border: "1px solid var(--field-border)",
-                  background: "transparent",
-                  color: board.tokens.length === 0 ? "var(--muted)" : "var(--text)",
-                  borderRadius: 6,
-                  padding: "6px 9px",
-                  fontSize: 12,
-                  cursor: board.tokens.length === 0 ? "not-allowed" : "pointer",
-                }}
-              >
-                Vyčistit desku
-              </button>
-            </div>
           </Row>
 
           <div style={{ marginTop: 10, marginBottom: 4 }}>
@@ -6398,14 +6390,14 @@ export default function Wh40kCalculator({ session }) {
             <div style={{ fontSize: 10.5, color: "var(--muted)", marginBottom: 8 }}>
               Ulož rozměry + rozložení výsadku + rozestavěný terén (bez jednotek) jako pojmenovanou podložku — kdykoli ji zase načteš, nebo pošli soubor kamarádovi přes „Sdílet podložku“.
             </div>
-            <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
               <input
                 type="text"
                 value={newPresetName}
                 onChange={(e) => setNewPresetName(e.target.value)}
                 placeholder="Název podložky…"
                 className="wh40k-input"
-                style={{ flex: 1, background: "var(--panel)", border: "1px solid var(--field-border)", borderRadius: 6, color: "var(--text)", padding: "7px 9px", fontSize: 12.5 }}
+                style={{ flex: "1 1 140px", minWidth: 0, background: "var(--panel)", border: "1px solid var(--field-border)", borderRadius: 6, color: "var(--text)", padding: "7px 9px", fontSize: 12.5 }}
               />
               <button
                 onClick={() => {
@@ -6484,7 +6476,10 @@ export default function Wh40kCalculator({ session }) {
             )}
           </div>
 
-          <div className="wh40k-vs-columns" style={{ marginTop: 10, marginBottom: 12 }}>
+          {/* Always stacked, not the responsive wh40k-vs-columns 2-col grid —
+              this now lives in the fixed-width sidebar, which is too narrow
+              for two roster panels side by side regardless of screen size. */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 10, marginBottom: 12 }}>
             <div style={{ background: "var(--panel)", border: "1px solid var(--accent)", borderRadius: 10, padding: 12, maxHeight: 220, overflowY: "auto" }}>
               <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--accent-text)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8, position: "sticky", top: 0, background: "var(--panel)" }}>
                 Moje jednotky
@@ -6519,6 +6514,54 @@ export default function Wh40kCalculator({ session }) {
               ))}
               {library.length === 0 && <div style={{ fontSize: 12, color: "var(--muted)" }}>Knihovna je prázdná.</div>}
             </div>
+          </div>
+            </div>
+
+            <div style={{ minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8, background: "var(--panel)", border: "1px solid var(--field-border)", borderRadius: 10, padding: "6px 8px" }}>
+            <button
+              onClick={() => setShowBoardGrid((v) => !v)}
+              title="Mřížka po 1 palci"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 5,
+                border: `1px solid ${showBoardGrid ? "var(--accent)" : "var(--field-border)"}`,
+                background: showBoardGrid ? "var(--accent-dim)" : "transparent",
+                color: showBoardGrid ? "var(--accent-text)" : "var(--muted)",
+                borderRadius: 6,
+                padding: "5px 8px",
+                fontSize: 11,
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+            >
+              <LayoutGrid size={13} /> Mřížka
+            </button>
+            <button
+              onClick={clearBoardTokens}
+              disabled={board.tokens.length === 0}
+              title="Vyčistit desku"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 5,
+                border: "1px solid var(--field-border)",
+                background: "transparent",
+                color: board.tokens.length === 0 ? "var(--muted)" : "var(--text)",
+                borderRadius: 6,
+                padding: "5px 8px",
+                fontSize: 11,
+                fontWeight: 600,
+                cursor: board.tokens.length === 0 ? "not-allowed" : "pointer",
+              }}
+            >
+              <Trash2 size={13} /> Vyčistit
+            </button>
+            <div style={{ flex: 1 }} />
+            <span style={{ fontSize: 11, color: "var(--muted)", fontFamily: "var(--mono)" }}>
+              {board.widthIn}×{board.heightIn}″
+            </span>
           </div>
 
           <div
@@ -6722,6 +6765,8 @@ export default function Wh40kCalculator({ session }) {
               </button>
             </div>
           )}
+            </div>
+          </div>
         </div>
       )}
 
