@@ -3738,6 +3738,7 @@ function ManualView({ onBack }) {
             <>Rozměry desky (šířka/výška v palcích) jdou upravit nahoře — token si přepočítá velikost podle nich.</>,
             <>Jeden token = celá jednotka (počet modelů je v odznáčku v rohu), ne model po modelu.</>,
             <><b>Rozložení výsadku</b> — čtyři barevné náhledy nad deskou; vyber si podle tvaru, žádné se neváže na konkrétní misi ani jméno dispozice.</>,
+            <><b>Nakreslit vlastní výsadek</b> — klikni „Nakreslit mou zónu“ nebo „Nakreslit zónu protihráče“, pak postupně klikej body na desku (min. 3), a klikni Dokončit. Přebije daný náhled jen pro tu stranu; „Zpět na přednastavené rozložení“ obě strany zase vrátí na náhled.</>,
             <><b>Rychlý souboj</b> — klikni na svůj token, pak na token protihráče. Appka spočítá zabité modely/damage jen z vestavěných schopností obou jednotek (žádné bonusy). „Otevřít v kalkulačce“ tě přenese do plné kalkulačky s modifikátory.</>,
             <><b>Terén (stavebnice)</b> — klikni na Ruina/Zeď/Kráter/Les/Kontejner pro přidání kusu doprostřed desky, pak ho přetáhni na místo. Klik na terén otevře dole šířku/výšku/otočení, dvojklik ho odebere.</>,
             <><b>Mřížka po 1 palci</b> — přepínač u rozměrů desky, čtvercová síť odpovídající skutečným palcům na stole.</>,
@@ -3863,7 +3864,7 @@ export default function Wh40kCalculator({ session }) {
 
   const [armies, setArmies] = useState([]);
   const [armiesLoaded, setArmiesLoaded] = useState(false);
-  const [board, setBoard] = useState({ widthIn: 44, heightIn: 60, tokens: [], terrain: [], layoutId: DEPLOYMENT_LAYOUTS[0].id });
+  const [board, setBoard] = useState({ widthIn: 44, heightIn: 60, tokens: [], terrain: [], layoutId: DEPLOYMENT_LAYOUTS[0].id, customZones: { mine: null, theirs: null } });
   const [boardLoaded, setBoardLoaded] = useState(false);
   // Saved "podložky" — named board presets (size + deployment layout +
   // terrain arrangement, no units) a person can save, reload later, or
@@ -4195,6 +4196,28 @@ export default function Wh40kCalculator({ session }) {
     setSelectedTerrainId(null);
   };
 
+  // Freehand deployment-zone drawing (click points on the board to build a
+  // polygon), as an alternative to the DEPLOYMENT_LAYOUTS swatches — the
+  // shape itself is whatever the person clicks out, so there's nothing here
+  // that could ever resemble a copied layout.
+  const startDrawingZone = (side) => {
+    setDrawMode(side);
+    setDrawPoints([]);
+  };
+  const addDrawPoint = (xPct, yPct) => setDrawPoints((pts) => [...pts, { x: xPct, y: yPct }]);
+  const cancelDrawingZone = () => {
+    setDrawMode(null);
+    setDrawPoints([]);
+  };
+  const finishDrawingZone = () => {
+    if (!drawMode || drawPoints.length < 3) return;
+    persistBoard({ ...board, customZones: { ...(board.customZones || {}), [drawMode]: drawPoints } });
+    setDrawMode(null);
+    setDrawPoints([]);
+  };
+  const clearCustomZones = () => persistBoard({ ...board, customZones: { mine: null, theirs: null } });
+  const pointsToClipPath = (points) => `polygon(${points.map((p) => `${p.x}% ${p.y}%`).join(", ")})`;
+
   const saveArmy = (army) => {
     const exists = armies.some((a) => a.id === army.id);
     const next = exists ? armies.map((a) => (a.id === army.id ? army : a)) : [...armies, army];
@@ -4398,6 +4421,10 @@ export default function Wh40kCalculator({ session }) {
   // Currently selected terrain piece (for the width/height/rotate controls).
   const [selectedTerrainId, setSelectedTerrainId] = useState(null);
   const [showBoardGrid, setShowBoardGrid] = useState(true);
+  // Freehand deployment-zone drawing: click points on the board to build a
+  // polygon for "mine" or "theirs", overriding that side's swatch shape.
+  const [drawMode, setDrawMode] = useState(null); // null | "mine" | "theirs"
+  const [drawPoints, setDrawPoints] = useState([]); // [{x,y}] as % of board
   const [newPresetName, setNewPresetName] = useState("");
   const [boardShareOpen, setBoardShareOpen] = useState(false);
   const [customFormOpen, setCustomFormOpen] = useState(false);
@@ -6220,6 +6247,57 @@ export default function Wh40kCalculator({ session }) {
                 <LayoutSwatch key={l.id} layout={l} selected={(board.layoutId || DEPLOYMENT_LAYOUTS[0].id) === l.id} onClick={() => setBoardLayout(l.id)} />
               ))}
             </div>
+            <div style={{ fontSize: 10.5, color: "var(--muted)", margin: "8px 0 4px" }}>Nebo si vlastní výsadek nakresli přímo na desku:</div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              <button
+                onClick={() => startDrawingZone("mine")}
+                disabled={!!drawMode}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 5,
+                  border: "1px solid var(--accent)",
+                  background: drawMode === "mine" ? "var(--accent-dim)" : "transparent",
+                  color: "var(--accent-text)",
+                  borderRadius: 6,
+                  padding: "5px 9px",
+                  fontSize: 11,
+                  fontWeight: 600,
+                  cursor: drawMode ? "not-allowed" : "pointer",
+                  opacity: drawMode && drawMode !== "mine" ? 0.5 : 1,
+                }}
+              >
+                <Pencil size={12} /> Nakreslit mou zónu
+              </button>
+              <button
+                onClick={() => startDrawingZone("theirs")}
+                disabled={!!drawMode}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 5,
+                  border: "1px solid #c0392b",
+                  background: drawMode === "theirs" ? "rgba(192,57,43,0.15)" : "transparent",
+                  color: "#e0857c",
+                  borderRadius: 6,
+                  padding: "5px 9px",
+                  fontSize: 11,
+                  fontWeight: 600,
+                  cursor: drawMode ? "not-allowed" : "pointer",
+                  opacity: drawMode && drawMode !== "theirs" ? 0.5 : 1,
+                }}
+              >
+                <Pencil size={12} /> Nakreslit zónu protihráče
+              </button>
+            </div>
+            {(board.customZones?.mine || board.customZones?.theirs) && !drawMode && (
+              <button
+                onClick={clearCustomZones}
+                style={{ background: "transparent", border: "none", color: "var(--muted)", fontSize: 10.5, cursor: "pointer", padding: 0, marginTop: 6 }}
+              >
+                Zpět na přednastavené rozložení
+              </button>
+            )}
           </div>
 
           <div style={{ marginTop: 10, marginBottom: 4 }}>
@@ -6543,6 +6621,48 @@ export default function Wh40kCalculator({ session }) {
             </div>
 
             <div style={{ minWidth: 0 }}>
+          {drawMode && (
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                marginBottom: 8,
+                background: drawMode === "mine" ? "var(--accent-dim)" : "rgba(192,57,43,0.15)",
+                border: `1px solid ${drawMode === "mine" ? "var(--accent)" : "#c0392b"}`,
+                borderRadius: 10,
+                padding: "8px 10px",
+              }}
+            >
+              <span style={{ fontSize: 11.5, fontWeight: 700, color: drawMode === "mine" ? "var(--accent-text)" : "#e0857c" }}>
+                Kreslíš {drawMode === "mine" ? "svou zónu" : "zónu protihráče"} — klikej na desku ({drawPoints.length} {drawPoints.length === 1 ? "bod" : "body"})
+              </span>
+              <div style={{ flex: 1 }} />
+              <button
+                onClick={finishDrawingZone}
+                disabled={drawPoints.length < 3}
+                className="wh40k-btn"
+                style={{
+                  border: "none",
+                  background: drawPoints.length < 3 ? "var(--field-border)" : "var(--accent)",
+                  color: drawPoints.length < 3 ? "var(--muted)" : "#fff",
+                  borderRadius: 6,
+                  padding: "5px 10px",
+                  fontSize: 11.5,
+                  fontWeight: 700,
+                  cursor: drawPoints.length < 3 ? "not-allowed" : "pointer",
+                }}
+              >
+                Dokončit
+              </button>
+              <button
+                onClick={cancelDrawingZone}
+                style={{ border: "1px solid var(--field-border)", background: "transparent", color: "var(--text)", borderRadius: 6, padding: "5px 10px", fontSize: 11.5, cursor: "pointer" }}
+              >
+                Zrušit
+              </button>
+            </div>
+          )}
           <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8, background: "var(--panel)", border: "1px solid var(--field-border)", borderRadius: 10, padding: "6px 8px" }}>
             <button
               onClick={() => setShowBoardGrid((v) => !v)}
@@ -6592,6 +6712,13 @@ export default function Wh40kCalculator({ session }) {
           <div
             ref={boardContainerRef}
             onClick={(e) => {
+              if (drawMode) {
+                const rect = boardContainerRef.current.getBoundingClientRect();
+                const xPct = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
+                const yPct = Math.max(0, Math.min(100, ((e.clientY - rect.top) / rect.height) * 100));
+                addDrawPoint(xPct, yPct);
+                return;
+              }
               // Clicking empty board space (not a token/terrain piece)
               // clears whatever's currently selected.
               if (e.target === e.currentTarget) {
@@ -6627,16 +6754,45 @@ export default function Wh40kCalculator({ session }) {
             }}
           >
             {/* Deployment zones — picked from DEPLOYMENT_LAYOUTS above by its
-                color/shape swatch, not a redraw of any official mission map. */}
+                color/shape swatch, not a redraw of any official mission map.
+                A hand-drawn customZones.<side> polygon overrides that side's
+                swatch shape independently of the other side. */}
             {(() => {
               const layout = DEPLOYMENT_LAYOUTS.find((l) => l.id === board.layoutId) || DEPLOYMENT_LAYOUTS[0];
+              const cz = board.customZones || {};
+              const theirsClip = cz.theirs ? pointsToClipPath(cz.theirs) : layout.theirsClip;
+              const mineClip = cz.mine ? pointsToClipPath(cz.mine) : layout.mineClip;
               return (
                 <>
-                  <div style={{ position: "absolute", inset: 0, background: "var(--accent)", opacity: 0.16, clipPath: layout.theirsClip, pointerEvents: "none" }} />
-                  <div style={{ position: "absolute", inset: 0, background: "#c0392b", opacity: 0.16, clipPath: layout.mineClip, pointerEvents: "none" }} />
+                  <div style={{ position: "absolute", inset: 0, background: "var(--accent)", opacity: 0.16, clipPath: theirsClip, pointerEvents: "none" }} />
+                  <div style={{ position: "absolute", inset: 0, background: "#c0392b", opacity: 0.16, clipPath: mineClip, pointerEvents: "none" }} />
                 </>
               );
             })()}
+            {/* In-progress freehand drawing overlay — the points the person
+                has clicked so far, plus the closed shape once there are
+                enough to form a polygon. */}
+            {drawMode && drawPoints.length > 0 && (
+              <svg viewBox="0 0 100 100" preserveAspectRatio="none" style={{ position: "absolute", inset: 0, pointerEvents: "none", zIndex: 5 }}>
+                {drawPoints.length >= 3 && (
+                  <polygon
+                    points={drawPoints.map((p) => `${p.x},${p.y}`).join(" ")}
+                    fill={drawMode === "mine" ? "rgba(192,57,43,0.25)" : "rgba(47,143,232,0.25)"}
+                    stroke="none"
+                  />
+                )}
+                <polyline
+                  points={drawPoints.map((p) => `${p.x},${p.y}`).join(" ")}
+                  fill="none"
+                  stroke={drawMode === "mine" ? "#e0857c" : "#7cc0ff"}
+                  strokeWidth="0.4"
+                  vectorEffect="non-scaling-stroke"
+                />
+                {drawPoints.map((p, i) => (
+                  <circle key={i} cx={p.x} cy={p.y} r="0.7" fill="#fff" stroke="#111" strokeWidth="0.15" />
+                ))}
+              </svg>
+            )}
             {[...(board.terrain || [])]
               .sort((a, b) => {
                 // Base-layer pieces (a plinth) always render under terrain,
