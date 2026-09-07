@@ -3769,6 +3769,7 @@ function ManualView({ onBack }) {
             <><b>Rozložení výsadku</b> — čtyři barevné náhledy nad deskou; vyber si podle tvaru, žádné se neváže na konkrétní misi ani jméno dispozice.</>,
             <><b>Nakreslit vlastní výsadek</b> — klikni „Nakreslit mou zónu“ nebo „Nakreslit zónu protihráče“, pak stiskni na desce a táhni jako štětcem (min. 3 body), a klikni Dokončit. Přebije daný náhled jen pro tu stranu; „Zpět na přednastavené rozložení“ obě strany zase vrátí na náhled. Čísla po 5 palcích podél okrajů desky se zapínají/vypínají spolu s mřížkou.</>,
             <><b>Zóna čísly (v palcích)</b> — pod tlačítky pro kreslení jsou dva samostatné boxy, Moje zóna a Zóna protihráče. U každého zadej Od X/Y a Do X/Y podle čísel na okraji desky a klikni na jeho tlačítko Nastavit — spolehlivá alternativa, když myš/touchpad nesedí přesně.</>,
+            <><b>5 uložených zón</b> — pod oběma boxy je 5 číslovaných slotů. Klikni na prázdný slot a uloží se do něj aktuální „Moje zóna“; klikni na vyplněný slot a načte „Moje zóna“ zpět a „Zónu protihráče“ nastaví jako jeho zrcadlo (obě strany z jednoho uloženého obdélníku). „Smazat“ pod slotem ho vyprázdní.</>,
             <><b>Rychlý souboj</b> — klikni na svůj token, pak na token protihráče. Appka spočítá zabité modely/damage jen z vestavěných schopností obou jednotek (žádné bonusy). „Otevřít v kalkulačce“ tě přenese do plné kalkulačky s modifikátory.</>,
             <><b>Terén (stavebnice)</b> — klikni na Ruina/Zeď/Kráter/Les/Kontejner pro přidání kusu doprostřed desky, pak ho přetáhni na místo. Klik na terén otevře dole šířku/výšku/otočení, dvojklik ho odebere.</>,
             <><b>Mřížka po 1 palci</b> — přepínač u rozměrů desky, čtvercová síť odpovídající skutečným palcům na stole.</>,
@@ -4050,6 +4051,16 @@ export default function Wh40kCalculator({ session }) {
         setCustomPieceTypesLoaded(true);
       }
     })();
+    (async () => {
+      try {
+        const res = await withTimeout(storage.get("saved_zones_v1", false));
+        if (res && res.value) setSavedZones(JSON.parse(res.value));
+      } catch (e) {
+        // nothing saved yet, or the request stalled
+      } finally {
+        setSavedZonesLoaded(true);
+      }
+    })();
   }, []);
 
   const persistLibrary = useCallback(async (next) => {
@@ -4252,15 +4263,63 @@ export default function Wh40kCalculator({ session }) {
   // inches directly (read straight off the on-board ruler), no mouse
   // precision involved — one independent box per side.
   const updateZoneRect = (side, axis, value) => setZoneRects((s) => ({ ...s, [side]: { ...s[side], [axis]: value } }));
-  const setZoneRectFromNumbers = (side) => {
-    const { x1, y1, x2, y2 } = zoneRects[side];
+  // Pure conversion, no state access — safe to call more than once in a row
+  // building up a combined customZones object (see loadZoneSlot below, which
+  // needs both sides applied in the SAME persistBoard call: two separate
+  // calls would each spread the same stale `board.customZones` closure and
+  // the second call would silently wipe out the first's update).
+  const rectToPoints = (rect) => {
+    const { x1, y1, x2, y2 } = rect;
     const xMin = Math.max(0, Math.min(x1, x2));
     const xMax = Math.min(board.widthIn, Math.max(x1, x2));
     const yMin = Math.max(0, Math.min(y1, y2));
     const yMax = Math.min(board.heightIn, Math.max(y1, y2));
     const toPct = (xIn, yIn) => ({ x: (xIn / board.widthIn) * 100, y: (yIn / board.heightIn) * 100 });
-    const points = [toPct(xMin, yMin), toPct(xMax, yMin), toPct(xMax, yMax), toPct(xMin, yMax)];
-    persistBoard({ ...board, customZones: { ...(board.customZones || {}), [side]: points } });
+    return [toPct(xMin, yMin), toPct(xMax, yMin), toPct(xMax, yMax), toPct(xMin, yMax)];
+  };
+  const applyZoneRect = (side, rect) => {
+    persistBoard({ ...board, customZones: { ...(board.customZones || {}), [side]: rectToPoints(rect) } });
+  };
+  const setZoneRectFromNumbers = (side) => applyZoneRect(side, zoneRects[side]);
+
+  const persistSavedZones = useCallback(async (next) => {
+    setSavedZones(next);
+    try {
+      await storage.set("saved_zones_v1", JSON.stringify(next), false);
+    } catch (e) {
+      console.error("Nepodařilo se uložit zóny", e);
+    }
+  }, []);
+  const saveZoneSlot = (idx) => {
+    const next = [...savedZones];
+    next[idx] = { ...zoneRects.mine };
+    persistSavedZones(next);
+  };
+  const clearZoneSlot = (idx) => {
+    const next = [...savedZones];
+    next[idx] = null;
+    persistSavedZones(next);
+  };
+  // Loading a slot sets "Moje zóna" to the saved rectangle and "Zóna
+  // protihráče" to its vertical mirror (flipped across the board's height),
+  // since the two sides of a real deployment are normally symmetric — one
+  // saved rectangle gives you both.
+  const loadZoneSlot = (idx) => {
+    const rect = savedZones[idx];
+    if (!rect) return;
+    const mirrored = { x1: rect.x1, x2: rect.x2, y1: board.heightIn - rect.y2, y2: board.heightIn - rect.y1 };
+    setZoneRects({ mine: { ...rect }, theirs: mirrored });
+    // Both sides in one persistBoard call — two separate applyZoneRect calls
+    // here would each spread the same stale `board` closure and the second
+    // would silently overwrite the first's update (see rectToPoints above).
+    persistBoard({
+      ...board,
+      customZones: {
+        ...(board.customZones || {}),
+        mine: rectToPoints(rect),
+        theirs: rectToPoints(mirrored),
+      },
+    });
   };
 
   const saveArmy = (army) => {
@@ -4482,6 +4541,11 @@ export default function Wh40kCalculator({ session }) {
     mine: { x1: 0, y1: 0, x2: 10, y2: 10 },
     theirs: { x1: 0, y1: 0, x2: 10, y2: 10 },
   });
+  // 5 saveable deployment-zone slots — each holds just one rectangle (in
+  // inches); loading a slot sets "Moje zóna" to it and "Zóna protihráče" to
+  // its vertical mirror, since a real deployment is normally symmetric.
+  const [savedZones, setSavedZones] = useState([null, null, null, null, null]);
+  const [savedZonesLoaded, setSavedZonesLoaded] = useState(false);
   const [newPresetName, setNewPresetName] = useState("");
   const [boardShareOpen, setBoardShareOpen] = useState(false);
   const [customFormOpen, setCustomFormOpen] = useState(false);
@@ -6397,6 +6461,43 @@ export default function Wh40kCalculator({ session }) {
                     </button>
                   </div>
                 ))}
+
+                <div style={{ background: "var(--field-bg)", border: "1px dashed var(--field-border)", borderRadius: 8, padding: 8 }}>
+                  <div style={{ fontSize: 10.5, color: "var(--muted)", marginBottom: 6 }}>
+                    5 uložených zón — prázdný slot uloží aktuální „Moje zóna“; vyplněný slot ji zase načte a nastaví „Zónu protihráče“ jako její zrcadlo.
+                  </div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    {savedZones.map((rect, idx) => (
+                      <div key={idx} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
+                        <button
+                          onClick={() => (rect ? loadZoneSlot(idx) : saveZoneSlot(idx))}
+                          title={rect ? `Načíst zónu ${idx + 1}` : `Uložit aktuální „Moje zóna“ do slotu ${idx + 1}`}
+                          style={{
+                            width: 38,
+                            height: 38,
+                            borderRadius: 8,
+                            border: `1px solid ${rect ? "var(--accent)" : "var(--field-border)"}`,
+                            background: rect ? "var(--accent-dim)" : "var(--panel)",
+                            color: rect ? "var(--accent-text)" : "var(--muted)",
+                            fontSize: 13,
+                            fontWeight: 700,
+                            cursor: "pointer",
+                          }}
+                        >
+                          {idx + 1}
+                        </button>
+                        {rect && (
+                          <button
+                            onClick={() => clearZoneSlot(idx)}
+                            style={{ background: "transparent", border: "none", color: "var(--muted)", fontSize: 9, cursor: "pointer", padding: 0 }}
+                          >
+                            smazat
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
               </div>
             )}
           </div>
