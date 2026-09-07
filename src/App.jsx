@@ -3768,7 +3768,7 @@ function ManualView({ onBack }) {
             <>Jeden token = celá jednotka (počet modelů je v odznáčku v rohu), ne model po modelu.</>,
             <><b>Rozložení výsadku</b> — čtyři barevné náhledy nad deskou; vyber si podle tvaru, žádné se neváže na konkrétní misi ani jméno dispozice.</>,
             <><b>Nakreslit vlastní výsadek</b> — klikni „Nakreslit mou zónu“ nebo „Nakreslit zónu protihráče“, pak stiskni na desce a táhni jako štětcem (min. 3 body), a klikni Dokončit. Přebije daný náhled jen pro tu stranu; „Zpět na přednastavené rozložení“ obě strany zase vrátí na náhled. Čísla po 5 palcích podél okrajů desky se zapínají/vypínají spolu s mřížkou.</>,
-            <><b>Zóna čísly (v palcích)</b> — pod tlačítky pro kreslení: zadej body podle čísel na okraji desky a klikni Nastavit zónu. Jen Od a Do = obdélník; tlačítkem „Přidat zastávku“ přidáš další body a appka jimi projede libovolný tvar v pořadí, jak jsou zadané. Spolehlivá alternativa, když myš/touchpad nesedí přesně.</>,
+            <><b>Zóna čísly (v palcích)</b> — pod tlačítky pro kreslení jsou dva samostatné boxy, Moje zóna a Zóna protihráče. U každého zadej Od X/Y a Do X/Y podle čísel na okraji desky a klikni na jeho tlačítko Nastavit — spolehlivá alternativa, když myš/touchpad nesedí přesně.</>,
             <><b>Rychlý souboj</b> — klikni na svůj token, pak na token protihráče. Appka spočítá zabité modely/damage jen z vestavěných schopností obou jednotek (žádné bonusy). „Otevřít v kalkulačce“ tě přenese do plné kalkulačky s modifikátory.</>,
             <><b>Terén (stavebnice)</b> — klikni na Ruina/Zeď/Kráter/Les/Kontejner pro přidání kusu doprostřed desky, pak ho přetáhni na místo. Klik na terén otevře dole šířku/výšku/otočení, dvojklik ho odebere.</>,
             <><b>Mřížka po 1 palci</b> — přepínač u rozměrů desky, čtvercová síť odpovídající skutečným palcům na stole.</>,
@@ -4248,38 +4248,19 @@ export default function Wh40kCalculator({ session }) {
   const clearCustomZones = () => persistBoard({ ...board, customZones: { mine: null, theirs: null } });
   const pointsToClipPath = (points) => `polygon(${points.map((p) => `${p.x}% ${p.y}%`).join(", ")})`;
 
-  // Alternative to click/drag drawing: typed inch coordinates (read straight
-  // off the on-board ruler), no mouse precision involved. Exactly 2 points
-  // (Od/Do) is treated as a rectangle's opposite corners, same as before;
-  // 3+ points (Od, one or more zastávky, Do) traces a general polygon
-  // through them in order instead.
-  const addZoneStop = () =>
-    setZonePoints((pts) => {
-      const last = pts[pts.length - 1];
-      return [...pts.slice(0, -1), { x: 0, y: 0 }, last];
-    });
-  const removeZoneStop = (idx) => setZonePoints((pts) => (pts.length > 2 ? pts.filter((_, i) => i !== idx) : pts));
-  const updateZoneStop = (idx, axis, value) => setZonePoints((pts) => pts.map((p, i) => (i === idx ? { ...p, [axis]: value } : p)));
-  const setZoneFromNumbers = () => {
-    const { side } = zoneForm;
-    let points;
-    if (zonePoints.length === 2) {
-      const [p1, p2] = zonePoints;
-      const xMin = Math.max(0, Math.min(p1.x, p2.x));
-      const xMax = Math.min(board.widthIn, Math.max(p1.x, p2.x));
-      const yMin = Math.max(0, Math.min(p1.y, p2.y));
-      const yMax = Math.min(board.heightIn, Math.max(p1.y, p2.y));
-      points = [
-        { x: xMin, y: yMin },
-        { x: xMax, y: yMin },
-        { x: xMax, y: yMax },
-        { x: xMin, y: yMax },
-      ];
-    } else {
-      points = zonePoints;
-    }
-    const toPct = (p) => ({ x: Math.max(0, Math.min(100, (p.x / board.widthIn) * 100)), y: Math.max(0, Math.min(100, (p.y / board.heightIn) * 100)) });
-    persistBoard({ ...board, customZones: { ...(board.customZones || {}), [side]: points.map(toPct) } });
+  // Alternative to click/drag drawing: type each side's rectangle corners in
+  // inches directly (read straight off the on-board ruler), no mouse
+  // precision involved — one independent box per side.
+  const updateZoneRect = (side, axis, value) => setZoneRects((s) => ({ ...s, [side]: { ...s[side], [axis]: value } }));
+  const setZoneRectFromNumbers = (side) => {
+    const { x1, y1, x2, y2 } = zoneRects[side];
+    const xMin = Math.max(0, Math.min(x1, x2));
+    const xMax = Math.min(board.widthIn, Math.max(x1, x2));
+    const yMin = Math.max(0, Math.min(y1, y2));
+    const yMax = Math.min(board.heightIn, Math.max(y1, y2));
+    const toPct = (xIn, yIn) => ({ x: (xIn / board.widthIn) * 100, y: (yIn / board.heightIn) * 100 });
+    const points = [toPct(xMin, yMin), toPct(xMax, yMin), toPct(xMax, yMax), toPct(xMin, yMax)];
+    persistBoard({ ...board, customZones: { ...(board.customZones || {}), [side]: points } });
   };
 
   const saveArmy = (army) => {
@@ -4494,17 +4475,13 @@ export default function Wh40kCalculator({ session }) {
   // a render on its own, only the drawPoints it produces do.
   const drawStrokeActiveRef = useRef(false);
   const lastDrawPointRef = useRef(null);
-  // Alternative to click/drag drawing: type the zone's corners in inches
-  // directly (reading them off the on-board ruler), no mouse precision
-  // needed at all.
-  const [zoneForm, setZoneForm] = useState({ side: "mine" });
-  // Od (first) → any number of zastávky (stops) in between → Do (last), all
-  // in inches — 2 points behaves like a simple rectangle for convenience,
-  // 3+ traces a general polygon through the points in order.
-  const [zonePoints, setZonePoints] = useState([
-    { x: 0, y: 0 },
-    { x: 10, y: 10 },
-  ]);
+  // Alternative to click/drag drawing: type each side's rectangle corners in
+  // inches directly (reading them off the on-board ruler), no mouse
+  // precision needed at all — one always-visible box per side.
+  const [zoneRects, setZoneRects] = useState({
+    mine: { x1: 0, y1: 0, x2: 10, y2: 10 },
+    theirs: { x1: 0, y1: 0, x2: 10, y2: 10 },
+  });
   const [newPresetName, setNewPresetName] = useState("");
   const [boardShareOpen, setBoardShareOpen] = useState(false);
   const [customFormOpen, setCustomFormOpen] = useState(false);
@@ -6380,56 +6357,46 @@ export default function Wh40kCalculator({ session }) {
             )}
 
             {!drawMode && (
-              <div style={{ marginTop: 10, background: "var(--field-bg)", border: "1px solid var(--field-border)", borderRadius: 8, padding: 8 }}>
-                <div style={{ fontSize: 10.5, color: "var(--muted)", marginBottom: 6 }}>
-                  Nebo zadej zónu čísly v palcích (podle čísel na okraji desky) — Od, pár zastávek, Do. Jen dva body (Od/Do) = obdélník; tři a víc = libovolný tvar přes ně v pořadí.
-                </div>
-                <Row cols={2}>
-                  <SelectField
-                    label="Strana"
-                    value={zoneForm.side}
-                    onChange={(v) => setZoneForm((s) => ({ ...s, side: v }))}
-                    options={[
-                      { value: "mine", label: "Moje zóna" },
-                      { value: "theirs", label: "Zóna protihráče" },
-                    ]}
-                    small
-                  />
-                  <div />
-                </Row>
-                {zonePoints.map((p, i) => {
-                  const label = i === 0 ? "Od" : i === zonePoints.length - 1 ? "Do" : `Zastávka ${i}`;
-                  return (
-                    <div key={i} style={{ display: "flex", gap: 6, alignItems: "flex-end", marginBottom: 6 }}>
-                      <NumberField label={`${label} X`} value={p.x} onChange={(v) => updateZoneStop(i, "x", v)} small />
-                      <NumberField label={`${label} Y`} value={p.y} onChange={(v) => updateZoneStop(i, "y", v)} small />
-                      {zonePoints.length > 2 && (
-                        <button
-                          onClick={() => removeZoneStop(i)}
-                          title="Odebrat bod"
-                          style={{ background: "transparent", border: "none", color: "var(--muted)", cursor: "pointer", padding: "0 0 7px 0", flexShrink: 0 }}
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      )}
+              <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 8 }}>
+                <div style={{ fontSize: 10.5, color: "var(--muted)" }}>Nebo zadej obdélníkovou zónu čísly v palcích (podle čísel na okraji desky):</div>
+                {["mine", "theirs"].map((side) => (
+                  <div
+                    key={side}
+                    style={{
+                      background: "var(--field-bg)",
+                      border: `1px solid ${side === "mine" ? "var(--accent)" : "#c0392b"}`,
+                      borderRadius: 8,
+                      padding: 8,
+                    }}
+                  >
+                    <div style={{ fontSize: 10.5, fontWeight: 700, color: side === "mine" ? "var(--accent-text)" : "#e0857c", marginBottom: 6 }}>
+                      {side === "mine" ? "Moje zóna" : "Zóna protihráče"}
                     </div>
-                  );
-                })}
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                  <button
-                    onClick={addZoneStop}
-                    style={{ display: "flex", alignItems: "center", gap: 4, border: "1px dashed var(--field-border)", background: "transparent", color: "var(--text)", borderRadius: 6, padding: "6px 10px", fontSize: 11.5, cursor: "pointer" }}
-                  >
-                    <Plus size={12} /> Přidat zastávku
-                  </button>
-                  <button
-                    onClick={setZoneFromNumbers}
-                    className="wh40k-btn"
-                    style={{ border: "none", background: "var(--accent)", color: "#fff", borderRadius: 6, padding: "6px 12px", fontSize: 11.5, fontWeight: 700, cursor: "pointer" }}
-                  >
-                    Nastavit zónu
-                  </button>
-                </div>
+                    <Row cols={4}>
+                      <NumberField label="Od X" value={zoneRects[side].x1} onChange={(v) => updateZoneRect(side, "x1", v)} small />
+                      <NumberField label="Od Y" value={zoneRects[side].y1} onChange={(v) => updateZoneRect(side, "y1", v)} small />
+                      <NumberField label="Do X" value={zoneRects[side].x2} onChange={(v) => updateZoneRect(side, "x2", v)} small />
+                      <NumberField label="Do Y" value={zoneRects[side].y2} onChange={(v) => updateZoneRect(side, "y2", v)} small />
+                    </Row>
+                    <button
+                      onClick={() => setZoneRectFromNumbers(side)}
+                      className="wh40k-btn"
+                      style={{
+                        marginTop: 4,
+                        border: "none",
+                        background: side === "mine" ? "var(--accent)" : "#c0392b",
+                        color: "#fff",
+                        borderRadius: 6,
+                        padding: "6px 12px",
+                        fontSize: 11.5,
+                        fontWeight: 700,
+                        cursor: "pointer",
+                      }}
+                    >
+                      Nastavit {side === "mine" ? "mou zónu" : "zónu protihráče"}
+                    </button>
+                  </div>
+                ))}
               </div>
             )}
           </div>
