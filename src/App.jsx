@@ -3768,8 +3768,8 @@ function ManualView({ onBack }) {
             <>Jeden token = celá jednotka (počet modelů je v odznáčku v rohu), ne model po modelu.</>,
             <><b>Rozložení výsadku</b> — čtyři barevné náhledy nad deskou; vyber si podle tvaru, žádné se neváže na konkrétní misi ani jméno dispozice.</>,
             <><b>Nakreslit vlastní výsadek</b> — klikni „Nakreslit mou zónu“ nebo „Nakreslit zónu protihráče“, pak stiskni na desce a táhni jako štětcem (min. 3 body), a klikni Dokončit. Přebije daný náhled jen pro tu stranu; „Zpět na přednastavené rozložení“ obě strany zase vrátí na náhled. Čísla po 5 palcích podél okrajů desky se zapínají/vypínají spolu s mřížkou.</>,
-            <><b>Zóna čísly (v palcích)</b> — pod tlačítky pro kreslení jsou dva samostatné boxy, Moje zóna a Zóna protihráče. U každého zadej Od X/Y a Do X/Y podle čísel na okraji desky a klikni na jeho tlačítko Nastavit — spolehlivá alternativa, když myš/touchpad nesedí přesně.</>,
-            <><b>5 uložených zón</b> — pod oběma boxy je 5 číslovaných slotů. Klikni na prázdný slot a uloží se do něj aktuální „Moje zóna“; klikni na vyplněný slot a načte „Moje zóna“ zpět a „Zónu protihráče“ nastaví jako jeho zrcadlo (obě strany z jednoho uloženého obdélníku). „Smazat“ pod slotem ho vyprázdní.</>,
+            <><b>Zóna čísly (v palcích)</b> — pod tlačítky pro kreslení jsou dva samostatné boxy, Moje zóna a Zóna protihráče. Každý box má dva obdélníky (Obdélník 1 a 2) — zadej jim Od X/Y a Do X/Y podle čísel na okraji desky a klikni na tlačítko Nastavit. Oba obdélníky se spojí do jedné zóny, takže jde postavit i L-tvar nebo schod, ne jen jeden obdélník.</>,
+            <><b>5 uložených zón</b> — pod oběma boxy je 5 číslovaných slotů. Klikni na prázdný slot a uloží se do něj aktuální dvojice obdélníků „Moje zóna“; klikni na vyplněný slot a načte ji zpět a „Zónu protihráče“ nastaví jako její zrcadlo (obě strany z jedné uložené dvojice). „Smazat“ pod slotem ho vyprázdní.</>,
             <><b>Rychlý souboj</b> — klikni na svůj token, pak na token protihráče. Appka spočítá zabité modely/damage jen z vestavěných schopností obou jednotek (žádné bonusy). „Otevřít v kalkulačce“ tě přenese do plné kalkulačky s modifikátory.</>,
             <><b>Terén (stavebnice)</b> — klikni na Ruina/Zeď/Kráter/Les/Kontejner pro přidání kusu doprostřed desky, pak ho přetáhni na místo. Klik na terén otevře dole šířku/výšku/otočení, dvojklik ho odebere.</>,
             <><b>Mřížka po 1 palci</b> — přepínač u rozměrů desky, čtvercová síť odpovídající skutečným palcům na stole.</>,
@@ -4259,15 +4259,21 @@ export default function Wh40kCalculator({ session }) {
   const clearCustomZones = () => persistBoard({ ...board, customZones: { mine: null, theirs: null } });
   const pointsToClipPath = (points) => `polygon(${points.map((p) => `${p.x}% ${p.y}%`).join(", ")})`;
 
-  // Alternative to click/drag drawing: type each side's rectangle corners in
-  // inches directly (read straight off the on-board ruler), no mouse
-  // precision involved — one independent box per side.
-  const updateZoneRect = (side, axis, value) => setZoneRects((s) => ({ ...s, [side]: { ...s[side], [axis]: value } }));
-  // Pure conversion, no state access — safe to call more than once in a row
-  // building up a combined customZones object (see loadZoneSlot below, which
-  // needs both sides applied in the SAME persistBoard call: two separate
-  // calls would each spread the same stale `board.customZones` closure and
-  // the second call would silently wipe out the first's update).
+  // Alternative to click/drag drawing: type each side's zone as two
+  // rectangles' corners in inches directly (read straight off the on-board
+  // ruler), no mouse precision involved — the two combine (a separate tint
+  // per rectangle, same color) into one zone shape per side, since a real
+  // deployment zone is often not a single rectangle.
+  const updateZoneRect = (side, rectIdx, axis, value) =>
+    setZoneRects((s) => ({
+      ...s,
+      [side]: s[side].map((r, i) => (i === rectIdx ? { ...r, [axis]: value } : r)),
+    }));
+  // Pure conversions, no state access — safe to call repeatedly building up a
+  // combined customZones object in one go (see loadZoneSlot below, which
+  // needs both sides applied in the SAME persistBoard call: separate calls
+  // would each spread the same stale `board.customZones` closure and the
+  // later call would silently wipe out the earlier one's update).
   const rectToPoints = (rect) => {
     const { x1, y1, x2, y2 } = rect;
     const xMin = Math.max(0, Math.min(x1, x2));
@@ -4277,10 +4283,16 @@ export default function Wh40kCalculator({ session }) {
     const toPct = (xIn, yIn) => ({ x: (xIn / board.widthIn) * 100, y: (yIn / board.heightIn) * 100 });
     return [toPct(xMin, yMin), toPct(xMax, yMin), toPct(xMax, yMax), toPct(xMin, yMax)];
   };
-  const applyZoneRect = (side, rect) => {
-    persistBoard({ ...board, customZones: { ...(board.customZones || {}), [side]: rectToPoints(rect) } });
+  const rectToClip = (rect) => pointsToClipPath(rectToPoints(rect));
+  // customZones[side] is now an array of clip-path strings — one per
+  // rectangle — rendered as that many stacked, same-colored tints (see the
+  // board's deployment-zone render), which reads visually as one combined
+  // (unioned) zone without needing actual polygon-union math.
+  const applyZoneRects = (side, rects) => {
+    persistBoard({ ...board, customZones: { ...(board.customZones || {}), [side]: rects.map(rectToClip) } });
   };
-  const setZoneRectFromNumbers = (side) => applyZoneRect(side, zoneRects[side]);
+  const setZoneRectsFromNumbers = (side) => applyZoneRects(side, zoneRects[side]);
+  const mirrorRect = (rect) => ({ x1: rect.x1, x2: rect.x2, y1: board.heightIn - rect.y2, y2: board.heightIn - rect.y1 });
 
   const persistSavedZones = useCallback(async (next) => {
     setSavedZones(next);
@@ -4292,7 +4304,7 @@ export default function Wh40kCalculator({ session }) {
   }, []);
   const saveZoneSlot = (idx) => {
     const next = [...savedZones];
-    next[idx] = { ...zoneRects.mine };
+    next[idx] = zoneRects.mine.map((r) => ({ ...r }));
     persistSavedZones(next);
   };
   const clearZoneSlot = (idx) => {
@@ -4300,24 +4312,23 @@ export default function Wh40kCalculator({ session }) {
     next[idx] = null;
     persistSavedZones(next);
   };
-  // Loading a slot sets "Moje zóna" to the saved rectangle and "Zóna
-  // protihráče" to its vertical mirror (flipped across the board's height),
-  // since the two sides of a real deployment are normally symmetric — one
-  // saved rectangle gives you both.
+  // Loading a slot restores "Moje zóna"'s pair of rectangles and mirrors
+  // each one (vertically, across the board's height) to build "Zóna
+  // protihráče" — a real deployment is normally symmetric, so one saved
+  // pair gives you both sides.
   const loadZoneSlot = (idx) => {
-    const rect = savedZones[idx];
-    if (!rect) return;
-    const mirrored = { x1: rect.x1, x2: rect.x2, y1: board.heightIn - rect.y2, y2: board.heightIn - rect.y1 };
-    setZoneRects({ mine: { ...rect }, theirs: mirrored });
-    // Both sides in one persistBoard call — two separate applyZoneRect calls
-    // here would each spread the same stale `board` closure and the second
-    // would silently overwrite the first's update (see rectToPoints above).
+    const rects = savedZones[idx];
+    if (!rects) return;
+    const mirrored = rects.map(mirrorRect);
+    setZoneRects({ mine: rects.map((r) => ({ ...r })), theirs: mirrored });
+    // Both sides in one persistBoard call — see rectToClip's comment above
+    // for why two separate applyZoneRects calls here would lose one side.
     persistBoard({
       ...board,
       customZones: {
         ...(board.customZones || {}),
-        mine: rectToPoints(rect),
-        theirs: rectToPoints(mirrored),
+        mine: rects.map(rectToClip),
+        theirs: mirrored.map(rectToClip),
       },
     });
   };
@@ -4534,16 +4545,23 @@ export default function Wh40kCalculator({ session }) {
   // a render on its own, only the drawPoints it produces do.
   const drawStrokeActiveRef = useRef(false);
   const lastDrawPointRef = useRef(null);
-  // Alternative to click/drag drawing: type each side's rectangle corners in
-  // inches directly (reading them off the on-board ruler), no mouse
-  // precision needed at all — one always-visible box per side.
+  // Alternative to click/drag drawing: type each side's zone as TWO
+  // rectangle corners in inches (reading them off the on-board ruler), no
+  // mouse precision needed at all — combined (unioned) into one zone shape
+  // per side, since a real deployment zone is often not a single rectangle.
   const [zoneRects, setZoneRects] = useState({
-    mine: { x1: 0, y1: 0, x2: 10, y2: 10 },
-    theirs: { x1: 0, y1: 0, x2: 10, y2: 10 },
+    mine: [
+      { x1: 0, y1: 0, x2: 10, y2: 10 },
+      { x1: 0, y1: 0, x2: 10, y2: 10 },
+    ],
+    theirs: [
+      { x1: 0, y1: 0, x2: 10, y2: 10 },
+      { x1: 0, y1: 0, x2: 10, y2: 10 },
+    ],
   });
-  // 5 saveable deployment-zone slots — each holds just one rectangle (in
-  // inches); loading a slot sets "Moje zóna" to it and "Zóna protihráče" to
-  // its vertical mirror, since a real deployment is normally symmetric.
+  // 5 saveable deployment-zone slots — each holds "Moje zóna"'s pair of
+  // rectangles; loading a slot restores them and sets "Zóna protihráče" to
+  // their vertical mirror, since a real deployment is normally symmetric.
   const [savedZones, setSavedZones] = useState([null, null, null, null, null]);
   const [savedZonesLoaded, setSavedZonesLoaded] = useState(false);
   const [newPresetName, setNewPresetName] = useState("");
@@ -6422,7 +6440,9 @@ export default function Wh40kCalculator({ session }) {
 
             {!drawMode && (
               <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 8 }}>
-                <div style={{ fontSize: 10.5, color: "var(--muted)" }}>Nebo zadej obdélníkovou zónu čísly v palcích (podle čísel na okraji desky):</div>
+                <div style={{ fontSize: 10.5, color: "var(--muted)" }}>
+                  Nebo zadej zónu jako dva obdélníky čísly v palcích (podle čísel na okraji desky) — spojí se do jedné zóny:
+                </div>
                 {["mine", "theirs"].map((side) => (
                   <div
                     key={side}
@@ -6436,14 +6456,19 @@ export default function Wh40kCalculator({ session }) {
                     <div style={{ fontSize: 10.5, fontWeight: 700, color: side === "mine" ? "var(--accent-text)" : "#e0857c", marginBottom: 6 }}>
                       {side === "mine" ? "Moje zóna" : "Zóna protihráče"}
                     </div>
-                    <Row cols={4}>
-                      <NumberField label="Od X" value={zoneRects[side].x1} onChange={(v) => updateZoneRect(side, "x1", v)} small />
-                      <NumberField label="Od Y" value={zoneRects[side].y1} onChange={(v) => updateZoneRect(side, "y1", v)} small />
-                      <NumberField label="Do X" value={zoneRects[side].x2} onChange={(v) => updateZoneRect(side, "x2", v)} small />
-                      <NumberField label="Do Y" value={zoneRects[side].y2} onChange={(v) => updateZoneRect(side, "y2", v)} small />
-                    </Row>
+                    {[0, 1].map((rectIdx) => (
+                      <div key={rectIdx} style={{ marginBottom: 6 }}>
+                        <div style={{ fontSize: 9.5, color: "var(--muted)", marginBottom: 3 }}>Obdélník {rectIdx + 1}</div>
+                        <Row cols={4}>
+                          <NumberField label="Od X" value={zoneRects[side][rectIdx].x1} onChange={(v) => updateZoneRect(side, rectIdx, "x1", v)} small />
+                          <NumberField label="Od Y" value={zoneRects[side][rectIdx].y1} onChange={(v) => updateZoneRect(side, rectIdx, "y1", v)} small />
+                          <NumberField label="Do X" value={zoneRects[side][rectIdx].x2} onChange={(v) => updateZoneRect(side, rectIdx, "x2", v)} small />
+                          <NumberField label="Do Y" value={zoneRects[side][rectIdx].y2} onChange={(v) => updateZoneRect(side, rectIdx, "y2", v)} small />
+                        </Row>
+                      </div>
+                    ))}
                     <button
-                      onClick={() => setZoneRectFromNumbers(side)}
+                      onClick={() => setZoneRectsFromNumbers(side)}
                       className="wh40k-btn"
                       style={{
                         marginTop: 4,
@@ -6464,21 +6489,21 @@ export default function Wh40kCalculator({ session }) {
 
                 <div style={{ background: "var(--field-bg)", border: "1px dashed var(--field-border)", borderRadius: 8, padding: 8 }}>
                   <div style={{ fontSize: 10.5, color: "var(--muted)", marginBottom: 6 }}>
-                    5 uložených zón — prázdný slot uloží aktuální „Moje zóna“; vyplněný slot ji zase načte a nastaví „Zónu protihráče“ jako její zrcadlo.
+                    5 uložených zón — prázdný slot uloží aktuální dvojici obdélníků „Moje zóna“; vyplněný slot ji zase načte a nastaví „Zónu protihráče“ jako její zrcadlo.
                   </div>
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                    {savedZones.map((rect, idx) => (
+                    {savedZones.map((rects, idx) => (
                       <div key={idx} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
                         <button
-                          onClick={() => (rect ? loadZoneSlot(idx) : saveZoneSlot(idx))}
-                          title={rect ? `Načíst zónu ${idx + 1}` : `Uložit aktuální „Moje zóna“ do slotu ${idx + 1}`}
+                          onClick={() => (rects ? loadZoneSlot(idx) : saveZoneSlot(idx))}
+                          title={rects ? `Načíst zónu ${idx + 1}` : `Uložit aktuální „Moje zóna“ do slotu ${idx + 1}`}
                           style={{
                             width: 38,
                             height: 38,
                             borderRadius: 8,
-                            border: `1px solid ${rect ? "var(--accent)" : "var(--field-border)"}`,
-                            background: rect ? "var(--accent-dim)" : "var(--panel)",
-                            color: rect ? "var(--accent-text)" : "var(--muted)",
+                            border: `1px solid ${rects ? "var(--accent)" : "var(--field-border)"}`,
+                            background: rects ? "var(--accent-dim)" : "var(--panel)",
+                            color: rects ? "var(--accent-text)" : "var(--muted)",
                             fontSize: 13,
                             fontWeight: 700,
                             cursor: "pointer",
@@ -6486,7 +6511,7 @@ export default function Wh40kCalculator({ session }) {
                         >
                           {idx + 1}
                         </button>
-                        {rect && (
+                        {rects && (
                           <button
                             onClick={() => clearZoneSlot(idx)}
                             style={{ background: "transparent", border: "none", color: "var(--muted)", fontSize: 9, cursor: "pointer", padding: 0 }}
@@ -6983,17 +7008,32 @@ export default function Wh40kCalculator({ session }) {
           >
             {/* Deployment zones — picked from DEPLOYMENT_LAYOUTS above by its
                 color/shape swatch, not a redraw of any official mission map.
-                A hand-drawn customZones.<side> polygon overrides that side's
-                swatch shape independently of the other side. */}
+                A custom customZones.<side> overrides that side's swatch
+                shape independently of the other side; it's an array of
+                clip-path strings (one rectangle each, from the two-rectangle
+                numeric tool) rendered as that many stacked same-colored
+                tints — reads as one combined zone without needing actual
+                polygon-union math. Also accepts the older single-rectangle
+                format (a flat array of {x,y} points) for boards saved before
+                this became multi-rectangle. */}
             {(() => {
               const layout = DEPLOYMENT_LAYOUTS.find((l) => l.id === board.layoutId) || DEPLOYMENT_LAYOUTS[0];
               const cz = board.customZones || {};
-              const theirsClip = cz.theirs ? pointsToClipPath(cz.theirs) : layout.theirsClip;
-              const mineClip = cz.mine ? pointsToClipPath(cz.mine) : layout.mineClip;
+              const zoneClips = (value, fallbackClip) => {
+                if (!value || value.length === 0) return [fallbackClip];
+                if (typeof value[0] === "string") return value;
+                return [pointsToClipPath(value)];
+              };
+              const theirsClips = zoneClips(cz.theirs, layout.theirsClip);
+              const mineClips = zoneClips(cz.mine, layout.mineClip);
               return (
                 <>
-                  <div style={{ position: "absolute", inset: 0, background: "var(--accent)", opacity: 0.16, clipPath: theirsClip, pointerEvents: "none" }} />
-                  <div style={{ position: "absolute", inset: 0, background: "#c0392b", opacity: 0.16, clipPath: mineClip, pointerEvents: "none" }} />
+                  {theirsClips.map((clip, i) => (
+                    <div key={`theirs-${i}`} style={{ position: "absolute", inset: 0, background: "var(--accent)", opacity: 0.16, clipPath: clip, pointerEvents: "none" }} />
+                  ))}
+                  {mineClips.map((clip, i) => (
+                    <div key={`mine-${i}`} style={{ position: "absolute", inset: 0, background: "#c0392b", opacity: 0.16, clipPath: clip, pointerEvents: "none" }} />
+                  ))}
                 </>
               );
             })()}
