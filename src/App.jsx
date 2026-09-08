@@ -215,6 +215,41 @@ const emptyMember = () => ({
   weapons: [emptyWeapon()],
 });
 
+// Standard round and oval base sizes (diameter / length×width, in mm) — the
+// actual physical sizes GW bases ship in, so picking one is just "which base
+// is this unit actually on" rather than typing an arbitrary number. Stored on
+// a unit as this same string ("32" or "90x52"); parseBaseSizeMm below reads
+// it back (also accepting a bare legacy numeric baseSize from before this
+// list existed) into a {w, h} mm pair for the board token's footprint.
+const BASE_SIZES = [
+  { value: "25", label: "25mm" },
+  { value: "28.5", label: "28.5mm" },
+  { value: "32", label: "32mm" },
+  { value: "40", label: "40mm" },
+  { value: "50", label: "50mm" },
+  { value: "60", label: "60mm" },
+  { value: "80", label: "80mm" },
+  { value: "90", label: "90mm" },
+  { value: "100", label: "100mm" },
+  { value: "130", label: "130mm" },
+  { value: "160", label: "160mm" },
+  { value: "60x35", label: "60×35mm oválná" },
+  { value: "75x46", label: "75×46mm oválná" },
+  { value: "90x52", label: "90×52mm oválná" },
+  { value: "105x70", label: "105×70mm oválná" },
+  { value: "120x92", label: "120×92mm oválná" },
+  { value: "170x109", label: "170×109mm oválná" },
+];
+function parseBaseSizeMm(baseSize) {
+  const s = String(baseSize ?? "32").trim();
+  if (s.includes("x")) {
+    const [w, h] = s.split("x").map((v) => parseFloat(v));
+    return { w: w || 32, h: h || w || 32 };
+  }
+  const n = parseFloat(s) || 32;
+  return { w: n, h: n };
+}
+
 const emptyUnit = () => ({
   id: crypto.randomUUID(),
   faction: "",
@@ -229,10 +264,9 @@ const emptyUnit = () => ({
   woundDebuff: false,
   damageReduction: 0,
   keywords: { monster: false, vehicle: false, character: false, infantry: false },
-  // Model base diameter in mm, for the battlefield board (token size). Just a
-  // display default — editable per unit, not sourced from any official GW
-  // base-size chart.
-  baseSize: 32,
+  // Model base size (mm), for the battlefield board (token size) — one of
+  // BASE_SIZES' standard values ("32", "90x52", …), see parseBaseSizeMm.
+  baseSize: "32",
   members: [emptyMember()],
   needsStats: false,
   isLeader: false,
@@ -1731,13 +1765,7 @@ function UnitForm({ initial, onSave, onCancel }) {
         <NumberField label="Wounds na model" value={u.wounds} onChange={set("wounds")} min={0} />
       </Row>
       <Row cols={2}>
-        <NumberField
-          label="Base (mm, pro Desku)"
-          value={u.baseSize || 32}
-          onChange={set("baseSize")}
-          min={1}
-          hint="průměr base pro token na Desce"
-        />
+        <SelectField label="Base size (pro Desku)" value={String(u.baseSize || 32)} onChange={set("baseSize")} options={BASE_SIZES} />
         <div />
       </Row>
       <Row cols={3}>
@@ -2482,10 +2510,10 @@ function weaponSummary(unit) {
   return parts.join(", ");
 }
 
-function LibraryRow({ u, onEdit, onDelete, onToggleFavorite }) {
+function LibraryRow({ u, onEdit, onDelete, onToggleFavorite, onSetBaseSize }) {
   return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 8px", borderRadius: 6, fontSize: 13 }}>
-      <span style={{ display: "flex", flexDirection: "column" }}>
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 8px", borderRadius: 6, fontSize: 13, gap: 6 }}>
+      <span style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
         <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
           {u.name}
           <span style={{ fontSize: 11, color: "var(--muted)" }}>
@@ -2504,7 +2532,19 @@ function LibraryRow({ u, onEdit, onDelete, onToggleFavorite }) {
         </span>
         {weaponSummary(u) && <span style={{ fontSize: 10.5, color: "var(--muted)", marginTop: 1 }}>{weaponSummary(u)}</span>}
       </span>
-      <span style={{ display: "flex", gap: 4 }}>
+      <span style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
+        <select
+          value={String(u.baseSize || 32)}
+          onChange={(e) => onSetBaseSize(e.target.value)}
+          title="Base size jednotky (pro Desku)"
+          style={{ background: "var(--field-bg)", border: "1px solid var(--field-border)", borderRadius: 6, color: "var(--text)", fontSize: 10.5, padding: "3px 4px", cursor: "pointer" }}
+        >
+          {BASE_SIZES.map((b) => (
+            <option key={b.value} value={b.value}>
+              {b.label}
+            </option>
+          ))}
+        </select>
         <button onClick={onToggleFavorite} aria-label="Oblíbené" style={{ background: "transparent", border: "none", color: u.isFavorite ? "#e0c34a" : "var(--muted)", cursor: "pointer", padding: 4 }}>
           <Star size={14} fill={u.isFavorite ? "#e0c34a" : "none"} />
         </button>
@@ -3836,7 +3876,7 @@ function ManualView({ onBack }) {
 
       <ManualSection num="08" title="Deska">
         <ManualP>
-          <ManualPath>Deska</ManualPath> — vizuální bojiště na míru. Zaškrtni jednotky z knihovny do <b>Moje jednotky</b> nebo <b>Jednotky protihráče</b> — objeví se jako token, přetáhni ho na místo. Velikost tokenu vychází z pole <b>Base (mm)</b> v editaci jednotky.
+          <ManualPath>Deska</ManualPath> — vizuální bojiště na míru. Zaškrtni jednotky z knihovny do <b>Moje jednotky</b> nebo <b>Jednotky protihráče</b> — objeví se jako token, přetáhni ho na místo. Velikost tokenu vychází z base size jednotky — přímo u jednotky v knihovně je malý rozklikávací seznam se standardními velikostmi (25 až 160mm kulaté, plus běžné oválné jako 90×52mm), není potřeba kvůli tomu otvírat celou editaci.
         </ManualP>
         <ManualUl
           items={[
@@ -4489,6 +4529,10 @@ export default function Wh40kCalculator({ session }) {
 
   const toggleFavorite = (id) => {
     persistLibrary(library.map((u) => (u.id === id ? { ...u, isFavorite: !u.isFavorite } : u)));
+  };
+
+  const setUnitBaseSize = (id, baseSize) => {
+    persistLibrary(library.map((u) => (u.id === id ? { ...u, baseSize } : u)));
   };
 
   const favoriteUnits = useMemo(() => library.filter((u) => u.isFavorite), [library]);
@@ -6073,7 +6117,14 @@ export default function Wh40kCalculator({ session }) {
               {loaded && library.length > 0 && filteredLibraryUnits.length === 0 && <div style={{ fontSize: 12.5, color: "var(--muted)" }}>Nic nenalezeno.</div>}
               {loaded &&
                 filteredLibraryUnits.map((u) => (
-                  <LibraryRow key={u.id} u={u} onEdit={() => setEditingUnit(u)} onDelete={() => deleteUnit(u.id)} onToggleFavorite={() => toggleFavorite(u.id)} />
+                  <LibraryRow
+                    key={u.id}
+                    u={u}
+                    onEdit={() => setEditingUnit(u)}
+                    onDelete={() => deleteUnit(u.id)}
+                    onToggleFavorite={() => toggleFavorite(u.id)}
+                    onSetBaseSize={(v) => setUnitBaseSize(u.id, v)}
+                  />
                 ))}
 
               {editingUnit ? (
@@ -7273,9 +7324,15 @@ export default function Wh40kCalculator({ session }) {
             })}
             {board.tokens.map((t) => {
               const unit = library.find((u) => u.id === t.unitId);
-              const baseSizeIn = (unit ? unit.baseSize || 32 : 32) / 25.4;
-              const sizePctW = Math.max(1.2, (baseSizeIn / board.widthIn) * 100);
-              const sizePctH = Math.max(1.2, (baseSizeIn / board.heightIn) * 100);
+              // {w, h} in mm — equal for a round base, different for an oval
+              // one (e.g. "90x52") — each converted to inches on its own
+              // board axis, same as everywhere else a physical size becomes a
+              // board percentage. border-radius:50% on a non-square box
+              // already renders as an ellipse, so no extra shape logic needed
+              // in BoardTokenView itself for an oval base.
+              const baseMm = parseBaseSizeMm(unit ? unit.baseSize : 32);
+              const sizePctW = Math.max(1.2, (baseMm.w / 25.4 / board.widthIn) * 100);
+              const sizePctH = Math.max(1.2, (baseMm.h / 25.4 / board.heightIn) * 100);
               return (
                 <BoardTokenView
                   key={t.id}
