@@ -56,8 +56,12 @@ const MOD_OPTIONS_3 = [-3, -2, -1, 0, 1, 2, 3].map((n) => ({ value: String(n), l
 // zone + one small pocket, two whole-board triangles, opposite wedges around
 // a center no-man's-land circle), not a redraw of any official GW mission map
 // and not tied to any named mission/disposition. Picked purely by its little
-// two-tone color preview, not by a label. `mine` is always the lower-half
-// shape, `theirs` the upper-half shape (matches how tokens stage by side).
+// two-tone color preview, not by a label. Each entry only defines `mineClip`
+// — `theirsClip` is always derived from it by mirrorClipPathDiagonally (a
+// 180° rotation through the board's center), the exact same rule the custom
+// "Moje zóna" tools (drawing, numeric rectangles, saved slots) use for their
+// own "Zóna protihráče" — so a preset layout is just a built-in starting
+// point for the same one-sided-zone system, not a separate mechanism.
 
 // Builds a clip-path polygon approximating a circular sector (a "pie slice",
 // optionally with a smaller inner radius cut out for the "center-wedge"
@@ -78,42 +82,51 @@ function sectorPolygon(cxIn, cyIn, rInnerIn, rOuterIn, angleStartDeg, angleEndDe
   return `polygon(${pts.join(", ")})`;
 }
 
-const DEPLOYMENT_LAYOUTS = [
-  {
-    id: "edges",
-    mineClip: "polygon(0% 100%, 100% 100%, 100% 82%, 0% 82%)",
-    theirsClip: "polygon(0% 0%, 100% 0%, 100% 18%, 0% 18%)",
-  },
-  {
-    id: "corners",
-    mineClip: "polygon(0% 100%, 55% 100%, 0% 45%)",
-    theirsClip: "polygon(100% 0%, 45% 0%, 100% 55%)",
-  },
-  {
-    id: "diagonal",
-    mineClip: "polygon(0% 100%, 100% 100%, 100% 58%, 0% 78%)",
-    theirsClip: "polygon(0% 0%, 100% 0%, 100% 22%, 0% 42%)",
-  },
+// 180°-rotates any "polygon(x% y%, ...)" clip-path string through the
+// board's center (each point (x,y) -> (100-x, 100-y)) — the generic version
+// of mirrorRectDiagonally/mirrorPointsDiagonally below, usable on a plain
+// string instead of a rect or a points array. Used both to derive every
+// DEPLOYMENT_LAYOUTS' theirsClip from its mineClip, and (inside the
+// component) to mirror whatever "Moje zóna" shape a saved slot holds,
+// regardless of whether it came from a preset, a freehand draw, or the
+// numeric-rectangle tool.
+function mirrorClipPathDiagonally(clip) {
+  const inner = clip.slice(clip.indexOf("(") + 1, clip.lastIndexOf(")"));
+  const mirrored = inner
+    .split(",")
+    .map((pair) => {
+      const [xStr, yStr] = pair.trim().split(/\s+/);
+      return `${100 - parseFloat(xStr)}% ${100 - parseFloat(yStr)}%`;
+    })
+    .join(", ");
+  return `polygon(${mirrored})`;
+}
+
+const DEPLOYMENT_LAYOUTS_BASE = [
+  { id: "edges", mineClip: "polygon(0% 100%, 100% 100%, 100% 82%, 0% 82%)" },
+  { id: "corners", mineClip: "polygon(0% 100%, 55% 100%, 0% 45%)" },
+  { id: "diagonal", mineClip: "polygon(0% 100%, 100% 100%, 100% 58%, 0% 78%)" },
   {
     id: "pocket",
-    mineClip: "polygon(0% 100%, 100% 100%, 100% 72%, 0% 72%)",
-    theirsClip: "polygon(0% 0%, 32% 0%, 32% 22%, 0% 22%)",
+    // A big bottom band with an extra square "pocket" poking up out of it —
+    // one single shape (not two independent mine/theirs shapes like before),
+    // so it mirrors diagonally into an equally lopsided shape for the other side.
+    mineClip: "polygon(0% 100%, 100% 100%, 100% 72%, 68% 72%, 68% 50%, 48% 50%, 48% 72%, 0% 72%)",
   },
   {
     id: "triangles",
     // The whole board split corner-to-corner into two triangles (not just
     // small corner wedges like "corners" above).
     mineClip: "polygon(0% 100%, 100% 100%, 100% 0%)",
-    theirsClip: "polygon(0% 0%, 100% 0%, 0% 100%)",
   },
   {
     id: "center-wedge",
-    // A round no-man's-land in the middle of the board, with each side
-    // getting an opposite pie-slice wedge reaching out toward its own edge.
+    // A round no-man's-land in the middle of the board; mirrored diagonally
+    // this becomes the opposite pie-slice wedge reaching toward the far edge.
     mineClip: sectorPolygon(22, 30, 9, 27, 50, 130, 44, 60),
-    theirsClip: sectorPolygon(22, 30, 9, 27, 230, 310, 44, 60),
   },
 ];
+const DEPLOYMENT_LAYOUTS = DEPLOYMENT_LAYOUTS_BASE.map((l) => ({ ...l, theirsClip: mirrorClipPathDiagonally(l.mineClip) }));
 
 // Terrain "stavebnice" (building blocks) for the board — generic, original
 // shapes (not traced from any terrain kit or official layout) the person
@@ -3801,10 +3814,10 @@ function ManualView({ onBack }) {
             <>Dvojklik na token ho odebere z desky (odškrtne se i v seznamu).</>,
             <>Rozměry desky (šířka/výška v palcích) jdou upravit nahoře — token si přepočítá velikost podle nich.</>,
             <>Jeden token = celá jednotka (počet modelů je v odznáčku v rohu), ne model po modelu.</>,
-            <><b>Rozložení výsadku</b> — šest barevných náhledů nad deskou; vyber si podle tvaru, žádné se neváže na konkrétní misi ani jméno dispozice. Mimo pruhů/rohů/kapes jsou tam i „dva trojúhelníky“ (deska rozdělená úhlopříčně napůl) a „kruhová výseč uprostřed“ (kolo neutrální zóny uprostřed desky, obě strany dostanou naproti sobě jeden výsek jako klín).</>,
+            <><b>Rozložení výsadku</b> — šest barevných náhledů nad deskou; vyber si podle tvaru, žádné se neváže na konkrétní misi ani jméno dispozice. Každý náhled je (stejně jako „Moje zóna“ níž) jen jeden tvar — druhá strana je vždy jeho diagonální (o 180° otočený) protějšek, nikdy samostatně nakreslená. Mimo pruhů/rohů/kapes jsou tam i „dva trojúhelníky“ (deska rozdělená úhlopříčně napůl) a „kruhová výseč uprostřed“ (kolo neutrální zóny uprostřed desky, obě strany dostanou naproti sobě jeden výsek jako klín).</>,
             <><b>Nakreslit vlastní výsadek</b> — klikni „Nakreslit mou zónu“, pak stiskni na desce a táhni jako štětcem (min. 3 body), a klikni Dokončit. „Zóna protihráče“ se sama dopočítá jako tvar otočený o 180° přes střed desky (diagonálně, ne jen prosté zrcadlo nahoru/dolů). „Zpět na přednastavené rozložení“ obě strany zase vrátí na náhled. Čísla po 5 palcích podél okrajů desky se zapínají/vypínají spolu s mřížkou.</>,
             <><b>Zóna čísly (v palcích)</b> — pod tlačítkem pro kreslení je box Moje zóna se dvěma obdélníky (Obdélník 1 a 2) — zadej jim Od X/Y a Do X/Y podle čísel na okraji desky a klikni na tlačítko Nastavit. Oba obdélníky se spojí do jedné zóny, takže jde postavit i L-tvar nebo schod, ne jen jeden obdélník. „Zóna protihráče“ se vždy dopočítá automaticky jako diagonální (o 180° otočený) protějšek — nezadává se ručně.</>,
-            <><b>5 uložených zón</b> — pod boxem je 5 číslovaných slotů. Klikni na prázdný slot a uloží se do něj aktuální dvojice obdélníků „Moje zóna“; klikni na vyplněný slot a načte ji zpět a „Zónu protihráče“ nastaví jako její diagonální protějšek. „Smazat“ pod slotem ho vyprázdní.</>,
+            <><b>5 uložených zón</b> — pod boxem je 5 číslovaných slotů. Uloží se do nich, ať už zóna aktuálně pochází z přednastaveného rozložení, z nakreslení, nebo z čísel — appka vždy uloží to, co skutečně vidíš na desce jako svou zónu. Klikni na prázdný slot a uloží se do něj aktuální „Moje zóna“; klikni na vyplněný slot a načte ji zpět a „Zónu protihráče“ nastaví jako její diagonální protějšek. „Smazat“ pod slotem ho vyprázdní.</>,
             <><b>Rychlý souboj</b> — klikni na svůj token, pak na token protihráče. Appka spočítá zabité modely/damage jen z vestavěných schopností obou jednotek (žádné bonusy). „Otevřít v kalkulačce“ tě přenese do plné kalkulačky s modifikátory.</>,
             <><b>Terén (stavebnice)</b> — klikni na Ruina/Zeď/Kráter/Les/Kontejner pro přidání kusu doprostřed desky, pak ho přetáhni na místo. Klik na terén otevře dole šířku/výšku/otočení, dvojklik ho odebere.</>,
             <><b>Mřížka po 1 palci</b> — přepínač u rozměrů desky, čtvercová síť odpovídající skutečným palcům na stole.</>,
@@ -4359,9 +4372,27 @@ export default function Wh40kCalculator({ session }) {
       console.error("Nepodařilo se uložit zóny", e);
     }
   }, []);
+  // Mirrors "Moje zóna" in whatever generic form it's currently stored in —
+  // an array of clip-path strings (the numeric-rectangle tool, and now the
+  // DEPLOYMENT_LAYOUTS presets) or a flat array of {x,y} points (a freehand
+  // draw) — same branching the board's own zone-tint render already uses.
+  const mirrorZoneDiagonally = (value) => (typeof value[0] === "string" ? value.map(mirrorClipPathDiagonally) : mirrorPointsDiagonally(value));
+  // The slot buttons save/load "the current zone" as a whole, not just
+  // whatever's sitting in the numeric-rectangle tool's own draft fields —
+  // that used to be the bug: picking a preset layout or drawing freehand and
+  // then hitting a slot silently saved the (unrelated, still-default)
+  // rectangle-tool values instead of what was actually showing on the board.
+  // So this reads board.customZones.mine when a custom zone is active, and
+  // falls back to the selected preset's own mineClip otherwise — exactly the
+  // same source the render itself uses to decide what to draw.
+  const activeMineZone = () => {
+    if (Array.isArray(board.customZones?.mine) && board.customZones.mine.length > 0) return board.customZones.mine;
+    const layout = DEPLOYMENT_LAYOUTS.find((l) => l.id === board.layoutId) || DEPLOYMENT_LAYOUTS[0];
+    return [layout.mineClip];
+  };
   const saveZoneSlot = (idx) => {
     const next = [...savedZones];
-    next[idx] = zoneRects.mine.map((r) => ({ ...r }));
+    next[idx] = activeMineZone();
     persistSavedZones(next);
   };
   const clearZoneSlot = (idx) => {
@@ -4369,25 +4400,14 @@ export default function Wh40kCalculator({ session }) {
     next[idx] = null;
     persistSavedZones(next);
   };
-  // Loading a slot restores "Moje zóna"'s pair of rectangles and rotates
-  // each one 180° through the board's center to build "Zóna protihráče" —
-  // a real deployment is normally that same shape diagonally opposite, so
-  // one saved pair gives you both sides.
+  // Loading a slot applies its saved "Moje zóna" shape directly and rotates
+  // it 180° through the board's center to build "Zóna protihráče" — a real
+  // deployment is normally that same shape diagonally opposite, so one saved
+  // shape gives you both sides.
   const loadZoneSlot = (idx) => {
-    const rects = savedZones[idx];
-    if (!rects) return;
-    const mirrored = rects.map(mirrorRectDiagonally);
-    setZoneRects({ mine: rects.map((r) => ({ ...r })) });
-    // Both sides in one persistBoard call — see rectToClip's comment above
-    // for why two separate applyZoneRects calls here would lose one side.
-    persistBoard({
-      ...board,
-      customZones: {
-        ...(board.customZones || {}),
-        mine: rects.map(rectToClip),
-        theirs: mirrored.map(rectToClip),
-      },
-    });
+    const mine = savedZones[idx];
+    if (!mine) return;
+    persistBoard({ ...board, customZones: { ...(board.customZones || {}), mine, theirs: mirrorZoneDiagonally(mine) } });
   };
 
   const saveArmy = (army) => {
@@ -6519,7 +6539,7 @@ export default function Wh40kCalculator({ session }) {
 
                 <div style={{ background: "var(--field-bg)", border: "1px dashed var(--field-border)", borderRadius: 8, padding: 8 }}>
                   <div style={{ fontSize: 10.5, color: "var(--muted)", marginBottom: 6 }}>
-                    5 uložených zón — prázdný slot uloží aktuální dvojici obdélníků „Moje zóna“; vyplněný slot ji zase načte a „Zónu protihráče“ nastaví jako její diagonální protějšek.
+                    5 uložených zón — prázdný slot uloží aktuální „Moje zóna“ přesně tak, jak teď vypadá na desce (ať pochází z rozložení, kreslení, nebo čísel); vyplněný slot ji zase načte a „Zónu protihráče“ nastaví jako její diagonální protějšek.
                   </div>
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                     {savedZones.map((rects, idx) => (
