@@ -87,9 +87,7 @@ function sectorPolygon(cxIn, cyIn, rInnerIn, rOuterIn, angleStartDeg, angleEndDe
 // of mirrorRectDiagonally/mirrorPointsDiagonally below, usable on a plain
 // string instead of a rect or a points array. Used both to derive every
 // DEPLOYMENT_LAYOUTS' theirsClip from its mineClip, and (inside the
-// component) to mirror whatever "Moje zóna" shape a saved slot holds,
-// regardless of whether it came from a preset, a freehand draw, or the
-// numeric-rectangle tool.
+// component) to derive a user-saved layout's theirsClip the same way.
 function mirrorClipPathDiagonally(clip) {
   const inner = clip.slice(clip.indexOf("(") + 1, clip.lastIndexOf(")"));
   const mirrored = inner
@@ -100,6 +98,27 @@ function mirrorClipPathDiagonally(clip) {
     })
     .join(", ");
   return `polygon(${mirrored})`;
+}
+// Same 180° mirror, but for a layout's mineClip field, which (per
+// asClipArray above) can be either a single clip-path string or an array of
+// them — mirrors each one and preserves whichever shape it was given.
+const mirrorLayoutClip = (value) => (Array.isArray(value) ? value.map(mirrorClipPathDiagonally) : mirrorClipPathDiagonally(value));
+
+// Converts a flat array of {x,y} percent points (as produced by a freehand
+// zone draw) into a single clip-path polygon string.
+const pointsToClipPath = (points) => `polygon(${points.map((p) => `${p.x}% ${p.y}%`).join(", ")})`;
+
+// Resolves what a side's deployment zone should actually render as: a
+// board.customZones[side] override — either a flat {x,y} points array (a
+// freehand draw) or an array of clip-path strings (the numeric-rectangle
+// tool, or a loaded layout) — normalized to always an array of clip-path
+// strings; or, when there's no override, the currently selected layout's own
+// mineClip/theirsClip (itself a string or an array, see asClipArray). One
+// shared function so the board's render and "save the current zone as a
+// layout" always agree on what "the current zone" is.
+function resolveZoneClips(value, fallback) {
+  if (Array.isArray(value) && value.length > 0) return typeof value[0] === "string" ? value : [pointsToClipPath(value)];
+  return asClipArray(fallback);
 }
 
 const DEPLOYMENT_LAYOUTS_BASE = [
@@ -2586,10 +2605,16 @@ function StatChip({ label, value }) {
 // container's actual rendered pixel size (see the "Deska" view for the math:
 // width-%/height-% both derive from the same base-size-in-inches, just
 // divided by the board's width-in-inches vs height-in-inches respectively).
-// Picker for DEPLOYMENT_LAYOUTS — a small two-tone preview of the shape
-// itself (same clip-paths the board uses), no text label. Selecting one is
-// purely "pick by how it looks", per the color/shape swatch, not by a
-// mission or disposition name.
+// A layout's mineClip/theirsClip is either a single clip-path string
+// (the six built-in DEPLOYMENT_LAYOUTS) or an array of them (a user-saved
+// layout captured while "Moje zóna" was a multi-rectangle union) — always
+// normalized to an array so every renderer only has to handle one shape.
+const asClipArray = (value) => (Array.isArray(value) ? value : [value]);
+
+// Picker for DEPLOYMENT_LAYOUTS (built-in and user-saved alike) — a small
+// two-tone preview of the shape itself (same clip-paths the board uses), no
+// text label. Selecting one is purely "pick by how it looks", per the
+// color/shape swatch, not by a mission or disposition name.
 function LayoutSwatch({ layout, selected, onClick }) {
   return (
     <button
@@ -2608,8 +2633,12 @@ function LayoutSwatch({ layout, selected, onClick }) {
         flexShrink: 0,
       }}
     >
-      <div style={{ position: "absolute", inset: 0, background: "var(--accent)", opacity: 0.55, clipPath: layout.theirsClip }} />
-      <div style={{ position: "absolute", inset: 0, background: "#c0392b", opacity: 0.55, clipPath: layout.mineClip }} />
+      {asClipArray(layout.theirsClip).map((clip, i) => (
+        <div key={`t${i}`} style={{ position: "absolute", inset: 0, background: "var(--accent)", opacity: 0.55, clipPath: clip }} />
+      ))}
+      {asClipArray(layout.mineClip).map((clip, i) => (
+        <div key={`m${i}`} style={{ position: "absolute", inset: 0, background: "#c0392b", opacity: 0.55, clipPath: clip }} />
+      ))}
     </button>
   );
 }
@@ -3814,10 +3843,10 @@ function ManualView({ onBack }) {
             <>Dvojklik na token ho odebere z desky (odškrtne se i v seznamu).</>,
             <>Rozměry desky (šířka/výška v palcích) jdou upravit nahoře — token si přepočítá velikost podle nich.</>,
             <>Jeden token = celá jednotka (počet modelů je v odznáčku v rohu), ne model po modelu.</>,
-            <><b>Rozložení výsadku</b> — šest barevných náhledů nad deskou; vyber si podle tvaru, žádné se neváže na konkrétní misi ani jméno dispozice. Každý náhled je (stejně jako „Moje zóna“ níž) jen jeden tvar — druhá strana je vždy jeho diagonální (o 180° otočený) protějšek, nikdy samostatně nakreslená. Mimo pruhů/rohů/kapes jsou tam i „dva trojúhelníky“ (deska rozdělená úhlopříčně napůl) a „kruhová výseč uprostřed“ (kolo neutrální zóny uprostřed desky, obě strany dostanou naproti sobě jeden výsek jako klín).</>,
+            <><b>Rozložení výsadku</b> — barevné náhledy nad deskou; vyber si podle tvaru, žádné se neváže na konkrétní misi ani jméno dispozice. Každý náhled je (stejně jako „Moje zóna“ níž) jen jeden tvar — druhá strana je vždy jeho diagonální (o 180° otočený) protějšek, nikdy samostatně nakreslená. Mimo pruhů/rohů/kapes jsou tam i „dva trojúhelníky“ (deska rozdělená úhlopříčně napůl) a „kruhová výseč uprostřed“ (kolo neutrální zóny uprostřed desky, obě strany dostanou naproti sobě jeden výsek jako klín).</>,
+            <><b>Uložit jako rozložení</b> — ať už je „Moje zóna“ zrovna přednastavený náhled, nakreslený tvar, nebo číselné obdélníky, appka ji pojmenuje a přidá jako novou vlastní kartičku vedle těch šesti — objeví se pak i příště, ve všech tvých deskách. Vyber si svou uloženou kartičku, uprav si zónu (nakresli/přepiš čísla) a klikni „Uložit změny do…“ — přepíše tu samou kartičku, místo aby vytvořila další. „Smazat“ pod kartičkou ji natrvalo odebere.</>,
             <><b>Nakreslit vlastní výsadek</b> — klikni „Nakreslit mou zónu“, pak stiskni na desce a táhni jako štětcem (min. 3 body), a klikni Dokončit. „Zóna protihráče“ se sama dopočítá jako tvar otočený o 180° přes střed desky (diagonálně, ne jen prosté zrcadlo nahoru/dolů). „Zpět na přednastavené rozložení“ obě strany zase vrátí na náhled. Čísla po 5 palcích podél okrajů desky se zapínají/vypínají spolu s mřížkou.</>,
             <><b>Zóna čísly (v palcích)</b> — pod tlačítkem pro kreslení je box Moje zóna se dvěma obdélníky (Obdélník 1 a 2) — zadej jim Od X/Y a Do X/Y podle čísel na okraji desky a klikni na tlačítko Nastavit. Oba obdélníky se spojí do jedné zóny, takže jde postavit i L-tvar nebo schod, ne jen jeden obdélník. „Zóna protihráče“ se vždy dopočítá automaticky jako diagonální (o 180° otočený) protějšek — nezadává se ručně.</>,
-            <><b>5 uložených zón</b> — pod boxem je 5 číslovaných slotů. Uloží se do nich, ať už zóna aktuálně pochází z přednastaveného rozložení, z nakreslení, nebo z čísel — appka vždy uloží to, co skutečně vidíš na desce jako svou zónu. Klikni na prázdný slot a uloží se do něj aktuální „Moje zóna“; klikni na vyplněný slot a načte ji zpět a „Zónu protihráče“ nastaví jako její diagonální protějšek. „Smazat“ pod slotem ho vyprázdní.</>,
             <><b>Rychlý souboj</b> — klikni na svůj token, pak na token protihráče. Appka spočítá zabité modely/damage jen z vestavěných schopností obou jednotek (žádné bonusy). „Otevřít v kalkulačce“ tě přenese do plné kalkulačky s modifikátory.</>,
             <><b>Terén (stavebnice)</b> — klikni na Ruina/Zeď/Kráter/Les/Kontejner pro přidání kusu doprostřed desky, pak ho přetáhni na místo. Klik na terén otevře dole šířku/výšku/otočení, dvojklik ho odebere.</>,
             <><b>Mřížka po 1 palci</b> — přepínač u rozměrů desky, čtvercová síť odpovídající skutečným palcům na stole.</>,
@@ -4101,12 +4130,12 @@ export default function Wh40kCalculator({ session }) {
     })();
     (async () => {
       try {
-        const res = await withTimeout(storage.get("saved_zones_v1", false));
-        if (res && res.value) setSavedZones(JSON.parse(res.value));
+        const res = await withTimeout(storage.get("custom_layouts_v1", false));
+        if (res && res.value) setCustomLayouts(JSON.parse(res.value));
       } catch (e) {
         // nothing saved yet, or the request stalled
       } finally {
-        setSavedZonesLoaded(true);
+        setCustomLayoutsLoaded(true);
       }
     })();
   }, []);
@@ -4309,7 +4338,6 @@ export default function Wh40kCalculator({ session }) {
     setDrawPoints([]);
   };
   const clearCustomZones = () => persistBoard({ ...board, customZones: { mine: null, theirs: null } });
-  const pointsToClipPath = (points) => `polygon(${points.map((p) => `${p.x}% ${p.y}%`).join(", ")})`;
 
   // Alternative to click/drag drawing: type "my" zone as two rectangles'
   // corners in inches directly (read straight off the on-board ruler), no
@@ -4326,10 +4354,10 @@ export default function Wh40kCalculator({ session }) {
       mine: s.mine.map((r, i) => (i === rectIdx ? { ...r, [axis]: value } : r)),
     }));
   // Pure conversions, no state access — safe to call repeatedly building up a
-  // combined customZones object in one go (see loadZoneSlot below, which
-  // needs both sides applied in the SAME persistBoard call: separate calls
-  // would each spread the same stale `board.customZones` closure and the
-  // later call would silently wipe out the earlier one's update).
+  // combined customZones object in one go (see setZoneRectsFromNumbers below,
+  // which needs both sides applied in the SAME persistBoard call: separate
+  // calls would each spread the same stale `board.customZones` closure and
+  // the later call would silently wipe out the earlier one's update).
   const rectToPoints = (rect) => {
     const { x1, y1, x2, y2 } = rect;
     const xMin = Math.max(0, Math.min(x1, x2));
@@ -4364,51 +4392,37 @@ export default function Wh40kCalculator({ session }) {
     });
   };
 
-  const persistSavedZones = useCallback(async (next) => {
-    setSavedZones(next);
+  const persistCustomLayouts = useCallback(async (next) => {
+    setCustomLayouts(next);
     try {
-      await storage.set("saved_zones_v1", JSON.stringify(next), false);
+      await storage.set("custom_layouts_v1", JSON.stringify(next), false);
     } catch (e) {
-      console.error("Nepodařilo se uložit zóny", e);
+      console.error("Nepodařilo se uložit vlastní rozložení", e);
     }
   }, []);
-  // Mirrors "Moje zóna" in whatever generic form it's currently stored in —
-  // an array of clip-path strings (the numeric-rectangle tool, and now the
-  // DEPLOYMENT_LAYOUTS presets) or a flat array of {x,y} points (a freehand
-  // draw) — same branching the board's own zone-tint render already uses.
-  const mirrorZoneDiagonally = (value) => (typeof value[0] === "string" ? value.map(mirrorClipPathDiagonally) : mirrorPointsDiagonally(value));
-  // The slot buttons save/load "the current zone" as a whole, not just
-  // whatever's sitting in the numeric-rectangle tool's own draft fields —
-  // that used to be the bug: picking a preset layout or drawing freehand and
-  // then hitting a slot silently saved the (unrelated, still-default)
-  // rectangle-tool values instead of what was actually showing on the board.
-  // So this reads board.customZones.mine when a custom zone is active, and
-  // falls back to the selected preset's own mineClip otherwise — exactly the
-  // same source the render itself uses to decide what to draw.
-  const activeMineZone = () => {
-    if (Array.isArray(board.customZones?.mine) && board.customZones.mine.length > 0) return board.customZones.mine;
-    const layout = DEPLOYMENT_LAYOUTS.find((l) => l.id === board.layoutId) || DEPLOYMENT_LAYOUTS[0];
-    return [layout.mineClip];
+  // What "Moje zóna" currently is, as a plain array of clip-path strings —
+  // reads board.customZones.mine when a custom zone is active (drawn or
+  // typed), and falls back to the selected layout's own mineClip otherwise —
+  // exactly the same source the render itself uses to decide what to draw.
+  // This is what actually gets saved when adding/updating a custom layout,
+  // so "Uložit jako rozložení" always captures what's really on the board.
+  const activeMineZoneClips = () => resolveZoneClips(board.customZones?.mine, (allLayouts.find((l) => l.id === board.layoutId) || allLayouts[0]).mineClip);
+  const saveNewLayout = () => {
+    const name = newLayoutName.trim() || `Vlastní ${customLayouts.length + 1}`;
+    persistCustomLayouts([...customLayouts, { id: crypto.randomUUID(), name, mineClip: activeMineZoneClips() }]);
+    setNewLayoutName("");
   };
-  const saveZoneSlot = (idx) => {
-    const next = [...savedZones];
-    next[idx] = activeMineZone();
-    persistSavedZones(next);
+  // "Modifikovatelné přes Uložit" — when the currently selected layout is one
+  // you saved yourself (not a built-in), this overwrites its shape with
+  // whatever "Moje zóna" looks like right now, keeping its id/name, so you
+  // can pick your saved layout, tweak it (draw/type a new zone), and save the
+  // change back into the same slot instead of only ever creating a new one.
+  const updateActiveLayout = () => {
+    const active = customLayouts.find((l) => l.id === board.layoutId);
+    if (!active) return;
+    persistCustomLayouts(customLayouts.map((l) => (l.id === active.id ? { ...l, mineClip: activeMineZoneClips() } : l)));
   };
-  const clearZoneSlot = (idx) => {
-    const next = [...savedZones];
-    next[idx] = null;
-    persistSavedZones(next);
-  };
-  // Loading a slot applies its saved "Moje zóna" shape directly and rotates
-  // it 180° through the board's center to build "Zóna protihráče" — a real
-  // deployment is normally that same shape diagonally opposite, so one saved
-  // shape gives you both sides.
-  const loadZoneSlot = (idx) => {
-    const mine = savedZones[idx];
-    if (!mine) return;
-    persistBoard({ ...board, customZones: { ...(board.customZones || {}), mine, theirs: mirrorZoneDiagonally(mine) } });
-  };
+  const deleteCustomLayout = (id) => persistCustomLayouts(customLayouts.filter((l) => l.id !== id));
 
   const saveArmy = (army) => {
     const exists = armies.some((a) => a.id === army.id);
@@ -4633,11 +4647,18 @@ export default function Wh40kCalculator({ session }) {
       { x1: 0, y1: 0, x2: 10, y2: 10 },
     ],
   });
-  // 5 saveable deployment-zone slots — each holds "Moje zóna"'s pair of
-  // rectangles; loading a slot restores them and sets "Zóna protihráče" to
-  // their diagonal (180°-rotated) opposite.
-  const [savedZones, setSavedZones] = useState([null, null, null, null, null]);
-  const [savedZonesLoaded, setSavedZonesLoaded] = useState(false);
+  // User-saved deployment layouts — appear as extra swatches right alongside
+  // the built-in DEPLOYMENT_LAYOUTS ones (see allLayouts below), captured
+  // from whatever "Moje zóna" currently is via activeMineZoneClips, so a
+  // "layout" is really just this system's own name for a saved zone.
+  const [customLayouts, setCustomLayouts] = useState([]);
+  const [customLayoutsLoaded, setCustomLayoutsLoaded] = useState(false);
+  const [newLayoutName, setNewLayoutName] = useState("");
+  const allLayouts = useMemo(
+    () => [...DEPLOYMENT_LAYOUTS, ...customLayouts.map((l) => ({ ...l, theirsClip: mirrorLayoutClip(l.mineClip) }))],
+    [customLayouts]
+  );
+  const activeCustomLayout = customLayouts.find((l) => l.id === board.layoutId);
   const [newPresetName, setNewPresetName] = useState("");
   const [boardShareOpen, setBoardShareOpen] = useState(false);
   const [customFormOpen, setCustomFormOpen] = useState(false);
@@ -6455,10 +6476,42 @@ export default function Wh40kCalculator({ session }) {
 
           <div style={{ marginTop: 10, marginBottom: 4 }}>
             <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--label)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>Rozložení výsadku</div>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
               {DEPLOYMENT_LAYOUTS.map((l) => (
-                <LayoutSwatch key={l.id} layout={l} selected={(board.layoutId || DEPLOYMENT_LAYOUTS[0].id) === l.id} onClick={() => setBoardLayout(l.id)} />
+                <LayoutSwatch key={l.id} layout={l} selected={(board.layoutId || allLayouts[0].id) === l.id} onClick={() => setBoardLayout(l.id)} />
               ))}
+              {allLayouts.slice(DEPLOYMENT_LAYOUTS.length).map((l) => (
+                <div key={l.id} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+                  <LayoutSwatch layout={l} selected={board.layoutId === l.id} onClick={() => setBoardLayout(l.id)} />
+                  <button
+                    onClick={() => askConfirm(`Smazat vlastní rozložení „${l.name}“?`, () => deleteCustomLayout(l.id))}
+                    title="Smazat vlastní rozložení"
+                    style={{ background: "transparent", border: "none", color: "var(--muted)", fontSize: 9, cursor: "pointer", padding: 0 }}
+                  >
+                    smazat
+                  </button>
+                </div>
+              ))}
+            </div>
+            <div style={{ display: "flex", gap: 6, alignItems: "flex-end", flexWrap: "wrap", marginTop: 8 }}>
+              <TextField label="Název nového rozložení" value={newLayoutName} onChange={setNewLayoutName} placeholder="např. Rohy s klínem" small />
+              <button
+                onClick={saveNewLayout}
+                className="wh40k-btn"
+                style={{ border: "none", background: "var(--accent)", color: "#fff", borderRadius: 6, padding: "7px 12px", fontSize: 11.5, fontWeight: 700, cursor: "pointer" }}
+              >
+                Uložit jako rozložení
+              </button>
+              {activeCustomLayout && (
+                <button
+                  onClick={updateActiveLayout}
+                  className="wh40k-btn"
+                  title={`Přepíše „${activeCustomLayout.name}“ aktuální zónou`}
+                  style={{ border: "1px solid var(--accent)", background: "transparent", color: "var(--accent-text)", borderRadius: 6, padding: "7px 12px", fontSize: 11.5, fontWeight: 700, cursor: "pointer" }}
+                >
+                  Uložit změny do „{activeCustomLayout.name}“
+                </button>
+              )}
             </div>
             <div style={{ fontSize: 10.5, color: "var(--muted)", margin: "8px 0 4px" }}>
               Nebo si vlastní výsadek nakresli přímo na desku — nakreslíš jen svou zónu, „Zóna protihráče“ se dopočítá automaticky jako její protějšek otočený o 180° přes střed desky (diagonálně), ne jako prosté zrcadlo:
@@ -6535,43 +6588,6 @@ export default function Wh40kCalculator({ session }) {
                   >
                     Nastavit mou zónu
                   </button>
-                </div>
-
-                <div style={{ background: "var(--field-bg)", border: "1px dashed var(--field-border)", borderRadius: 8, padding: 8 }}>
-                  <div style={{ fontSize: 10.5, color: "var(--muted)", marginBottom: 6 }}>
-                    5 uložených zón — prázdný slot uloží aktuální „Moje zóna“ přesně tak, jak teď vypadá na desce (ať pochází z rozložení, kreslení, nebo čísel); vyplněný slot ji zase načte a „Zónu protihráče“ nastaví jako její diagonální protějšek.
-                  </div>
-                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                    {savedZones.map((rects, idx) => (
-                      <div key={idx} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
-                        <button
-                          onClick={() => (rects ? loadZoneSlot(idx) : saveZoneSlot(idx))}
-                          title={rects ? `Načíst zónu ${idx + 1}` : `Uložit aktuální „Moje zóna“ do slotu ${idx + 1}`}
-                          style={{
-                            width: 38,
-                            height: 38,
-                            borderRadius: 8,
-                            border: `1px solid ${rects ? "var(--accent)" : "var(--field-border)"}`,
-                            background: rects ? "var(--accent-dim)" : "var(--panel)",
-                            color: rects ? "var(--accent-text)" : "var(--muted)",
-                            fontSize: 13,
-                            fontWeight: 700,
-                            cursor: "pointer",
-                          }}
-                        >
-                          {idx + 1}
-                        </button>
-                        {rects && (
-                          <button
-                            onClick={() => clearZoneSlot(idx)}
-                            style={{ background: "transparent", border: "none", color: "var(--muted)", fontSize: 9, cursor: "pointer", padding: 0 }}
-                          >
-                            smazat
-                          </button>
-                        )}
-                      </div>
-                    ))}
-                  </div>
                 </div>
               </div>
             )}
@@ -7056,26 +7072,18 @@ export default function Wh40kCalculator({ session }) {
               touchAction: "none",
             }}
           >
-            {/* Deployment zones — picked from DEPLOYMENT_LAYOUTS above by its
+            {/* Deployment zones — picked from allLayouts (built-in
+                DEPLOYMENT_LAYOUTS plus any user-saved ones) by its
                 color/shape swatch, not a redraw of any official mission map.
                 A custom customZones.<side> overrides that side's swatch
-                shape independently of the other side; it's an array of
-                clip-path strings (one rectangle each, from the two-rectangle
-                numeric tool) rendered as that many stacked same-colored
-                tints — reads as one combined zone without needing actual
-                polygon-union math. Also accepts the older single-rectangle
-                format (a flat array of {x,y} points) for boards saved before
-                this became multi-rectangle. */}
+                shape independently of the other side; see resolveZoneClips
+                for the array-of-clip-strings vs flat-points-array formats it
+                accepts. */}
             {(() => {
-              const layout = DEPLOYMENT_LAYOUTS.find((l) => l.id === board.layoutId) || DEPLOYMENT_LAYOUTS[0];
+              const layout = allLayouts.find((l) => l.id === board.layoutId) || allLayouts[0];
               const cz = board.customZones || {};
-              const zoneClips = (value, fallbackClip) => {
-                if (!value || value.length === 0) return [fallbackClip];
-                if (typeof value[0] === "string") return value;
-                return [pointsToClipPath(value)];
-              };
-              const theirsClips = zoneClips(cz.theirs, layout.theirsClip);
-              const mineClips = zoneClips(cz.mine, layout.mineClip);
+              const theirsClips = resolveZoneClips(cz.theirs, layout.theirsClip);
+              const mineClips = resolveZoneClips(cz.mine, layout.mineClip);
               return (
                 <>
                   {theirsClips.map((clip, i) => (
