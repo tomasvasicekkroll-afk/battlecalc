@@ -3847,6 +3847,7 @@ function ManualView({ onBack }) {
             <><b>Uložit jako rozložení</b> — ať už je „Moje zóna“ zrovna přednastavený náhled, nakreslený tvar, nebo číselné obdélníky, appka ji pojmenuje a přidá jako novou vlastní kartičku vedle těch šesti — objeví se pak i příště, ve všech tvých deskách. Vyber si svou uloženou kartičku, uprav si zónu (nakresli/přepiš čísla) a klikni „Uložit změny do…“ — přepíše tu samou kartičku, místo aby vytvořila další. „Smazat“ pod kartičkou ji natrvalo odebere.</>,
             <><b>Nakreslit vlastní výsadek</b> — klikni „Nakreslit mou zónu“, pak stiskni na desce a táhni jako štětcem (min. 3 body), a klikni Dokončit. „Zóna protihráče“ se sama dopočítá jako tvar otočený o 180° přes střed desky (diagonálně, ne jen prosté zrcadlo nahoru/dolů). „Zpět na přednastavené rozložení“ obě strany zase vrátí na náhled. Čísla po 5 palcích podél okrajů desky se zapínají/vypínají spolu s mřížkou.</>,
             <><b>Zóna čísly (v palcích)</b> — pod tlačítkem pro kreslení je box Moje zóna se dvěma obdélníky (Obdélník 1 a 2) — zadej jim Od X/Y a Do X/Y podle čísel na okraji desky a klikni na tlačítko Nastavit. Oba obdélníky se spojí do jedné zóny, takže jde postavit i L-tvar nebo schod, ne jen jeden obdélník. „Zóna protihráče“ se vždy dopočítá automaticky jako diagonální (o 180° otočený) protějšek — nezadává se ručně.</>,
+            <><b>Trojúhelník a kruhová výseč čísly</b> — pod obdélníky jsou další dva boxy: Trojúhelník (tři rohy, každý svým X/Y) a Kruhová výseč (střed X/Y, poloměr od/do, úhel od/do ve stupních — 0° doprava, 90° dolů; poloměr „od“ 0 = bez otvoru uprostřed). Každý má vlastní tlačítko Nastavit a nahradí celou „Moji zónu“ (nekombinuje se s obdélníky). „Zóna protihráče“ se i tady vždy dopočítá jako diagonální protějšek.</>,
             <><b>Rychlý souboj</b> — klikni na svůj token, pak na token protihráče. Appka spočítá zabité modely/damage jen z vestavěných schopností obou jednotek (žádné bonusy). „Otevřít v kalkulačce“ tě přenese do plné kalkulačky s modifikátory.</>,
             <><b>Terén (stavebnice)</b> — klikni na Ruina/Zeď/Kráter/Les/Kontejner pro přidání kusu doprostřed desky, pak ho přetáhni na místo. Klik na terén otevře dole šířku/výšku/otočení, dvojklik ho odebere.</>,
             <><b>Mřížka po 1 palci</b> — přepínač u rozměrů desky, čtvercová síť odpovídající skutečným palcům na stole.</>,
@@ -4392,6 +4393,28 @@ export default function Wh40kCalculator({ session }) {
     });
   };
 
+  // Same idea as the rectangle tool above but for a triangle — three corners
+  // typed in inches instead of two — replacing (not combining with) whatever
+  // "Moje zóna" currently is, same as picking a preset or drawing freehand.
+  const triangleToClip = (t) => {
+    const toPct = (xIn, yIn) => `${(xIn / board.widthIn) * 100}% ${(yIn / board.heightIn) * 100}%`;
+    return `polygon(${toPct(t.x1, t.y1)}, ${toPct(t.x2, t.y2)}, ${toPct(t.x3, t.y3)})`;
+  };
+  const setTriangleZone = () => {
+    const mine = [triangleToClip(triangleShape)];
+    persistBoard({ ...board, customZones: { ...(board.customZones || {}), mine, theirs: mine.map(mirrorClipPathDiagonally) } });
+  };
+
+  // A circular-sector ("pie slice") zone, typed as a center point, an inner
+  // and outer radius (0 inner = a plain wedge with no hole), and a start/end
+  // angle in degrees (0°=right, 90°=down) — reuses the exact same
+  // sectorPolygon() helper the built-in "center-wedge" layout is built from.
+  const sectorToClip = (s) => sectorPolygon(s.cx, s.cy, s.rInner, s.rOuter, s.angleStart, s.angleEnd, board.widthIn, board.heightIn);
+  const setSectorZone = () => {
+    const mine = [sectorToClip(sectorShape)];
+    persistBoard({ ...board, customZones: { ...(board.customZones || {}), mine, theirs: mine.map(mirrorClipPathDiagonally) } });
+  };
+
   const persistCustomLayouts = useCallback(async (next) => {
     setCustomLayouts(next);
     try {
@@ -4647,6 +4670,11 @@ export default function Wh40kCalculator({ session }) {
       { x1: 0, y1: 0, x2: 10, y2: 10 },
     ],
   });
+  // Same idea, but for a triangle (3 typed corners) and a circular-sector
+  // "pie slice" (center + inner/outer radius + start/end angle) — two more
+  // precise shapes to type in beyond a plain rectangle.
+  const [triangleShape, setTriangleShape] = useState({ x1: 0, y1: 0, x2: 20, y2: 0, x3: 0, y3: 20 });
+  const [sectorShape, setSectorShape] = useState({ cx: 22, cy: 30, rInner: 0, rOuter: 20, angleStart: 0, angleEnd: 90 });
   // User-saved deployment layouts — appear as extra swatches right alongside
   // the built-in DEPLOYMENT_LAYOUTS ones (see allLayouts below), captured
   // from whatever "Moje zóna" currently is via activeMineZoneClips, so a
@@ -6587,6 +6615,59 @@ export default function Wh40kCalculator({ session }) {
                     }}
                   >
                     Nastavit mou zónu
+                  </button>
+                </div>
+
+                <div style={{ fontSize: 10.5, color: "var(--muted)" }}>
+                  Nebo jako trojúhelník (tři rohy v palcích) — nahradí celou „Moji zónu“, nekombinuje se s obdélníky výše:
+                </div>
+                <div style={{ background: "var(--field-bg)", border: "1px solid var(--accent)", borderRadius: 8, padding: 8 }}>
+                  <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--accent-text)", marginBottom: 6 }}>Trojúhelník</div>
+                  {[1, 2, 3].map((n) => (
+                    <div key={n} style={{ marginBottom: 6 }}>
+                      <div style={{ fontSize: 9.5, color: "var(--muted)", marginBottom: 3 }}>Roh {n}</div>
+                      <Row cols={2}>
+                        <NumberField label="X" value={triangleShape[`x${n}`]} onChange={(v) => setTriangleShape((s) => ({ ...s, [`x${n}`]: v }))} small />
+                        <NumberField label="Y" value={triangleShape[`y${n}`]} onChange={(v) => setTriangleShape((s) => ({ ...s, [`y${n}`]: v }))} small />
+                      </Row>
+                    </div>
+                  ))}
+                  <button
+                    onClick={setTriangleZone}
+                    className="wh40k-btn"
+                    style={{ marginTop: 4, border: "none", background: "var(--accent)", color: "#fff", borderRadius: 6, padding: "6px 12px", fontSize: 11.5, fontWeight: 700, cursor: "pointer" }}
+                  >
+                    Nastavit jako trojúhelník
+                  </button>
+                </div>
+
+                <div style={{ fontSize: 10.5, color: "var(--muted)" }}>
+                  Nebo jako kruhová výseč (střed, poloměr, úhel ve stupních — 0° = doprava, 90° = dolů) — taky nahradí celou „Moji zónu“:
+                </div>
+                <div style={{ background: "var(--field-bg)", border: "1px solid var(--accent)", borderRadius: 8, padding: 8 }}>
+                  <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--accent-text)", marginBottom: 6 }}>Kruhová výseč</div>
+                  <Row cols={2}>
+                    <NumberField label="Střed X" value={sectorShape.cx} onChange={(v) => setSectorShape((s) => ({ ...s, cx: v }))} small />
+                    <NumberField label="Střed Y" value={sectorShape.cy} onChange={(v) => setSectorShape((s) => ({ ...s, cy: v }))} small />
+                  </Row>
+                  <div style={{ marginTop: 6 }}>
+                    <Row cols={2}>
+                      <NumberField label="Poloměr od" value={sectorShape.rInner} onChange={(v) => setSectorShape((s) => ({ ...s, rInner: v }))} small hint="0 = bez otvoru uprostřed" />
+                      <NumberField label="Poloměr do" value={sectorShape.rOuter} onChange={(v) => setSectorShape((s) => ({ ...s, rOuter: v }))} small />
+                    </Row>
+                  </div>
+                  <div style={{ marginTop: 6 }}>
+                    <Row cols={2}>
+                      <NumberField label="Úhel od (°)" value={sectorShape.angleStart} onChange={(v) => setSectorShape((s) => ({ ...s, angleStart: v }))} small />
+                      <NumberField label="Úhel do (°)" value={sectorShape.angleEnd} onChange={(v) => setSectorShape((s) => ({ ...s, angleEnd: v }))} small />
+                    </Row>
+                  </div>
+                  <button
+                    onClick={setSectorZone}
+                    className="wh40k-btn"
+                    style={{ marginTop: 4, border: "none", background: "var(--accent)", color: "#fff", borderRadius: 6, padding: "6px 12px", fontSize: 11.5, fontWeight: 700, cursor: "pointer" }}
+                  >
+                    Nastavit jako výseč
                   </button>
                 </div>
               </div>
