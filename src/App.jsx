@@ -121,31 +121,25 @@ function resolveZoneClips(value, fallback) {
   return asClipArray(fallback);
 }
 
-const DEPLOYMENT_LAYOUTS_BASE = [
-  { id: "edges", mineClip: "polygon(0% 100%, 100% 100%, 100% 82%, 0% 82%)" },
-  { id: "corners", mineClip: "polygon(0% 100%, 55% 100%, 0% 45%)" },
-  { id: "diagonal", mineClip: "polygon(0% 100%, 100% 100%, 100% 58%, 0% 78%)" },
-  {
-    id: "pocket",
-    // A big bottom band with an extra square "pocket" poking up out of it —
-    // one single shape (not two independent mine/theirs shapes like before),
-    // so it mirrors diagonally into an equally lopsided shape for the other side.
-    mineClip: "polygon(0% 100%, 100% 100%, 100% 72%, 68% 72%, 68% 50%, 48% 50%, 48% 72%, 0% 72%)",
-  },
-  {
-    id: "triangles",
-    // The whole board split corner-to-corner into two triangles (not just
-    // small corner wedges like "corners" above).
-    mineClip: "polygon(0% 100%, 100% 100%, 100% 0%)",
-  },
-  {
-    id: "center-wedge",
-    // A round no-man's-land in the middle of the board; mirrored diagonally
-    // this becomes the opposite pie-slice wedge reaching toward the far edge.
-    mineClip: sectorPolygon(22, 30, 9, 27, 50, 130, 44, 60),
-  },
-];
-const DEPLOYMENT_LAYOUTS = DEPLOYMENT_LAYOUTS_BASE.map((l) => ({ ...l, theirsClip: mirrorClipPathDiagonally(l.mineClip) }));
+// No built-in preset shapes any more — "Rozložení výsadku" is now purely
+// user-defined (see customLayouts in the component). DEPLOYMENT_LAYOUTS
+// stays as an (empty) array rather than being removed outright, since a
+// couple of spots use its .length/.map as "how many of allLayouts are
+// built-in" — keeping it means those don't need special-casing for zero.
+const DEPLOYMENT_LAYOUTS = [];
+
+// A plain placeholder shape (a shallow band along one edge) used only to
+// seed the 5 base layout slots below and as a last-resort fallback if
+// someone deletes every saved layout — meant to be immediately overwritten
+// via "Uložit změny", not a real deployment shape of its own.
+const DEFAULT_LAYOUT_CLIP = "polygon(0% 80%, 100% 80%, 100% 100%, 0% 100%)";
+// The 5 numbered "base" layouts a fresh board starts with — plain
+// placeholders (see DEFAULT_LAYOUT_CLIP) that the person fills in themselves
+// with the drawing/numeric/triangle/sector tools, then builds further named
+// variants off of via "Uložit jako rozložení". Used as customLayouts' own
+// initial state, so it only ever applies before anything's been saved for
+// this account — once real data loads from storage it fully replaces this.
+const DEFAULT_LAYOUT_SLOTS = ["1", "2", "3", "4", "5"].map((n) => ({ id: n, name: n, mineClip: [DEFAULT_LAYOUT_CLIP] }));
 
 // Terrain "stavebnice" (building blocks) for the board — generic, original
 // shapes (not traced from any terrain kit or official layout) the person
@@ -2645,16 +2639,15 @@ function StatChip({ label, value }) {
 // container's actual rendered pixel size (see the "Deska" view for the math:
 // width-%/height-% both derive from the same base-size-in-inches, just
 // divided by the board's width-in-inches vs height-in-inches respectively).
-// A layout's mineClip/theirsClip is either a single clip-path string
-// (the six built-in DEPLOYMENT_LAYOUTS) or an array of them (a user-saved
-// layout captured while "Moje zóna" was a multi-rectangle union) — always
-// normalized to an array so every renderer only has to handle one shape.
+// A layout's mineClip/theirsClip is either a single clip-path string or an
+// array of them (a user-saved layout captured while "Moje zóna" was a
+// multi-rectangle union) — always normalized to an array so every renderer
+// only has to handle one shape.
 const asClipArray = (value) => (Array.isArray(value) ? value : [value]);
 
-// Picker for DEPLOYMENT_LAYOUTS (built-in and user-saved alike) — a small
-// two-tone preview of the shape itself (same clip-paths the board uses), no
-// text label. Selecting one is purely "pick by how it looks", per the
-// color/shape swatch, not by a mission or disposition name.
+// Picker for a saved layout — a small two-tone preview of the shape itself
+// (same clip-paths the board uses), no text label beyond its own name shown
+// elsewhere. Selecting one is purely "pick by how it looks".
 function LayoutSwatch({ layout, selected, onClick }) {
   return (
     <button
@@ -3883,9 +3876,9 @@ function ManualView({ onBack }) {
             <>Dvojklik na token ho odebere z desky (odškrtne se i v seznamu).</>,
             <>Rozměry desky (šířka/výška v palcích) jdou upravit nahoře — token si přepočítá velikost podle nich.</>,
             <>Jeden token = celá jednotka (počet modelů je v odznáčku v rohu), ne model po modelu.</>,
-            <><b>Rozložení výsadku</b> — barevné náhledy nad deskou; vyber si podle tvaru, žádné se neváže na konkrétní misi ani jméno dispozice. Každý náhled je (stejně jako „Moje zóna“ níž) jen jeden tvar — druhá strana je vždy jeho diagonální (o 180° otočený) protějšek, nikdy samostatně nakreslená. Mimo pruhů/rohů/kapes jsou tam i „dva trojúhelníky“ (deska rozdělená úhlopříčně napůl) a „kruhová výseč uprostřed“ (kolo neutrální zóny uprostřed desky, obě strany dostanou naproti sobě jeden výsek jako klín).</>,
-            <><b>Uložit jako rozložení</b> — ať už je „Moje zóna“ zrovna přednastavený náhled, nakreslený tvar, nebo číselné obdélníky, appka ji pojmenuje a přidá jako novou vlastní kartičku vedle těch šesti — objeví se pak i příště, ve všech tvých deskách. Vyber si svou uloženou kartičku, uprav si zónu (nakresli/přepiš čísla) a klikni „Uložit změny do…“ — přepíše tu samou kartičku, místo aby vytvořila další. „Smazat“ pod kartičkou ji natrvalo odebere.</>,
-            <><b>Nakreslit vlastní výsadek</b> — klikni „Nakreslit mou zónu“, pak stiskni na desce a táhni jako štětcem (min. 3 body), a klikni Dokončit. „Zóna protihráče“ se sama dopočítá jako tvar otočený o 180° přes střed desky (diagonálně, ne jen prosté zrcadlo nahoru/dolů). „Zpět na přednastavené rozložení“ obě strany zase vrátí na náhled. Čísla po 5 palcích podél okrajů desky se zapínají/vypínají spolu s mřížkou.</>,
+            <><b>Rozložení výsadku</b> — žádné vestavěné náhledy, jen barevné kartičky, které si sám vytvoříš a pojmenuješ (viz „Uložit jako rozložení“ níž). Nový/prázdný účet začíná s pěti prázdnými základními sloty <b>1–5</b> jako výchozím místem k vyplnění — nakresli/zadej si do každého svou vlastní zónu a ulož. Ať je „Moje zóna“ cokoliv, druhá strana je vždy její diagonální (o 180° otočený) protějšek, nikdy samostatně nakreslená.</>,
+            <><b>Uložit jako rozložení</b> — ať už je „Moje zóna“ zrovna nakreslený tvar, číselné obdélníky, trojúhelník nebo výseč, appka ji pojmenuje a přidá/přepíše jako kartičku. Vyber si kartičku (třeba jeden z pěti základních slotů 1–5), uprav si zónu a klikni „Uložit změny do…“ — přepíše tu samou kartičku místo vytvoření další; z těch pěti základních si tak můžeš postupně dělat další pojmenované varianty přes samostatné „Uložit jako rozložení“. „Smazat“ pod kartičkou ji natrvalo odebere.</>,
+            <><b>Nakreslit vlastní výsadek</b> — klikni „Nakreslit mou zónu“, pak stiskni na desce a táhni jako štětcem (min. 3 body), a klikni Dokončit. „Zóna protihráče“ se sama dopočítá jako tvar otočený o 180° přes střed desky (diagonálně, ne jen prosté zrcadlo nahoru/dolů). „Zpět na vybrané rozložení“ obě strany zase vrátí na tvar aktuálně vybrané kartičky. Čísla po 5 palcích podél okrajů desky se zapínají/vypínají spolu s mřížkou.</>,
             <><b>Zóna čísly (v palcích)</b> — pod tlačítkem pro kreslení je box Moje zóna se dvěma obdélníky (Obdélník 1 a 2) — zadej jim Od X/Y a Do X/Y podle čísel na okraji desky a klikni na tlačítko Nastavit. Oba obdélníky se spojí do jedné zóny, takže jde postavit i L-tvar nebo schod, ne jen jeden obdélník. „Zóna protihráče“ se vždy dopočítá automaticky jako diagonální (o 180° otočený) protějšek — nezadává se ručně.</>,
             <><b>Trojúhelník a kruhová výseč čísly</b> — pod obdélníky jsou další dva boxy: Trojúhelník (tři rohy, každý svým X/Y) a Kruhová výseč (střed X/Y, poloměr od/do, úhel od/do ve stupních — 0° doprava, 90° dolů; poloměr „od“ 0 = bez otvoru uprostřed). Každý má vlastní tlačítko Nastavit a nahradí celou „Moji zónu“ (nekombinuje se s obdélníky). „Zóna protihráče“ se i tady vždy dopočítá jako diagonální protějšek.</>,
             <><b>Rychlý souboj</b> — klikni na svůj token, pak na token protihráče. Appka spočítá zabité modely/damage jen z vestavěných schopností obou jednotek (žádné bonusy). „Otevřít v kalkulačce“ tě přenese do plné kalkulačky s modifikátory.</>,
@@ -4013,7 +4006,7 @@ export default function Wh40kCalculator({ session }) {
 
   const [armies, setArmies] = useState([]);
   const [armiesLoaded, setArmiesLoaded] = useState(false);
-  const [board, setBoard] = useState({ widthIn: 44, heightIn: 60, tokens: [], terrain: [], layoutId: DEPLOYMENT_LAYOUTS[0].id, customZones: { mine: null, theirs: null } });
+  const [board, setBoard] = useState({ widthIn: 44, heightIn: 60, tokens: [], terrain: [], layoutId: DEFAULT_LAYOUT_SLOTS[0].id, customZones: { mine: null, theirs: null } });
   const [boardLoaded, setBoardLoaded] = useState(false);
   // Saved "podložky" — named board presets (size + deployment layout +
   // terrain arrangement, no units) a person can save, reload later, or
@@ -4719,17 +4712,22 @@ export default function Wh40kCalculator({ session }) {
   // precise shapes to type in beyond a plain rectangle.
   const [triangleShape, setTriangleShape] = useState({ x1: 0, y1: 0, x2: 20, y2: 0, x3: 0, y3: 20 });
   const [sectorShape, setSectorShape] = useState({ cx: 22, cy: 30, rInner: 0, rOuter: 20, angleStart: 0, angleEnd: 90 });
-  // User-saved deployment layouts — appear as extra swatches right alongside
-  // the built-in DEPLOYMENT_LAYOUTS ones (see allLayouts below), captured
-  // from whatever "Moje zóna" currently is via activeMineZoneClips, so a
-  // "layout" is really just this system's own name for a saved zone.
-  const [customLayouts, setCustomLayouts] = useState([]);
+  // User-saved deployment layouts — there are no built-in ones any more (see
+  // DEPLOYMENT_LAYOUTS), so this list (rendered as swatches, see allLayouts
+  // below) IS "Rozložení výsadku". Starts out as the 5 numbered placeholder
+  // slots from DEFAULT_LAYOUT_SLOTS until real saved data loads (or forever,
+  // for an account that never saves any). Each is just captured from
+  // whatever "Moje zóna" currently is via activeMineZoneClips, so a "layout"
+  // is really this system's own name for a saved zone.
+  const [customLayouts, setCustomLayouts] = useState(DEFAULT_LAYOUT_SLOTS);
   const [customLayoutsLoaded, setCustomLayoutsLoaded] = useState(false);
   const [newLayoutName, setNewLayoutName] = useState("");
-  const allLayouts = useMemo(
-    () => [...DEPLOYMENT_LAYOUTS, ...customLayouts.map((l) => ({ ...l, theirsClip: mirrorLayoutClip(l.mineClip) }))],
-    [customLayouts]
-  );
+  const allLayouts = useMemo(() => {
+    const combined = [...DEPLOYMENT_LAYOUTS, ...customLayouts.map((l) => ({ ...l, theirsClip: mirrorLayoutClip(l.mineClip) }))];
+    // Safety net only — every render path assumes allLayouts[0] exists;
+    // this only ever matters if someone deletes every single saved layout.
+    return combined.length > 0 ? combined : [{ id: "1", name: "1", mineClip: DEFAULT_LAYOUT_CLIP, theirsClip: mirrorClipPathDiagonally(DEFAULT_LAYOUT_CLIP) }];
+  }, [customLayouts]);
   const activeCustomLayout = customLayouts.find((l) => l.id === board.layoutId);
   const [newPresetName, setNewPresetName] = useState("");
   const [boardShareOpen, setBoardShareOpen] = useState(false);
@@ -6556,10 +6554,7 @@ export default function Wh40kCalculator({ session }) {
           <div style={{ marginTop: 10, marginBottom: 4 }}>
             <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--label)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>Rozložení výsadku</div>
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-              {DEPLOYMENT_LAYOUTS.map((l) => (
-                <LayoutSwatch key={l.id} layout={l} selected={(board.layoutId || allLayouts[0].id) === l.id} onClick={() => setBoardLayout(l.id)} />
-              ))}
-              {allLayouts.slice(DEPLOYMENT_LAYOUTS.length).map((l) => (
+              {allLayouts.map((l) => (
                 <div key={l.id} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
                   <LayoutSwatch layout={l} selected={board.layoutId === l.id} onClick={() => setBoardLayout(l.id)} />
                   <button
@@ -6621,7 +6616,7 @@ export default function Wh40kCalculator({ session }) {
                 onClick={clearCustomZones}
                 style={{ background: "transparent", border: "none", color: "var(--muted)", fontSize: 10.5, cursor: "pointer", padding: 0, marginTop: 6 }}
               >
-                Zpět na přednastavené rozložení
+                Zpět na vybrané rozložení
               </button>
             )}
 
@@ -7204,13 +7199,12 @@ export default function Wh40kCalculator({ session }) {
               touchAction: "none",
             }}
           >
-            {/* Deployment zones — picked from allLayouts (built-in
-                DEPLOYMENT_LAYOUTS plus any user-saved ones) by its
-                color/shape swatch, not a redraw of any official mission map.
-                A custom customZones.<side> overrides that side's swatch
-                shape independently of the other side; see resolveZoneClips
-                for the array-of-clip-strings vs flat-points-array formats it
-                accepts. */}
+            {/* Deployment zones — picked from allLayouts (the user's own
+                saved layouts, starting from the 5 default numbered slots) by
+                its color/shape swatch. A custom customZones.<side> overrides
+                that side's swatch shape independently of the other side; see
+                resolveZoneClips for the array-of-clip-strings vs
+                flat-points-array formats it accepts. */}
             {(() => {
               const layout = allLayouts.find((l) => l.id === board.layoutId) || allLayouts[0];
               const cz = board.customZones || {};
