@@ -2698,12 +2698,13 @@ function PieceSwatch({ shape }) {
             background: shape.terrainBg,
             border: shape.terrainBorder,
             borderRadius: shape.terrainRadius,
+            clipPath: shape.terrainClipPath,
           }}
         />
       </span>
     );
   }
-  return <span style={{ display: "inline-block", width: 16, height: 12, background: shape.bg, border: shape.border, borderRadius: shape.radius, flexShrink: 0 }} />;
+  return <span style={{ display: "inline-block", width: 16, height: 12, background: shape.bg, border: shape.border, borderRadius: shape.radius, clipPath: shape.clipPath, flexShrink: 0 }} />;
 }
 
 function TerrainPieceView({ piece, shape, containerRef, sizePctW, sizePctH, selected, onMove, onCommit, onRemove, onSelect }) {
@@ -2772,6 +2773,7 @@ function TerrainPieceView({ piece, shape, containerRef, sizePctW, sizePctH, sele
         minWidth: 10,
         minHeight: 10,
         borderRadius: shape.radius,
+        clipPath: shape.clipPath,
         background: shape.bg,
         border: shape.border,
         boxShadow: selected ? "0 0 0 2px #fff, 0 2px 6px rgba(0,0,0,0.4)" : "0 2px 6px rgba(0,0,0,0.4)",
@@ -2795,6 +2797,7 @@ function TerrainPieceView({ piece, shape, containerRef, sizePctW, sizePctH, sele
             height: `${(shape.terrainHeightIn / shape.heightIn) * 100}%`,
             transform: "translate(-50%, -50%)",
             borderRadius: shape.terrainRadius,
+            clipPath: shape.terrainClipPath,
             background: shape.terrainBg,
             border: shape.terrainBorder,
             pointerEvents: "none",
@@ -3884,7 +3887,7 @@ function ManualView({ onBack }) {
             <><b>Rychlý souboj</b> — klikni na svůj token, pak na token protihráče. Appka spočítá zabité modely/damage jen z vestavěných schopností obou jednotek (žádné bonusy). „Otevřít v kalkulačce“ tě přenese do plné kalkulačky s modifikátory.</>,
             <><b>Terén (stavebnice)</b> — klikni na Ruina/Zeď/Kráter/Les/Kontejner pro přidání kusu doprostřed desky, pak ho přetáhni na místo. Klik na terén otevře dole šířku/výšku/otočení, dvojklik ho odebere.</>,
             <><b>Mřížka po 1 palci</b> — přepínač u rozměrů desky, čtvercová síť odpovídající skutečným palcům na stole.</>,
-            <><b>Vytvořit vlastní terén / podložku</b> — vlastní název, tvar (obdélník/kruh), rozměry a barva. „Vrstva“ určuje, jestli kus stojí nahoře (terén), dole (podložka, na které terén stojí), nebo <b>obojí najednou</b> (podložka s terénem přilepeným na ní — jeden kus, co se táhne a otáčí spolu).</>,
+            <><b>Vytvořit vlastní terén / podložku</b> — vlastní název, tvar (obdélník/kruh/trojúhelník), rozměry a barva. „Vrstva“ určuje, jestli kus stojí nahoře (terén), dole (podložka, na které terén stojí), nebo <b>obojí najednou</b> (podložka s terénem přilepeným na ní — jeden kus, co se táhne a otáčí spolu).</>,
             <><b>Moje podložky</b> — ulož rozměry + rozložení výsadku + rozestavěný terén (bez jednotek) pod jménem, kdykoli znovu načti. <b>Sdílet podložku</b> stáhne/nahraje soubor stejně jako sdílení knihovny.</>,
           ]}
         />
@@ -6816,6 +6819,7 @@ export default function Wh40kCalculator({ session }) {
                     options={[
                       { value: "rect", label: "Obdélník" },
                       { value: "circle", label: "Kruh / ovál" },
+                      { value: "triangle", label: "Trojúhelník" },
                     ]}
                     small
                   />
@@ -6858,6 +6862,10 @@ export default function Wh40kCalculator({ session }) {
                   onClick={() => {
                     if (!customForm.name.trim()) return;
                     const radius = customForm.shape === "circle" ? "50%" : 3;
+                    // A triangle can't be done with border-radius, so it's a
+                    // clip-path instead (apex up); rect/circle leave clipPath
+                    // undefined and fall back to border-radius as before.
+                    const clipPath = customForm.shape === "triangle" ? "polygon(50% 0%, 100% 100%, 0% 100%)" : undefined;
                     if (customForm.layer === "combo") {
                       addCustomPieceType({
                         label: customForm.name.trim(),
@@ -6873,6 +6881,7 @@ export default function Wh40kCalculator({ session }) {
                         terrainBg: customForm.color,
                         terrainBorder: "2px dashed rgba(255,255,255,0.5)",
                         terrainRadius: radius,
+                        terrainClipPath: clipPath,
                       });
                     } else {
                       addCustomPieceType({
@@ -6883,6 +6892,7 @@ export default function Wh40kCalculator({ session }) {
                         bg: customForm.color,
                         border: customForm.layer === "base" ? "1px solid rgba(255,255,255,0.65)" : "2px dashed rgba(255,255,255,0.5)",
                         radius,
+                        clipPath,
                       });
                     }
                     setCustomForm((s) => ({ ...s, name: "" }));
