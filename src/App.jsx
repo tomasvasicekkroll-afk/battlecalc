@@ -217,6 +217,33 @@ const TERRAIN_SHAPES = [
     terrainClipPath:
       "polygon(72.5% 0%, 85% 2.7%, 94.1% 10%, 97.4% 17.9%, 95.1% 28.5%, 88.6% 35.3%, 77.5% 39.6%, 77.5% 60.4%, 88.6% 64.7%, 96% 73.2%, 97.1% 83.5%, 91.6% 92.9%, 81% 98.8%, 72.5% 100%, 64% 98.8%, 53.4% 92.9%, 48.4% 85.2%, 47.5% 76.5%, 55% 65.7%, 55% 56%, 32.5% 56%, 32.5% 64%, 7.5% 64%, 7.5% 36%, 32.5% 36%, 32.5% 44%, 55% 44%, 55% 34.3%, 47.5% 20%, 50.9% 10%, 60% 2.7%)",
   },
+  // "Large rectangle" = a 7 x 11.5" podložka with wall segments around it:
+  // green L-walls at three corners plus a straight orange wall along the top
+  // right. Two colours are needed, so this is a group (drops the podložka
+  // and each wall as its own piece) rather than a one-colour combo. Offsets
+  // are board-percentages tuned to the default 44 x 60" board — on a very
+  // different board size the walls may need a nudge to re-hug the podložka.
+  {
+    id: "large-rectangle",
+    label: "Large rectangle",
+    layer: "terrain",
+    isGroup: true,
+    widthIn: 7,
+    heightIn: 11.5,
+    pieces: [
+      { shapeId: "base-plinth", widthIn: 7, heightIn: 11.5, rotationDeg: 0, dxPct: 0, dyPct: 0 },
+      // top-left L (green)
+      { freehand: true, bg: "#3f7a3f", border: "none", widthIn: 4, heightIn: 0.6, rotationDeg: 0, dxPct: -3.41, dyPct: -9.58 },
+      { freehand: true, bg: "#3f7a3f", border: "none", widthIn: 0.6, heightIn: 5, rotationDeg: 0, dxPct: -7.95, dyPct: -5.42 },
+      // bottom-left vertical (green)
+      { freehand: true, bg: "#3f7a3f", border: "none", widthIn: 0.6, heightIn: 5, rotationDeg: 0, dxPct: -7.95, dyPct: 5.42 },
+      // bottom-right L (green)
+      { freehand: true, bg: "#3f7a3f", border: "none", widthIn: 0.6, heightIn: 5, rotationDeg: 0, dxPct: 7.95, dyPct: 5.42 },
+      { freehand: true, bg: "#3f7a3f", border: "none", widthIn: 4, heightIn: 0.6, rotationDeg: 0, dxPct: 3.41, dyPct: 9.58 },
+      // top-right straight (orange)
+      { freehand: true, bg: "#d98b3a", border: "none", widthIn: 4, heightIn: 0.6, rotationDeg: 0, dxPct: 3.41, dyPct: -9.58 },
+    ],
+  },
   { id: "wall", label: "Zeď", layer: "terrain", widthIn: 6, heightIn: 1, bg: "#6b6b61", border: "1px solid #8f8f7e", radius: 2 },
   { id: "crater", label: "Kráter", layer: "terrain", widthIn: 5, heightIn: 5, bg: "#4a4436", border: "2px dashed #8a7a4f", radius: "50%" },
   { id: "forest", label: "Les", layer: "terrain", widthIn: 6, heightIn: 6, bg: "rgba(58,92,58,0.6)", border: "2px dashed #5e9a5e", radius: "50%" },
@@ -4001,7 +4028,7 @@ function ManualView({ onBack }) {
             <><b>Zóna čísly (v palcích)</b> — pod tlačítkem pro kreslení je box Moje zóna se dvěma obdélníky (Obdélník 1 a 2) — zadej jim Od X/Y a Do X/Y podle čísel na okraji desky a klikni na tlačítko Nastavit. Oba obdélníky se spojí do jedné zóny, takže jde postavit i L-tvar nebo schod, ne jen jeden obdélník. „Zóna protihráče“ se vždy dopočítá automaticky jako diagonální (o 180° otočený) protějšek — nezadává se ručně.</>,
             <><b>Trojúhelník a kruhová výseč čísly</b> — pod obdélníky jsou další dva boxy: Trojúhelník (tři rohy, každý svým X/Y) a Kruhová výseč (střed X/Y, poloměr od/do, úhel od/do ve stupních — 0° doprava, 90° dolů; poloměr „od“ 0 = bez otvoru uprostřed). Každý má vlastní tlačítko Nastavit a nahradí celou „Moji zónu“ (nekombinuje se s obdélníky). „Zóna protihráče“ se i tady vždy dopočítá jako diagonální protějšek.</>,
             <><b>Rychlý souboj</b> — klikni na svůj token, pak na token protihráče. Appka spočítá zabité modely/damage jen z vestavěných schopností obou jednotek (žádné bonusy). „Otevřít v kalkulačce“ tě přenese do plné kalkulačky s modifikátory.</>,
-            <><b>Terén (stavebnice)</b> — klikni na Ruina/Long line/Fence line/Medium rectangle/Zeď/Kráter/Les/Kontejner pro přidání kusu doprostřed desky, pak ho přetáhni na místo. Klik na terén otevře dole šířku/výšku/otočení; odebereš ho dvojklikem, tlačítkem Odebrat, nebo klávesou Delete / Backspace, když je vybraný.</>,
+            <><b>Terén (stavebnice)</b> — klikni na Ruina/Long line/Fence line/Medium rectangle/Large rectangle/Zeď/Kráter/Les/Kontejner pro přidání kusu doprostřed desky, pak ho přetáhni na místo. „Large rectangle" je skupina — vysype na desku podložku a jednotlivé zídky zvlášť. Klik na terén otevře dole šířku/výšku/otočení; odebereš ho dvojklikem, tlačítkem Odebrat, nebo klávesou Delete / Backspace, když je vybraný.</>,
             <><b>Uložit jako skupinu</b> — když máš na desce rozestavěno víc kusů (třeba ruinu se zdí a zelení), objeví se pole „Uložit N kusů jako skupinu". Pojmenuj a ulož → skupina se přidá do palety jako jeden kus. Klik na ni pak vysype celé to rozestavění zpět na desku (kusy zůstávají samostatně přetažitelné). „Smazat" u skupiny funguje jako u ostatních vlastních typů.</>,
             <><b>Mřížka po 1 palci</b> — přepínač u rozměrů desky, čtvercová síť odpovídající skutečným palcům na stole.</>,
             <><b>Terén čísly (obdélník / zeď)</b> — pod paletou je rozklikávací box. Obdélník zadáš dvěma protilehlými rohy (X/Y v palcích podle okraje desky), zeď dvěma konci úsečky + tloušťkou (kus se sám natočí do směru úsečky). „Přidat na desku" vytvoří normální terénní kus, který jde pak přetáhnout, zvětšit, otočit i uložit do skupiny.</>,
