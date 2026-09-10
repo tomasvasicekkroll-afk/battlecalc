@@ -166,8 +166,8 @@ const TERRAIN_SHAPES = [
     bg: "rgba(160,150,120,0.5)",
     border: "1px solid rgba(210,200,170,0.7)",
     radius: 3,
-    terrainWidthIn: 10,
-    terrainHeightIn: 2,
+    terrainWidthIn: 8.4,
+    terrainHeightIn: 1.3,
     terrainBg: "#5c5c52",
     terrainBorder: "none",
     terrainRadius: 0,
@@ -3958,7 +3958,7 @@ function ManualView({ onBack }) {
             <><b>Zóna čísly (v palcích)</b> — pod tlačítkem pro kreslení je box Moje zóna se dvěma obdélníky (Obdélník 1 a 2) — zadej jim Od X/Y a Do X/Y podle čísel na okraji desky a klikni na tlačítko Nastavit. Oba obdélníky se spojí do jedné zóny, takže jde postavit i L-tvar nebo schod, ne jen jeden obdélník. „Zóna protihráče“ se vždy dopočítá automaticky jako diagonální (o 180° otočený) protějšek — nezadává se ručně.</>,
             <><b>Trojúhelník a kruhová výseč čísly</b> — pod obdélníky jsou další dva boxy: Trojúhelník (tři rohy, každý svým X/Y) a Kruhová výseč (střed X/Y, poloměr od/do, úhel od/do ve stupních — 0° doprava, 90° dolů; poloměr „od“ 0 = bez otvoru uprostřed). Každý má vlastní tlačítko Nastavit a nahradí celou „Moji zónu“ (nekombinuje se s obdélníky). „Zóna protihráče“ se i tady vždy dopočítá jako diagonální protějšek.</>,
             <><b>Rychlý souboj</b> — klikni na svůj token, pak na token protihráče. Appka spočítá zabité modely/damage jen z vestavěných schopností obou jednotek (žádné bonusy). „Otevřít v kalkulačce“ tě přenese do plné kalkulačky s modifikátory.</>,
-            <><b>Terén (stavebnice)</b> — klikni na Ruina/Long line/Zeď/Kráter/Les/Kontejner pro přidání kusu doprostřed desky, pak ho přetáhni na místo. Klik na terén otevře dole šířku/výšku/otočení, dvojklik ho odebere.</>,
+            <><b>Terén (stavebnice)</b> — klikni na Ruina/Long line/Zeď/Kráter/Les/Kontejner pro přidání kusu doprostřed desky, pak ho přetáhni na místo. Klik na terén otevře dole šířku/výšku/otočení; odebereš ho dvojklikem, tlačítkem Odebrat, nebo klávesou Delete / Backspace, když je vybraný.</>,
             <><b>Uložit jako skupinu</b> — když máš na desce rozestavěno víc kusů (třeba ruinu se zdí a zelení), objeví se pole „Uložit N kusů jako skupinu". Pojmenuj a ulož → skupina se přidá do palety jako jeden kus. Klik na ni pak vysype celé to rozestavění zpět na desku (kusy zůstávají samostatně přetažitelné). „Smazat" u skupiny funguje jako u ostatních vlastních typů.</>,
             <><b>Mřížka po 1 palci</b> — přepínač u rozměrů desky, čtvercová síť odpovídající skutečným palcům na stole.</>,
             <><b>Terén čísly (obdélník / zeď)</b> — pod paletou je rozklikávací box. Obdélník zadáš dvěma protilehlými rohy (X/Y v palcích podle okraje desky), zeď dvěma konci úsečky + tloušťkou (kus se sám natočí do směru úsečky). „Přidat na desku" vytvoří normální terénní kus, který jde pak přetáhnout, zvětšit, otočit i uložit do skupiny.</>,
@@ -4888,6 +4888,23 @@ export default function Wh40kCalculator({ session }) {
   const [boardMatchup, setBoardMatchup] = useState(null); // { attackerUnit, defenderUnit, res } | null
   // Currently selected terrain piece (for the width/height/rotate controls).
   const [selectedTerrainId, setSelectedTerrainId] = useState(null);
+  // Delete / Backspace removes the currently selected terrain piece (same as
+  // double-clicking it or the panel's "Odebrat"), unless a text field has
+  // focus. Reads boardRef so it always sees the current terrain list.
+  useEffect(() => {
+    if (!selectedTerrainId) return;
+    const onKey = (e) => {
+      if (e.key !== "Delete" && e.key !== "Backspace") return;
+      const t = e.target;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
+      e.preventDefault();
+      const b = boardRef.current;
+      persistBoard({ ...b, terrain: (b.terrain || []).filter((p) => p.id !== selectedTerrainId) });
+      setSelectedTerrainId(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selectedTerrainId, persistBoard]);
   const [showBoardGrid, setShowBoardGrid] = useState(true);
   // Freehand deployment-zone drawing: click points on the board to build a
   // polygon for "mine" or "theirs", overriding that side's swatch shape.
