@@ -174,6 +174,27 @@ const TERRAIN_SHAPES = [
     terrainClipPath:
       "polygon(0% 30%, 18.5% 30%, 18.5% 0%, 25.5% 0%, 25.5% 30%, 46.5% 30%, 46.5% 0%, 53.5% 0%, 53.5% 30%, 74.5% 30%, 74.5% 0%, 81.5% 0%, 81.5% 30%, 100% 30%, 100% 70%, 81.5% 70%, 81.5% 100%, 74.5% 100%, 74.5% 70%, 53.5% 70%, 53.5% 100%, 46.5% 100%, 46.5% 70%, 25.5% 70%, 25.5% 100%, 18.5% 100%, 18.5% 70%, 0% 70%)",
   },
+  // "Fence line" = same 10 x 2" podložka as Long line, but a denser fence:
+  // a horizontal rail with five crossbars poking out top and bottom. Green
+  // ruin. Combo, scales together.
+  {
+    id: "fence-line",
+    label: "Fence line",
+    layer: "terrain",
+    combo: true,
+    widthIn: 10,
+    heightIn: 2,
+    bg: "rgba(160,150,120,0.5)",
+    border: "1px solid rgba(210,200,170,0.7)",
+    radius: 3,
+    terrainWidthIn: 8.4,
+    terrainHeightIn: 1.3,
+    terrainBg: "#3f7a3f",
+    terrainBorder: "none",
+    terrainRadius: 0,
+    terrainClipPath:
+      "polygon(0% 38%, 6% 38%, 6% 0%, 12% 0%, 12% 38%, 24% 38%, 24% 0%, 30% 0%, 30% 38%, 42.5% 38%, 42.5% 0%, 48.5% 0%, 48.5% 38%, 61% 38%, 61% 0%, 67% 0%, 67% 38%, 79.5% 38%, 79.5% 0%, 85.5% 0%, 85.5% 38%, 100% 38%, 100% 62%, 85.5% 62%, 85.5% 100%, 79.5% 100%, 79.5% 62%, 67% 62%, 67% 100%, 61% 100%, 61% 62%, 48.5% 62%, 48.5% 100%, 42.5% 100%, 42.5% 62%, 30% 62%, 30% 100%, 24% 100%, 24% 62%, 12% 62%, 12% 100%, 6% 100%, 6% 62%, 0% 62%)",
+  },
   // "Medium rectangle" = a terrain feature on a 6 x 7" podložka: a left post,
   // a short connector, and a right upright with a round blob at each end
   // (the circles approximated as ~6-point arcs in one clip-path polygon).
@@ -3980,7 +4001,7 @@ function ManualView({ onBack }) {
             <><b>Zóna čísly (v palcích)</b> — pod tlačítkem pro kreslení je box Moje zóna se dvěma obdélníky (Obdélník 1 a 2) — zadej jim Od X/Y a Do X/Y podle čísel na okraji desky a klikni na tlačítko Nastavit. Oba obdélníky se spojí do jedné zóny, takže jde postavit i L-tvar nebo schod, ne jen jeden obdélník. „Zóna protihráče“ se vždy dopočítá automaticky jako diagonální (o 180° otočený) protějšek — nezadává se ručně.</>,
             <><b>Trojúhelník a kruhová výseč čísly</b> — pod obdélníky jsou další dva boxy: Trojúhelník (tři rohy, každý svým X/Y) a Kruhová výseč (střed X/Y, poloměr od/do, úhel od/do ve stupních — 0° doprava, 90° dolů; poloměr „od“ 0 = bez otvoru uprostřed). Každý má vlastní tlačítko Nastavit a nahradí celou „Moji zónu“ (nekombinuje se s obdélníky). „Zóna protihráče“ se i tady vždy dopočítá jako diagonální protějšek.</>,
             <><b>Rychlý souboj</b> — klikni na svůj token, pak na token protihráče. Appka spočítá zabité modely/damage jen z vestavěných schopností obou jednotek (žádné bonusy). „Otevřít v kalkulačce“ tě přenese do plné kalkulačky s modifikátory.</>,
-            <><b>Terén (stavebnice)</b> — klikni na Ruina/Long line/Medium rectangle/Zeď/Kráter/Les/Kontejner pro přidání kusu doprostřed desky, pak ho přetáhni na místo. Klik na terén otevře dole šířku/výšku/otočení; odebereš ho dvojklikem, tlačítkem Odebrat, nebo klávesou Delete / Backspace, když je vybraný.</>,
+            <><b>Terén (stavebnice)</b> — klikni na Ruina/Long line/Fence line/Medium rectangle/Zeď/Kráter/Les/Kontejner pro přidání kusu doprostřed desky, pak ho přetáhni na místo. Klik na terén otevře dole šířku/výšku/otočení; odebereš ho dvojklikem, tlačítkem Odebrat, nebo klávesou Delete / Backspace, když je vybraný.</>,
             <><b>Uložit jako skupinu</b> — když máš na desce rozestavěno víc kusů (třeba ruinu se zdí a zelení), objeví se pole „Uložit N kusů jako skupinu". Pojmenuj a ulož → skupina se přidá do palety jako jeden kus. Klik na ni pak vysype celé to rozestavění zpět na desku (kusy zůstávají samostatně přetažitelné). „Smazat" u skupiny funguje jako u ostatních vlastních typů.</>,
             <><b>Mřížka po 1 palci</b> — přepínač u rozměrů desky, čtvercová síť odpovídající skutečným palcům na stole.</>,
             <><b>Terén čísly (obdélník / zeď)</b> — pod paletou je rozklikávací box. Obdélník zadáš dvěma protilehlými rohy (X/Y v palcích podle okraje desky), zeď dvěma konci úsečky + tloušťkou (kus se sám natočí do směru úsečky). „Přidat na desku" vytvoří normální terénní kus, který jde pak přetáhnout, zvětšit, otočit i uložit do skupiny.</>,
