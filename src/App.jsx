@@ -3939,7 +3939,7 @@ function ManualView({ onBack }) {
             <><b>Terén (stavebnice)</b> — klikni na Ruina/Zeď/Kráter/Les/Kontejner pro přidání kusu doprostřed desky, pak ho přetáhni na místo. Klik na terén otevře dole šířku/výšku/otočení, dvojklik ho odebere.</>,
             <><b>Uložit jako skupinu</b> — když máš na desce rozestavěno víc kusů (třeba ruinu se zdí a zelení), objeví se pole „Uložit N kusů jako skupinu". Pojmenuj a ulož → skupina se přidá do palety jako jeden kus. Klik na ni pak vysype celé to rozestavění zpět na desku (kusy zůstávají samostatně přetažitelné). „Smazat" u skupiny funguje jako u ostatních vlastních typů.</>,
             <><b>Mřížka po 1 palci</b> — přepínač u rozměrů desky, čtvercová síť odpovídající skutečným palcům na stole.</>,
-            <><b>Nakreslit terén</b> — vedle „Nakreslit mou zónu" je tlačítko „Nakreslit terén": stiskni na desce a táhni jako štětcem (min. 3 body), Dokončit → vznikne terénní kus přesně toho tvaru, který jde pak normálně přetáhnout, zvětšit i otočit jako každý jiný.</>,
+            <><b>Terén čísly (obdélník / zeď)</b> — pod paletou je rozklikávací box. Obdélník zadáš dvěma protilehlými rohy (X/Y v palcích podle okraje desky), zeď dvěma konci úsečky + tloušťkou (kus se sám natočí do směru úsečky). „Přidat na desku" vytvoří normální terénní kus, který jde pak přetáhnout, zvětšit, otočit i uložit do skupiny.</>,
             <><b>Vytvořit vlastní terén / podložku</b> — vlastní název, tvar (obdélník/kruh/trojúhelník), rozměry a barva. „Vrstva“ určuje, jestli kus stojí nahoře (terén), dole (podložka, na které terén stojí), nebo <b>obojí najednou</b> (podložka s terénem přilepeným na ní — jeden kus, co se táhne a otáčí spolu).</>,
             <><b>Moje podložky</b> — ulož rozměry + rozložení výsadku + rozestavěný terén (bez jednotek) pod jménem, kdykoli znovu načti. <b>Sdílet podložku</b> stáhne/nahraje soubor stejně jako sdílení knihovny.</>,
           ]}
@@ -4455,12 +4455,6 @@ export default function Wh40kCalculator({ session }) {
     setDrawMode("mine");
     setDrawPoints([]);
   };
-  // Same paint-a-polygon interaction, but the result is a terrain piece
-  // shaped like whatever you drew rather than a deployment zone.
-  const startDrawingTerrain = () => {
-    setDrawMode("terrain");
-    setDrawPoints([]);
-  };
   const addDrawPoint = (xPct, yPct) => setDrawPoints((pts) => [...pts, { x: xPct, y: yPct }]);
   const cancelDrawingZone = () => {
     setDrawMode(null);
@@ -4473,42 +4467,50 @@ export default function Wh40kCalculator({ session }) {
     setDrawMode(null);
     setDrawPoints([]);
   };
-  // Turns the painted % points into a self-contained terrain piece: its own
-  // clip-path polygon (normalized to the drawing's bounding box) plus that
-  // box as widthIn/heightIn, so it drags/resizes/rotates like any other
-  // piece — see pieceShape() and TerrainPieceView.
-  const finishDrawingTerrain = () => {
-    if (drawPoints.length < 3) return;
-    const xs = drawPoints.map((p) => p.x);
-    const ys = drawPoints.map((p) => p.y);
-    const minX = Math.min(...xs);
-    const maxX = Math.max(...xs);
-    const minY = Math.min(...ys);
-    const maxY = Math.max(...ys);
-    const wPct = Math.max(1, maxX - minX);
-    const hPct = Math.max(1, maxY - minY);
-    const clipPath = `polygon(${drawPoints
-      .map((p) => `${(((p.x - minX) / wPct) * 100).toFixed(2)}% ${(((p.y - minY) / hPct) * 100).toFixed(2)}%`)
-      .join(", ")})`;
+  const clearCustomZones = () => persistBoard({ ...board, customZones: { mine: null, theirs: null } });
+
+  // Parametric terrain: type it in inches off the board ruler instead of
+  // dragging. Terrain on the table is, in practice, just rectangles
+  // (footprints/ruins) and line segments (walls) — a rectangle by its two
+  // opposite corners, a wall by its two endpoints plus a thickness. Both
+  // land as normal terrain pieces (reusing the "ruin" / "wall" looks) that
+  // can then be dragged/resized/rotated or saved into a group like any other.
+  const addParametricRect = () => {
+    const { x1, y1, x2, y2 } = paramTerrain;
+    const xMin = Math.min(x1, x2);
+    const xMax = Math.max(x1, x2);
+    const yMin = Math.min(y1, y2);
+    const yMax = Math.max(y1, y2);
     const piece = {
       id: crypto.randomUUID(),
-      freehand: true,
-      xPct: (minX + maxX) / 2,
-      yPct: (minY + maxY) / 2,
-      widthIn: (wPct / 100) * board.widthIn,
-      heightIn: (hPct / 100) * board.heightIn,
+      shapeId: "ruin",
+      xPct: (((xMin + xMax) / 2) / board.widthIn) * 100,
+      yPct: (((yMin + yMax) / 2) / board.heightIn) * 100,
+      widthIn: Math.max(0.5, xMax - xMin),
+      heightIn: Math.max(0.5, yMax - yMin),
       rotationDeg: 0,
-      clipPath,
-      bg: "rgba(58,92,58,0.55)",
-      border: "2px dashed #5e9a5e",
-      label: "Kreslený terén",
     };
     persistBoard({ ...board, terrain: [...(board.terrain || []), piece] });
-    setDrawMode(null);
-    setDrawPoints([]);
+    setSelectedTerrainId(piece.id);
   };
-  const finishDrawing = () => (drawMode === "terrain" ? finishDrawingTerrain() : finishDrawingZone());
-  const clearCustomZones = () => persistBoard({ ...board, customZones: { mine: null, theirs: null } });
+  const addParametricWall = () => {
+    const { x1, y1, x2, y2, thickness } = paramTerrain;
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const lengthIn = Math.max(0.5, Math.hypot(dx, dy));
+    const angle = (Math.atan2(dy, dx) * 180) / Math.PI;
+    const piece = {
+      id: crypto.randomUUID(),
+      shapeId: "wall",
+      xPct: (((x1 + x2) / 2) / board.widthIn) * 100,
+      yPct: (((y1 + y2) / 2) / board.heightIn) * 100,
+      widthIn: lengthIn,
+      heightIn: Math.max(0.2, thickness || 1),
+      rotationDeg: ((angle % 360) + 360) % 360,
+    };
+    persistBoard({ ...board, terrain: [...(board.terrain || []), piece] });
+    setSelectedTerrainId(piece.id);
+  };
 
   // Alternative to click/drag drawing: type "my" zone as two rectangles'
   // corners in inches directly (read straight off the on-board ruler), no
@@ -4914,6 +4916,8 @@ export default function Wh40kCalculator({ session }) {
   const [customFormOpen, setCustomFormOpen] = useState(false);
   const [customForm, setCustomForm] = useState({ name: "", layer: "terrain", shape: "rect", widthIn: 4, heightIn: 4, color: "#5c5c52", baseMarginIn: 1, baseColor: "#8a8a78" });
   const [newGroupName, setNewGroupName] = useState("");
+  const [paramTerrain, setParamTerrain] = useState({ mode: "rect", x1: 0, y1: 0, x2: 6, y2: 4, thickness: 1 });
+  const [paramTerrainOpen, setParamTerrainOpen] = useState(false);
 
   const handleBoardTokenSelect = (token) => {
     const unit = library.find((u) => u.id === token.unitId);
@@ -7032,6 +7036,52 @@ export default function Wh40kCalculator({ session }) {
             )}
 
             <button
+              onClick={() => setParamTerrainOpen((o) => !o)}
+              style={{ display: "flex", alignItems: "center", gap: 4, background: "transparent", border: "none", color: "var(--accent-text)", fontSize: 11.5, fontWeight: 700, cursor: "pointer", padding: 0, marginTop: 8, textTransform: "uppercase", letterSpacing: 0.4 }}
+            >
+              <Plus size={12} /> Terén čísly (obdélník / zeď)
+              <ChevronDown size={12} style={{ transform: paramTerrainOpen ? "rotate(180deg)" : "none" }} />
+            </button>
+            {paramTerrainOpen && (
+              <div style={{ marginTop: 8, background: "var(--panel)", border: "1px solid var(--field-border)", borderRadius: 8, padding: 10 }}>
+                <SelectField
+                  label="Tvar"
+                  value={paramTerrain.mode}
+                  onChange={(v) => setParamTerrain((s) => ({ ...s, mode: v }))}
+                  options={[
+                    { value: "rect", label: "Obdélník (dva rohy)" },
+                    { value: "wall", label: "Zeď / úsečka (dva konce + tloušťka)" },
+                  ]}
+                  small
+                />
+                <div style={{ marginTop: 6 }}>
+                  <Row cols={2}>
+                    <NumberField label={paramTerrain.mode === "wall" ? "Konec 1 – X" : "Roh 1 – X"} value={paramTerrain.x1} onChange={(v) => setParamTerrain((s) => ({ ...s, x1: v }))} small />
+                    <NumberField label={paramTerrain.mode === "wall" ? "Konec 1 – Y" : "Roh 1 – Y"} value={paramTerrain.y1} onChange={(v) => setParamTerrain((s) => ({ ...s, y1: v }))} small />
+                  </Row>
+                </div>
+                <div style={{ marginTop: 6 }}>
+                  <Row cols={2}>
+                    <NumberField label={paramTerrain.mode === "wall" ? "Konec 2 – X" : "Roh 2 – X"} value={paramTerrain.x2} onChange={(v) => setParamTerrain((s) => ({ ...s, x2: v }))} small />
+                    <NumberField label={paramTerrain.mode === "wall" ? "Konec 2 – Y" : "Roh 2 – Y"} value={paramTerrain.y2} onChange={(v) => setParamTerrain((s) => ({ ...s, y2: v }))} small />
+                  </Row>
+                </div>
+                {paramTerrain.mode === "wall" && (
+                  <div style={{ marginTop: 6 }}>
+                    <NumberField label="Tloušťka (in)" value={paramTerrain.thickness} onChange={(v) => setParamTerrain((s) => ({ ...s, thickness: Math.max(0.1, v) }))} min={0.1} small />
+                  </div>
+                )}
+                <button
+                  onClick={paramTerrain.mode === "wall" ? addParametricWall : addParametricRect}
+                  className="wh40k-btn"
+                  style={{ marginTop: 6, border: "none", background: "var(--accent)", color: "#fff", borderRadius: 6, padding: "6px 12px", fontSize: 11.5, fontWeight: 700, cursor: "pointer" }}
+                >
+                  Přidat na desku
+                </button>
+              </div>
+            )}
+
+            <button
               onClick={() => setCustomFormOpen((o) => !o)}
               style={{ display: "flex", alignItems: "center", gap: 4, background: "transparent", border: "none", color: "var(--accent-text)", fontSize: 11.5, fontWeight: 700, cursor: "pointer", padding: 0, marginTop: 8, textTransform: "uppercase", letterSpacing: 0.4 }}
             >
@@ -7299,23 +7349,23 @@ export default function Wh40kCalculator({ session }) {
                 alignItems: "center",
                 gap: 8,
                 marginBottom: 8,
-                background: drawMode === "terrain" ? "rgba(58,92,58,0.3)" : "var(--accent-dim)",
-                border: `1px solid ${drawMode === "terrain" ? "#5e9a5e" : "var(--accent)"}`,
+                background: "var(--accent-dim)",
+                border: "1px solid var(--accent)",
                 borderRadius: 10,
                 padding: "8px 10px",
               }}
             >
-              <span style={{ fontSize: 11.5, fontWeight: 700, color: drawMode === "terrain" ? "#8fce8f" : "var(--accent-text)" }}>
-                {drawMode === "terrain" ? "Kreslíš terén" : "Kreslíš svou zónu"} — stiskni na desce a táhni jako štětcem ({drawPoints.length} {drawPoints.length === 1 ? "bod" : "body"})
+              <span style={{ fontSize: 11.5, fontWeight: 700, color: "var(--accent-text)" }}>
+                Kreslíš svou zónu — stiskni na desce a táhni jako štětcem ({drawPoints.length} {drawPoints.length === 1 ? "bod" : "body"})
               </span>
               <div style={{ flex: 1 }} />
               <button
-                onClick={finishDrawing}
+                onClick={finishDrawingZone}
                 disabled={drawPoints.length < 3}
                 className="wh40k-btn"
                 style={{
                   border: "none",
-                  background: drawPoints.length < 3 ? "var(--field-border)" : drawMode === "terrain" ? "#5e9a5e" : "var(--accent)",
+                  background: drawPoints.length < 3 ? "var(--field-border)" : "var(--accent)",
                   color: drawPoints.length < 3 ? "var(--muted)" : "#fff",
                   borderRadius: 6,
                   padding: "5px 10px",
@@ -7522,14 +7572,14 @@ export default function Wh40kCalculator({ session }) {
                 {drawPoints.length >= 3 && (
                   <polygon
                     points={drawPoints.map((p) => `${p.x},${p.y}`).join(" ")}
-                    fill={drawMode === "terrain" ? "rgba(58,92,58,0.4)" : "rgba(192,57,43,0.25)"}
+                    fill="rgba(192,57,43,0.25)"
                     stroke="none"
                   />
                 )}
                 <polyline
                   points={drawPoints.map((p) => `${p.x},${p.y}`).join(" ")}
                   fill="none"
-                  stroke={drawMode === "terrain" ? "#5e9a5e" : "#e0857c"}
+                  stroke="#e0857c"
                   strokeWidth="0.4"
                   vectorEffect="non-scaling-stroke"
                 />
