@@ -168,7 +168,7 @@ const TERRAIN_SHAPES = [
     radius: 3,
     terrainWidthIn: 8.4,
     terrainHeightIn: 1.3,
-    terrainBg: "#5c5c52",
+    terrainBg: "#d4bf3a",
     terrainBorder: "none",
     terrainRadius: 0,
     terrainClipPath:
