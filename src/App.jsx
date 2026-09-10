@@ -2727,6 +2727,14 @@ function LayoutSwatch({ layout, selected, onClick }) {
 // piece (podložka s terénem na ni), shows the terrain swatch nested inside
 // the base swatch, same relationship as the real piece on the board.
 function PieceSwatch({ shape }) {
+  if (shape.isGroup) {
+    return (
+      <span style={{ position: "relative", display: "inline-block", width: 16, height: 12, flexShrink: 0 }}>
+        <span style={{ position: "absolute", left: 0, top: 1, width: 9, height: 7, background: "#5c5c52", border: "1px solid #8f8f7e", borderRadius: 2 }} />
+        <span style={{ position: "absolute", right: 0, bottom: 0, width: 8, height: 6, background: "rgba(58,92,58,0.75)", border: "1px solid #5e9a5e", borderRadius: "50%" }} />
+      </span>
+    );
+  }
   if (shape.combo) {
     return (
       <span style={{ position: "relative", display: "inline-block", width: 16, height: 12, background: shape.bg, border: shape.border, borderRadius: shape.radius, flexShrink: 0 }}>
@@ -3929,6 +3937,7 @@ function ManualView({ onBack }) {
             <><b>Trojúhelník a kruhová výseč čísly</b> — pod obdélníky jsou další dva boxy: Trojúhelník (tři rohy, každý svým X/Y) a Kruhová výseč (střed X/Y, poloměr od/do, úhel od/do ve stupních — 0° doprava, 90° dolů; poloměr „od“ 0 = bez otvoru uprostřed). Každý má vlastní tlačítko Nastavit a nahradí celou „Moji zónu“ (nekombinuje se s obdélníky). „Zóna protihráče“ se i tady vždy dopočítá jako diagonální protějšek.</>,
             <><b>Rychlý souboj</b> — klikni na svůj token, pak na token protihráče. Appka spočítá zabité modely/damage jen z vestavěných schopností obou jednotek (žádné bonusy). „Otevřít v kalkulačce“ tě přenese do plné kalkulačky s modifikátory.</>,
             <><b>Terén (stavebnice)</b> — klikni na Ruina/Zeď/Kráter/Les/Kontejner pro přidání kusu doprostřed desky, pak ho přetáhni na místo. Klik na terén otevře dole šířku/výšku/otočení, dvojklik ho odebere.</>,
+            <><b>Uložit jako skupinu</b> — když máš na desce rozestavěno víc kusů (třeba ruinu se zdí a zelení), objeví se pole „Uložit N kusů jako skupinu". Pojmenuj a ulož → skupina se přidá do palety jako jeden kus. Klik na ni pak vysype celé to rozestavění zpět na desku (kusy zůstávají samostatně přetažitelné). „Smazat" u skupiny funguje jako u ostatních vlastních typů.</>,
             <><b>Mřížka po 1 palci</b> — přepínač u rozměrů desky, čtvercová síť odpovídající skutečným palcům na stole.</>,
             <><b>Nakreslit terén</b> — vedle „Nakreslit mou zónu" je tlačítko „Nakreslit terén": stiskni na desce a táhni jako štětcem (min. 3 body), Dokončit → vznikne terénní kus přesně toho tvaru, který jde pak normálně přetáhnout, zvětšit i otočit jako každý jiný.</>,
             <><b>Vytvořit vlastní terén / podložku</b> — vlastní název, tvar (obdélník/kruh/trojúhelník), rozměry a barva. „Vrstva“ určuje, jestli kus stojí nahoře (terén), dole (podložka, na které terén stojí), nebo <b>obojí najednou</b> (podložka s terénem přilepeným na ní — jeden kus, co se táhne a otáčí spolu).</>,
@@ -4381,6 +4390,24 @@ export default function Wh40kCalculator({ session }) {
   const addTerrainPiece = (shapeId) => {
     const shape = findShapeDef(shapeId);
     if (!shape) return;
+    // A saved group expands into its member pieces (each a normal, separately
+    // draggable piece), dropped around the middle of the board.
+    if (shape.isGroup) {
+      const newPieces = (shape.pieces || []).map((sp) => {
+        const { dxPct, dyPct, ...rest } = sp;
+        return {
+          ...rest,
+          id: crypto.randomUUID(),
+          xPct: Math.max(0, Math.min(100, 50 + dxPct)),
+          yPct: Math.max(0, Math.min(100, 50 + dyPct)),
+          rotationDeg: rest.rotationDeg || 0,
+        };
+      });
+      if (newPieces.length === 0) return;
+      persistBoard({ ...board, terrain: [...(board.terrain || []), ...newPieces] });
+      setSelectedTerrainId(null);
+      return;
+    }
     const piece = { id: crypto.randomUUID(), shapeId, xPct: 50, yPct: 50, widthIn: shape.widthIn, heightIn: shape.heightIn, rotationDeg: 0 };
     persistBoard({ ...board, terrain: [...(board.terrain || []), piece] });
     setSelectedTerrainId(piece.id);
@@ -4398,6 +4425,23 @@ export default function Wh40kCalculator({ session }) {
   const clearTerrain = () => {
     persistBoard({ ...board, terrain: [] });
     setSelectedTerrainId(null);
+  };
+  // Save the whole current terrain arrangement (e.g. a ruin with a wall and
+  // some vegetation on it) as one named palette entry — a "group". Each
+  // piece keeps its own look/size/rotation and its offset from the group's
+  // centre; placing the group later drops all of them back in that layout,
+  // still individually draggable.
+  const saveTerrainGroup = (rawName) => {
+    const pieces = board.terrain || [];
+    if (pieces.length === 0) return;
+    const name = (rawName || "").trim() || `Skupina ${customPieceTypes.filter((s) => s.isGroup).length + 1}`;
+    const cx = pieces.reduce((s, p) => s + p.xPct, 0) / pieces.length;
+    const cy = pieces.reduce((s, p) => s + p.yPct, 0) / pieces.length;
+    const parts = pieces.map((p) => {
+      const { id, xPct, yPct, ...rest } = p;
+      return { ...rest, dxPct: xPct - cx, dyPct: yPct - cy };
+    });
+    addCustomPieceType({ label: name, layer: "terrain", isGroup: true, pieces: parts });
   };
 
   // Freehand deployment-zone drawing (click points on the board to build a
@@ -4869,6 +4913,7 @@ export default function Wh40kCalculator({ session }) {
   const [boardShareOpen, setBoardShareOpen] = useState(false);
   const [customFormOpen, setCustomFormOpen] = useState(false);
   const [customForm, setCustomForm] = useState({ name: "", layer: "terrain", shape: "rect", widthIn: 4, heightIn: 4, color: "#5c5c52", baseMarginIn: 1, baseColor: "#8a8a78" });
+  const [newGroupName, setNewGroupName] = useState("");
 
   const handleBoardTokenSelect = (token) => {
     const unit = library.find((u) => u.id === token.unitId);
@@ -6792,26 +6837,6 @@ export default function Wh40kCalculator({ session }) {
               >
                 <Pencil size={12} /> Nakreslit mou zónu
               </button>
-              <button
-                onClick={startDrawingTerrain}
-                disabled={!!drawMode}
-                title="Namaluj myší na desce libovolný tvar terénu (stiskni a táhni)"
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 5,
-                  border: "1px solid #5e9a5e",
-                  background: drawMode === "terrain" ? "rgba(58,92,58,0.35)" : "transparent",
-                  color: "#8fce8f",
-                  borderRadius: 6,
-                  padding: "5px 9px",
-                  fontSize: 11,
-                  fontWeight: 600,
-                  cursor: drawMode ? "not-allowed" : "pointer",
-                }}
-              >
-                <Pencil size={12} /> Nakreslit terén
-              </button>
             </div>
             {(board.customZones?.mine || board.customZones?.theirs) && !drawMode && (
               <button
@@ -6988,6 +7013,23 @@ export default function Wh40kCalculator({ session }) {
                 </div>
               ))}
             </div>
+
+            {board.terrain && board.terrain.length > 1 && (
+              <div style={{ display: "flex", gap: 6, alignItems: "flex-end", flexWrap: "wrap", marginTop: 8, background: "var(--field-bg)", border: "1px dashed var(--field-border)", borderRadius: 8, padding: 8 }}>
+                <TextField label={`Uložit ${board.terrain.length} kusů jako skupinu`} value={newGroupName} onChange={setNewGroupName} placeholder="např. Ruina se zelení" small />
+                <button
+                  onClick={() => {
+                    saveTerrainGroup(newGroupName);
+                    setNewGroupName("");
+                  }}
+                  className="wh40k-btn"
+                  title="Uloží celé aktuální rozestavění terénu jako jeden kus do palety"
+                  style={{ border: "none", background: "var(--accent)", color: "#fff", borderRadius: 6, padding: "7px 12px", fontSize: 11.5, fontWeight: 700, cursor: "pointer" }}
+                >
+                  Uložit jako skupinu
+                </button>
+              </div>
+            )}
 
             <button
               onClick={() => setCustomFormOpen((o) => !o)}
