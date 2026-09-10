@@ -3889,8 +3889,8 @@ function ManualView({ onBack }) {
             <>Dvojklik na token ho odebere z desky (odškrtne se i v seznamu).</>,
             <>Rozměry desky (šířka/výška v palcích) jdou upravit nahoře — token si přepočítá velikost podle nich.</>,
             <>Jeden token = celá jednotka (počet modelů je v odznáčku v rohu), ne model po modelu.</>,
-            <><b>Rozložení výsadku</b> — žádné vestavěné náhledy, jen barevné kartičky, které si sám vytvoříš a pojmenuješ (viz „Uložit jako rozložení“ níž). Nový/prázdný účet začíná s pěti prázdnými základními sloty <b>1–5</b> jako výchozím místem k vyplnění — nakresli/zadej si do každého svou vlastní zónu a ulož. Ať je „Moje zóna“ cokoliv, druhá strana je vždy její diagonální (o 180° otočený) protějšek, nikdy samostatně nakreslená.</>,
-            <><b>Uložit jako rozložení</b> — ať už je „Moje zóna“ zrovna nakreslený tvar, číselné obdélníky, trojúhelník nebo výseč, appka ji pojmenuje a přidá/přepíše jako kartičku. Vyber si kartičku (třeba jeden z pěti základních slotů 1–5), uprav si zónu a klikni „Uložit změny do…“ — přepíše tu samou kartičku místo vytvoření další; z těch pěti základních si tak můžeš postupně dělat další pojmenované varianty přes samostatné „Uložit jako rozložení“. „Smazat“ pod kartičkou ji natrvalo odebere.</>,
+            <><b>Rozložení výsadku — základní mapy</b> — nahoře je řada „základních map" (nový účet začíná s pěti, sloty <b>1–5</b>). Každá je jen tvar zóny — nakresli/zadej si do ní svou „Moji zónu" a ulož přes „Uložit změny do…"; druhá strana je vždy její diagonální (o 180° otočený) protějšek. „Uložit jako novou základní mapu" přidá šestou, sedmou… „Smazat" pod mapou ji odebere i s jejími mutacemi.</>,
+            <><b>Mutace map</b> — pod základními mapami je box „Mutace mapy „N"". Vyber základní mapu, rozestav na desce terén/podložky, případně dolaď zónu, a klikni „Uložit rozestavění jako mutaci" — uloží se jako podřízená kartička té mapy (zóna + celý terén). Kliknutí na mutaci načte její zónu i terén zpět. Takhle si z jedné základní mapy uděláš víc variant. „Uložit změny do…" u vybrané mutace přepíše i její terén.</>,
             <><b>Nakreslit vlastní výsadek</b> — klikni „Nakreslit mou zónu“, pak stiskni na desce a táhni jako štětcem (min. 3 body), a klikni Dokončit. „Zóna protihráče“ se sama dopočítá jako tvar otočený o 180° přes střed desky (diagonálně, ne jen prosté zrcadlo nahoru/dolů). „Zpět na vybrané rozložení“ obě strany zase vrátí na tvar aktuálně vybrané kartičky. Čísla po 5 palcích podél okrajů desky se zapínají/vypínají spolu s mřížkou.</>,
             <><b>Zóna čísly (v palcích)</b> — pod tlačítkem pro kreslení je box Moje zóna se dvěma obdélníky (Obdélník 1 a 2) — zadej jim Od X/Y a Do X/Y podle čísel na okraji desky a klikni na tlačítko Nastavit. Oba obdélníky se spojí do jedné zóny, takže jde postavit i L-tvar nebo schod, ne jen jeden obdélník. „Zóna protihráče“ se vždy dopočítá automaticky jako diagonální (o 180° otočený) protějšek — nezadává se ručně.</>,
             <><b>Trojúhelník a kruhová výseč čísly</b> — pod obdélníky jsou další dva boxy: Trojúhelník (tři rohy, každý svým X/Y) a Kruhová výseč (střed X/Y, poloměr od/do, úhel od/do ve stupních — 0° doprava, 90° dolů; poloměr „od“ 0 = bez otvoru uprostřed). Každý má vlastní tlačítko Nastavit a nahradí celou „Moji zónu“ (nekombinuje se s obdélníky). „Zóna protihráče“ se i tady vždy dopočítá jako diagonální protějšek.</>,
@@ -4332,7 +4332,6 @@ export default function Wh40kCalculator({ session }) {
 
   const clearBoardTokens = () => persistBoard({ ...board, tokens: [] });
   const setBoardSize = (widthIn, heightIn) => persistBoard({ ...board, widthIn, heightIn });
-  const setBoardLayout = (layoutId) => persistBoard({ ...board, layoutId });
 
   // Terrain "stavebnice" — original generic pieces (see TERRAIN_SHAPES), not
   // tied to any unit/army. Dropped in the middle of the board by default;
@@ -4476,22 +4475,58 @@ export default function Wh40kCalculator({ session }) {
   // This is what actually gets saved when adding/updating a custom layout,
   // so "Uložit jako rozložení" always captures what's really on the board.
   const activeMineZoneClips = () => resolveZoneClips(board.customZones?.mine, (allLayouts.find((l) => l.id === board.layoutId) || allLayouts[0]).mineClip);
+  // The base map "in play" — a mutation points back at its parent via
+  // parentId; a base map is its own base. (Computed lazily so it doesn't
+  // touch `customLayouts` before that state is declared further down.)
+  const getActiveBaseLayoutId = () => {
+    const sel = customLayouts.find((l) => l.id === board.layoutId);
+    return sel ? sel.parentId || sel.id : customLayouts[0]?.id;
+  };
+  const snapshotTerrain = () => (board.terrain || []).map((t) => ({ ...t }));
   const saveNewLayout = () => {
-    const name = newLayoutName.trim() || `Vlastní ${customLayouts.length + 1}`;
+    const name = newLayoutName.trim() || `Mapa ${customLayouts.filter((l) => !l.parentId).length + 1}`;
     persistCustomLayouts([...customLayouts, { id: crypto.randomUUID(), name, mineClip: activeMineZoneClips() }]);
     setNewLayoutName("");
   };
-  // "Modifikovatelné přes Uložit" — when the currently selected layout is one
-  // you saved yourself (not a built-in), this overwrites its shape with
-  // whatever "Moje zóna" looks like right now, keeping its id/name, so you
-  // can pick your saved layout, tweak it (draw/type a new zone), and save the
-  // change back into the same slot instead of only ever creating a new one.
+  // A "mutation" of a base map = that base plus a specific terrain layout,
+  // saved as a child entry (parentId points at the base). Captures the zone
+  // exactly as it is now (so tweaking it while making the mutation is kept)
+  // and the current board terrain, then selects the new mutation.
+  const saveMutation = () => {
+    const baseId = activeBaseLayoutId;
+    const base = customLayouts.find((l) => l.id === baseId);
+    if (!base) return;
+    const siblings = customLayouts.filter((l) => l.parentId === baseId).length;
+    const name = newMutationName.trim() || `${base.name}-${siblings + 1}`;
+    const entry = { id: crypto.randomUUID(), name, parentId: baseId, mineClip: activeMineZoneClips(), terrain: snapshotTerrain() };
+    persistCustomLayouts([...customLayouts, entry]);
+    setNewMutationName("");
+    persistBoard({ ...board, layoutId: entry.id });
+  };
+  // "Uložit změny" — overwrites the selected entry's zone (and, for a
+  // mutation, its terrain too) with whatever's on the board right now.
   const updateActiveLayout = () => {
     const active = customLayouts.find((l) => l.id === board.layoutId);
     if (!active) return;
-    persistCustomLayouts(customLayouts.map((l) => (l.id === active.id ? { ...l, mineClip: activeMineZoneClips() } : l)));
+    persistCustomLayouts(
+      customLayouts.map((l) =>
+        l.id === active.id ? { ...l, mineClip: activeMineZoneClips(), ...(l.parentId ? { terrain: snapshotTerrain() } : {}) } : l
+      )
+    );
   };
-  const deleteCustomLayout = (id) => persistCustomLayouts(customLayouts.filter((l) => l.id !== id));
+  // Deleting a base map takes its mutations with it.
+  const deleteCustomLayout = (id) => persistCustomLayouts(customLayouts.filter((l) => l.id !== id && l.parentId !== id));
+  // Selecting a mutation loads its own terrain onto the board and clears any
+  // freehand/typed zone override so its saved shape shows; selecting a plain
+  // base map just switches the zone and leaves terrain alone.
+  const selectLayout = (id) => {
+    const layout = customLayouts.find((l) => l.id === id);
+    if (layout && layout.parentId && Array.isArray(layout.terrain)) {
+      persistBoard({ ...board, layoutId: id, customZones: { mine: null, theirs: null }, terrain: layout.terrain.map((t) => ({ ...t })) });
+    } else {
+      persistBoard({ ...board, layoutId: id });
+    }
+  };
 
   const saveArmy = (army) => {
     const exists = armies.some((a) => a.id === army.id);
@@ -4740,6 +4775,7 @@ export default function Wh40kCalculator({ session }) {
   const [customLayouts, setCustomLayouts] = useState(DEFAULT_LAYOUT_SLOTS);
   const [customLayoutsLoaded, setCustomLayoutsLoaded] = useState(false);
   const [newLayoutName, setNewLayoutName] = useState("");
+  const [newMutationName, setNewMutationName] = useState("");
   const allLayouts = useMemo(() => {
     const combined = [...DEPLOYMENT_LAYOUTS, ...customLayouts.map((l) => ({ ...l, theirsClip: mirrorLayoutClip(l.mineClip) }))];
     // Safety net only — every render path assumes allLayouts[0] exists;
@@ -4747,6 +4783,7 @@ export default function Wh40kCalculator({ session }) {
     return combined.length > 0 ? combined : [{ id: "1", name: "1", mineClip: DEFAULT_LAYOUT_CLIP, theirsClip: mirrorClipPathDiagonally(DEFAULT_LAYOUT_CLIP) }];
   }, [customLayouts]);
   const activeCustomLayout = customLayouts.find((l) => l.id === board.layoutId);
+  const activeBaseLayoutId = getActiveBaseLayoutId();
   const [newPresetName, setNewPresetName] = useState("");
   const [boardShareOpen, setBoardShareOpen] = useState(false);
   const [customFormOpen, setCustomFormOpen] = useState(false);
@@ -6570,14 +6607,15 @@ export default function Wh40kCalculator({ session }) {
           </Row>
 
           <div style={{ marginTop: 10, marginBottom: 4 }}>
-            <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--label)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>Rozložení výsadku</div>
+            <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--label)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>Rozložení výsadku — základní mapy</div>
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-              {allLayouts.map((l) => (
+              {allLayouts.filter((l) => !l.parentId).map((l) => (
                 <div key={l.id} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
-                  <LayoutSwatch layout={l} selected={board.layoutId === l.id} onClick={() => setBoardLayout(l.id)} />
+                  <LayoutSwatch layout={l} selected={activeBaseLayoutId === l.id} onClick={() => selectLayout(l.id)} />
+                  <div style={{ fontSize: 9, color: activeBaseLayoutId === l.id ? "var(--accent-text)" : "var(--muted)", fontWeight: 700 }}>{l.name}</div>
                   <button
-                    onClick={() => askConfirm(`Smazat vlastní rozložení „${l.name}“?`, () => deleteCustomLayout(l.id))}
-                    title="Smazat vlastní rozložení"
+                    onClick={() => askConfirm(`Smazat základní mapu „${l.name}“ i s jejími mutacemi?`, () => deleteCustomLayout(l.id))}
+                    title="Smazat základní mapu"
                     style={{ background: "transparent", border: "none", color: "var(--muted)", fontSize: 9, cursor: "pointer", padding: 0 }}
                   >
                     smazat
@@ -6585,20 +6623,65 @@ export default function Wh40kCalculator({ session }) {
                 </div>
               ))}
             </div>
-            <div style={{ display: "flex", gap: 6, alignItems: "flex-end", flexWrap: "wrap", marginTop: 8 }}>
-              <TextField label="Název nového rozložení" value={newLayoutName} onChange={setNewLayoutName} placeholder="např. Rohy s klínem" small />
+
+            {/* Mutations of whichever base map is in play — the base's zone
+                plus a saved terrain layout, as child entries. */}
+            {activeBaseLayoutId && (() => {
+              const base = customLayouts.find((l) => l.id === activeBaseLayoutId);
+              const mutations = allLayouts.filter((l) => l.parentId === activeBaseLayoutId);
+              return (
+                <div style={{ marginTop: 10, background: "var(--field-bg)", border: "1px dashed var(--field-border)", borderRadius: 8, padding: 8 }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 6 }}>
+                    Mutace mapy „{base?.name}“ {mutations.length > 0 ? `(${mutations.length})` : ""}
+                  </div>
+                  {mutations.length > 0 && (
+                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 8 }}>
+                      {mutations.map((l) => (
+                        <div key={l.id} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+                          <LayoutSwatch layout={l} selected={board.layoutId === l.id} onClick={() => selectLayout(l.id)} />
+                          <div style={{ fontSize: 9, color: board.layoutId === l.id ? "var(--accent-text)" : "var(--muted)", fontWeight: 700 }}>
+                            {l.name} · {(l.terrain || []).length}×
+                          </div>
+                          <button
+                            onClick={() => askConfirm(`Smazat mutaci „${l.name}“?`, () => deleteCustomLayout(l.id))}
+                            title="Smazat mutaci"
+                            style={{ background: "transparent", border: "none", color: "var(--muted)", fontSize: 9, cursor: "pointer", padding: 0 }}
+                          >
+                            smazat
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div style={{ display: "flex", gap: 6, alignItems: "flex-end", flexWrap: "wrap" }}>
+                    <TextField label="Název mutace" value={newMutationName} onChange={setNewMutationName} placeholder={`např. ${base?.name}-ruiny`} small />
+                    <button
+                      onClick={saveMutation}
+                      className="wh40k-btn"
+                      title="Uloží aktuální zónu + rozestavěný terén jako mutaci této základní mapy"
+                      style={{ border: "none", background: "var(--accent)", color: "#fff", borderRadius: 6, padding: "7px 12px", fontSize: 11.5, fontWeight: 700, cursor: "pointer" }}
+                    >
+                      Uložit rozestavění jako mutaci
+                    </button>
+                  </div>
+                </div>
+              );
+            })()}
+
+            <div style={{ display: "flex", gap: 6, alignItems: "flex-end", flexWrap: "wrap", marginTop: 10 }}>
+              <TextField label="Název nové základní mapy" value={newLayoutName} onChange={setNewLayoutName} placeholder="např. Rohy s klínem" small />
               <button
                 onClick={saveNewLayout}
                 className="wh40k-btn"
                 style={{ border: "none", background: "var(--accent)", color: "#fff", borderRadius: 6, padding: "7px 12px", fontSize: 11.5, fontWeight: 700, cursor: "pointer" }}
               >
-                Uložit jako rozložení
+                Uložit jako novou základní mapu
               </button>
               {activeCustomLayout && (
                 <button
                   onClick={updateActiveLayout}
                   className="wh40k-btn"
-                  title={`Přepíše „${activeCustomLayout.name}“ aktuální zónou`}
+                  title={`Přepíše „${activeCustomLayout.name}“ aktuální zónou${activeCustomLayout.parentId ? " + terénem" : ""}`}
                   style={{ border: "1px solid var(--accent)", background: "transparent", color: "var(--accent-text)", borderRadius: 6, padding: "7px 12px", fontSize: 11.5, fontWeight: 700, cursor: "pointer" }}
                 >
                   Uložit změny do „{activeCustomLayout.name}“
