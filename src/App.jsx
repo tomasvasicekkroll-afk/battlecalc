@@ -174,25 +174,27 @@ const TERRAIN_SHAPES = [
     terrainClipPath:
       "polygon(0% 30%, 18.5% 30%, 18.5% 0%, 25.5% 0%, 25.5% 30%, 46.5% 30%, 46.5% 0%, 53.5% 0%, 53.5% 30%, 74.5% 30%, 74.5% 0%, 81.5% 0%, 81.5% 30%, 100% 30%, 100% 70%, 81.5% 70%, 81.5% 100%, 74.5% 100%, 74.5% 70%, 53.5% 70%, 53.5% 100%, 46.5% 100%, 46.5% 70%, 25.5% 70%, 25.5% 100%, 18.5% 100%, 18.5% 70%, 0% 70%)",
   },
-  // "H blok" = a 6 x 4" terrain feature: a left post + crossbar + right post
-  // (an H), on a same-size podložka. Combo, so both scale together.
+  // "Medium rectangle" = a terrain feature on a 6 x 7" podložka: a left post,
+  // a short connector, and a right upright with a round blob at each end
+  // (the circles approximated as ~6-point arcs in one clip-path polygon).
+  // Combo, so podložka + terrain scale together.
   {
     id: "h-blok",
-    label: "H blok",
+    label: "Medium rectangle",
     layer: "terrain",
     combo: true,
     widthIn: 6,
-    heightIn: 4,
+    heightIn: 7,
     bg: "rgba(160,150,120,0.5)",
     border: "1px solid rgba(210,200,170,0.7)",
     radius: 3,
     terrainWidthIn: 6,
-    terrainHeightIn: 4,
+    terrainHeightIn: 7,
     terrainBg: "#5c5c52",
     terrainBorder: "none",
     terrainRadius: 0,
     terrainClipPath:
-      "polygon(14% 6%, 32% 6%, 32% 40%, 62% 40%, 62% 6%, 84% 6%, 84% 94%, 62% 94%, 62% 60%, 32% 60%, 32% 94%, 14% 94%)",
+      "polygon(72.5% 0%, 85% 2.7%, 94.1% 10%, 97.4% 17.9%, 95.1% 28.5%, 88.6% 35.3%, 77.5% 39.6%, 77.5% 60.4%, 88.6% 64.7%, 96% 73.2%, 97.1% 83.5%, 91.6% 92.9%, 81% 98.8%, 72.5% 100%, 64% 98.8%, 53.4% 92.9%, 48.4% 85.2%, 47.5% 76.5%, 55% 65.7%, 55% 56%, 32.5% 56%, 32.5% 64%, 7.5% 64%, 7.5% 36%, 32.5% 36%, 32.5% 44%, 55% 44%, 55% 34.3%, 47.5% 20%, 50.9% 10%, 60% 2.7%)",
   },
   { id: "wall", label: "Zeď", layer: "terrain", widthIn: 6, heightIn: 1, bg: "#6b6b61", border: "1px solid #8f8f7e", radius: 2 },
   { id: "crater", label: "Kráter", layer: "terrain", widthIn: 5, heightIn: 5, bg: "#4a4436", border: "2px dashed #8a7a4f", radius: "50%" },
@@ -3978,7 +3980,7 @@ function ManualView({ onBack }) {
             <><b>Zóna čísly (v palcích)</b> — pod tlačítkem pro kreslení je box Moje zóna se dvěma obdélníky (Obdélník 1 a 2) — zadej jim Od X/Y a Do X/Y podle čísel na okraji desky a klikni na tlačítko Nastavit. Oba obdélníky se spojí do jedné zóny, takže jde postavit i L-tvar nebo schod, ne jen jeden obdélník. „Zóna protihráče“ se vždy dopočítá automaticky jako diagonální (o 180° otočený) protějšek — nezadává se ručně.</>,
             <><b>Trojúhelník a kruhová výseč čísly</b> — pod obdélníky jsou další dva boxy: Trojúhelník (tři rohy, každý svým X/Y) a Kruhová výseč (střed X/Y, poloměr od/do, úhel od/do ve stupních — 0° doprava, 90° dolů; poloměr „od“ 0 = bez otvoru uprostřed). Každý má vlastní tlačítko Nastavit a nahradí celou „Moji zónu“ (nekombinuje se s obdélníky). „Zóna protihráče“ se i tady vždy dopočítá jako diagonální protějšek.</>,
             <><b>Rychlý souboj</b> — klikni na svůj token, pak na token protihráče. Appka spočítá zabité modely/damage jen z vestavěných schopností obou jednotek (žádné bonusy). „Otevřít v kalkulačce“ tě přenese do plné kalkulačky s modifikátory.</>,
-            <><b>Terén (stavebnice)</b> — klikni na Ruina/Long line/H blok/Zeď/Kráter/Les/Kontejner pro přidání kusu doprostřed desky, pak ho přetáhni na místo. Klik na terén otevře dole šířku/výšku/otočení; odebereš ho dvojklikem, tlačítkem Odebrat, nebo klávesou Delete / Backspace, když je vybraný.</>,
+            <><b>Terén (stavebnice)</b> — klikni na Ruina/Long line/Medium rectangle/Zeď/Kráter/Les/Kontejner pro přidání kusu doprostřed desky, pak ho přetáhni na místo. Klik na terén otevře dole šířku/výšku/otočení; odebereš ho dvojklikem, tlačítkem Odebrat, nebo klávesou Delete / Backspace, když je vybraný.</>,
             <><b>Uložit jako skupinu</b> — když máš na desce rozestavěno víc kusů (třeba ruinu se zdí a zelení), objeví se pole „Uložit N kusů jako skupinu". Pojmenuj a ulož → skupina se přidá do palety jako jeden kus. Klik na ni pak vysype celé to rozestavění zpět na desku (kusy zůstávají samostatně přetažitelné). „Smazat" u skupiny funguje jako u ostatních vlastních typů.</>,
             <><b>Mřížka po 1 palci</b> — přepínač u rozměrů desky, čtvercová síť odpovídající skutečným palcům na stole.</>,
             <><b>Terén čísly (obdélník / zeď)</b> — pod paletou je rozklikávací box. Obdélník zadáš dvěma protilehlými rohy (X/Y v palcích podle okraje desky), zeď dvěma konci úsečky + tloušťkou (kus se sám natočí do směru úsečky). „Přidat na desku" vytvoří normální terénní kus, který jde pak přetáhnout, zvětšit, otočit i uložit do skupiny.</>,
