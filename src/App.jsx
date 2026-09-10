@@ -3897,6 +3897,7 @@ function ManualView({ onBack }) {
             <><b>Rychlý souboj</b> — klikni na svůj token, pak na token protihráče. Appka spočítá zabité modely/damage jen z vestavěných schopností obou jednotek (žádné bonusy). „Otevřít v kalkulačce“ tě přenese do plné kalkulačky s modifikátory.</>,
             <><b>Terén (stavebnice)</b> — klikni na Ruina/Zeď/Kráter/Les/Kontejner pro přidání kusu doprostřed desky, pak ho přetáhni na místo. Klik na terén otevře dole šířku/výšku/otočení, dvojklik ho odebere.</>,
             <><b>Mřížka po 1 palci</b> — přepínač u rozměrů desky, čtvercová síť odpovídající skutečným palcům na stole.</>,
+            <><b>Nakreslit terén</b> — vedle „Nakreslit mou zónu" je tlačítko „Nakreslit terén": stiskni na desce a táhni jako štětcem (min. 3 body), Dokončit → vznikne terénní kus přesně toho tvaru, který jde pak normálně přetáhnout, zvětšit i otočit jako každý jiný.</>,
             <><b>Vytvořit vlastní terén / podložku</b> — vlastní název, tvar (obdélník/kruh/trojúhelník), rozměry a barva. „Vrstva“ určuje, jestli kus stojí nahoře (terén), dole (podložka, na které terén stojí), nebo <b>obojí najednou</b> (podložka s terénem přilepeným na ní — jeden kus, co se táhne a otáčí spolu).</>,
             <><b>Moje podložky</b> — ulož rozměry + rozložení výsadku + rozestavěný terén (bez jednotek) pod jménem, kdykoli znovu načti. <b>Sdílet podložku</b> stáhne/nahraje soubor stejně jako sdílení knihovny.</>,
           ]}
@@ -4294,6 +4295,12 @@ export default function Wh40kCalculator({ session }) {
   // and the user's own saved custom types — so placed pieces, the palette,
   // and the selected-piece panel can all treat them identically.
   const findShapeDef = (shapeId) => TERRAIN_SHAPES.find((s) => s.id === shapeId) || customPieceTypes.find((s) => s.id === shapeId);
+  // The shape a placed piece renders as — a freehand-drawn piece carries its
+  // own geometry (clipPath) and look, everything else looks its type up.
+  const pieceShape = (p) =>
+    p.freehand
+      ? { label: p.label || "Kreslený terén", layer: "terrain", clipPath: p.clipPath, bg: p.bg, border: p.border, radius: 0, widthIn: p.widthIn, heightIn: p.heightIn }
+      : findShapeDef(p.shapeId);
 
   // Toggling a unit on/off the board's roster places/removes a single token
   // for the whole unit (not one per model) — simplest way to get an army onto
@@ -4371,6 +4378,12 @@ export default function Wh40kCalculator({ session }) {
     setDrawMode("mine");
     setDrawPoints([]);
   };
+  // Same paint-a-polygon interaction, but the result is a terrain piece
+  // shaped like whatever you drew rather than a deployment zone.
+  const startDrawingTerrain = () => {
+    setDrawMode("terrain");
+    setDrawPoints([]);
+  };
   const addDrawPoint = (xPct, yPct) => setDrawPoints((pts) => [...pts, { x: xPct, y: yPct }]);
   const cancelDrawingZone = () => {
     setDrawMode(null);
@@ -4378,11 +4391,46 @@ export default function Wh40kCalculator({ session }) {
   };
   const mirrorPointsDiagonally = (points) => points.map((p) => ({ x: 100 - p.x, y: 100 - p.y }));
   const finishDrawingZone = () => {
-    if (!drawMode || drawPoints.length < 3) return;
+    if (drawPoints.length < 3) return;
     persistBoard({ ...board, customZones: { ...(board.customZones || {}), mine: drawPoints, theirs: mirrorPointsDiagonally(drawPoints) } });
     setDrawMode(null);
     setDrawPoints([]);
   };
+  // Turns the painted % points into a self-contained terrain piece: its own
+  // clip-path polygon (normalized to the drawing's bounding box) plus that
+  // box as widthIn/heightIn, so it drags/resizes/rotates like any other
+  // piece — see pieceShape() and TerrainPieceView.
+  const finishDrawingTerrain = () => {
+    if (drawPoints.length < 3) return;
+    const xs = drawPoints.map((p) => p.x);
+    const ys = drawPoints.map((p) => p.y);
+    const minX = Math.min(...xs);
+    const maxX = Math.max(...xs);
+    const minY = Math.min(...ys);
+    const maxY = Math.max(...ys);
+    const wPct = Math.max(1, maxX - minX);
+    const hPct = Math.max(1, maxY - minY);
+    const clipPath = `polygon(${drawPoints
+      .map((p) => `${(((p.x - minX) / wPct) * 100).toFixed(2)}% ${(((p.y - minY) / hPct) * 100).toFixed(2)}%`)
+      .join(", ")})`;
+    const piece = {
+      id: crypto.randomUUID(),
+      freehand: true,
+      xPct: (minX + maxX) / 2,
+      yPct: (minY + maxY) / 2,
+      widthIn: (wPct / 100) * board.widthIn,
+      heightIn: (hPct / 100) * board.heightIn,
+      rotationDeg: 0,
+      clipPath,
+      bg: "rgba(58,92,58,0.55)",
+      border: "2px dashed #5e9a5e",
+      label: "Kreslený terén",
+    };
+    persistBoard({ ...board, terrain: [...(board.terrain || []), piece] });
+    setDrawMode(null);
+    setDrawPoints([]);
+  };
+  const finishDrawing = () => (drawMode === "terrain" ? finishDrawingTerrain() : finishDrawingZone());
   const clearCustomZones = () => persistBoard({ ...board, customZones: { mine: null, theirs: null } });
 
   // Alternative to click/drag drawing: type "my" zone as two rectangles'
@@ -6711,6 +6759,26 @@ export default function Wh40kCalculator({ session }) {
               >
                 <Pencil size={12} /> Nakreslit mou zónu
               </button>
+              <button
+                onClick={startDrawingTerrain}
+                disabled={!!drawMode}
+                title="Namaluj myší na desce libovolný tvar terénu (stiskni a táhni)"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 5,
+                  border: "1px solid #5e9a5e",
+                  background: drawMode === "terrain" ? "rgba(58,92,58,0.35)" : "transparent",
+                  color: "#8fce8f",
+                  borderRadius: 6,
+                  padding: "5px 9px",
+                  fontSize: 11,
+                  fontWeight: 600,
+                  cursor: drawMode ? "not-allowed" : "pointer",
+                }}
+              >
+                <Pencil size={12} /> Nakreslit terén
+              </button>
             </div>
             {(board.customZones?.mine || board.customZones?.theirs) && !drawMode && (
               <button
@@ -7156,23 +7224,23 @@ export default function Wh40kCalculator({ session }) {
                 alignItems: "center",
                 gap: 8,
                 marginBottom: 8,
-                background: "var(--accent-dim)",
-                border: "1px solid var(--accent)",
+                background: drawMode === "terrain" ? "rgba(58,92,58,0.3)" : "var(--accent-dim)",
+                border: `1px solid ${drawMode === "terrain" ? "#5e9a5e" : "var(--accent)"}`,
                 borderRadius: 10,
                 padding: "8px 10px",
               }}
             >
-              <span style={{ fontSize: 11.5, fontWeight: 700, color: "var(--accent-text)" }}>
-                Kreslíš svou zónu — stiskni na desce a táhni jako štětcem ({drawPoints.length} {drawPoints.length === 1 ? "bod" : "body"})
+              <span style={{ fontSize: 11.5, fontWeight: 700, color: drawMode === "terrain" ? "#8fce8f" : "var(--accent-text)" }}>
+                {drawMode === "terrain" ? "Kreslíš terén" : "Kreslíš svou zónu"} — stiskni na desce a táhni jako štětcem ({drawPoints.length} {drawPoints.length === 1 ? "bod" : "body"})
               </span>
               <div style={{ flex: 1 }} />
               <button
-                onClick={finishDrawingZone}
+                onClick={finishDrawing}
                 disabled={drawPoints.length < 3}
                 className="wh40k-btn"
                 style={{
                   border: "none",
-                  background: drawPoints.length < 3 ? "var(--field-border)" : "var(--accent)",
+                  background: drawPoints.length < 3 ? "var(--field-border)" : drawMode === "terrain" ? "#5e9a5e" : "var(--accent)",
                   color: drawPoints.length < 3 ? "var(--muted)" : "#fff",
                   borderRadius: 6,
                   padding: "5px 10px",
@@ -7379,14 +7447,14 @@ export default function Wh40kCalculator({ session }) {
                 {drawPoints.length >= 3 && (
                   <polygon
                     points={drawPoints.map((p) => `${p.x},${p.y}`).join(" ")}
-                    fill="rgba(192,57,43,0.25)"
+                    fill={drawMode === "terrain" ? "rgba(58,92,58,0.4)" : "rgba(192,57,43,0.25)"}
                     stroke="none"
                   />
                 )}
                 <polyline
                   points={drawPoints.map((p) => `${p.x},${p.y}`).join(" ")}
                   fill="none"
-                  stroke="#e0857c"
+                  stroke={drawMode === "terrain" ? "#5e9a5e" : "#e0857c"}
                   strokeWidth="0.4"
                   vectorEffect="non-scaling-stroke"
                 />
@@ -7399,12 +7467,12 @@ export default function Wh40kCalculator({ session }) {
               .sort((a, b) => {
                 // Base-layer pieces (a plinth) always render under terrain,
                 // no matter the order they were placed/dragged in.
-                const la = findShapeDef(a.shapeId)?.layer === "base" ? 0 : 1;
-                const lb = findShapeDef(b.shapeId)?.layer === "base" ? 0 : 1;
+                const la = pieceShape(a)?.layer === "base" ? 0 : 1;
+                const lb = pieceShape(b)?.layer === "base" ? 0 : 1;
                 return la - lb;
               })
               .map((p) => {
-              const shape = findShapeDef(p.shapeId);
+              const shape = pieceShape(p);
               if (!shape) return null;
               const sizePctW = Math.max(0.8, ((p.widthIn || shape.widthIn) / board.widthIn) * 100);
               const sizePctH = Math.max(0.8, ((p.heightIn || shape.heightIn) / board.heightIn) * 100);
@@ -7456,13 +7524,13 @@ export default function Wh40kCalculator({ session }) {
           {selectedTerrainId &&
             (() => {
               const piece = (board.terrain || []).find((p) => p.id === selectedTerrainId);
-              const shape = piece && findShapeDef(piece.shapeId);
+              const shape = piece && pieceShape(piece);
               if (!piece || !shape) return null;
               return (
                 <div style={{ marginTop: 10, background: "var(--panel)", border: "1px solid var(--field-border)", borderRadius: 10, padding: 12 }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
                     <div style={{ fontSize: 12.5, fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}>
-                      <span style={{ display: "inline-block", width: 16, height: 12, background: shape.bg, border: shape.border, borderRadius: shape.radius }} />
+                      <span style={{ display: "inline-block", width: 16, height: 12, background: shape.bg, border: shape.border, borderRadius: shape.radius, clipPath: shape.clipPath }} />
                       {shape.label}
                     </div>
                     <button
