@@ -197,6 +197,10 @@ const emptyWeapon = () => ({
   rerollOneWound: false,
   damageDice: "",
   rerollOneDamage: false,
+  // +1 to this weapon's Attacks whenever an attached leader (Character) is
+  // leading the unit in the calculator — e.g. Castellan Crowe leading
+  // Purifiers gives their Purifying Flame +1 Attack.
+  plusAttackWithLeader: false,
   copies: 1,
   needsStats: false,
   note: "",
@@ -1610,7 +1614,13 @@ function WeaponEditor({ weapon, onChange, onRemove }) {
           hint="pro obránce s FNP jen proti Psychic Attacks (např. Culexus)"
           small
         />
-        <div />
+        <ToggleField
+          label="+1 útok, když jednotku vede vůdce"
+          value={weapon.plusAttackWithLeader}
+          onChange={set("plusAttackWithLeader")}
+          hint="např. Castellan Crowe u Purifiers → Purifying Flame +1 útok; platí jen když je v kalkulačce připojený vůdce"
+          small
+        />
       </Row>
       <Row cols={2}>
         <NumberField
@@ -4636,6 +4646,7 @@ export default function Wh40kCalculator({ session }) {
       };
     }
     if (
+      !attachedLeader &&
       Object.keys(weaponProfileChoice).length === 0 &&
       Object.keys(weaponMeltaActive).length === 0 &&
       Object.keys(weaponRapidFireActive).length === 0
@@ -4657,6 +4668,10 @@ export default function Wh40kCalculator({ session }) {
           }
           if (next.rapidFire > 0 && weaponRapidFireActive[w.id]) {
             next = { ...next, attacks: next.attacks + next.rapidFire };
+          }
+          // +1 Attack while a leader is attached (e.g. Crowe → Purifying Flame).
+          if (attachedLeader && next.plusAttackWithLeader) {
+            next = { ...next, attacks: next.attacks + 1 };
           }
           return next;
         }),
