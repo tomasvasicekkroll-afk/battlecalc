@@ -152,7 +152,25 @@ const DEFAULT_LAYOUT_SLOTS = ["1", "2", "3", "4", "5"].map((n) => ({ id: n, name
 // render, which sorts base-layer pieces first.
 const TERRAIN_SHAPES = [
   { id: "ruin", label: "Ruina", layer: "terrain", widthIn: 8, heightIn: 5, bg: "#5c5c52", border: "2px dashed #8f8f7e", radius: 4 },
-  { id: "long-line", label: "Long line", layer: "terrain", widthIn: 10, heightIn: 2.5, bg: "#5c5c52", border: "2px dashed #8f8f7e", radius: 4 },
+  // "Long line" = a terrain feature: a 10 x 2.5" ruin sitting on a slightly
+  // larger podložka (+1" each side). One rigid combo unit — resizing it
+  // scales the podložka and the ruin together, in proportion.
+  {
+    id: "long-line",
+    label: "Long line",
+    layer: "terrain",
+    combo: true,
+    widthIn: 12,
+    heightIn: 4.5,
+    bg: "rgba(160,150,120,0.5)",
+    border: "1px solid rgba(210,200,170,0.7)",
+    radius: 3,
+    terrainWidthIn: 10,
+    terrainHeightIn: 2.5,
+    terrainBg: "#5c5c52",
+    terrainBorder: "2px dashed #8f8f7e",
+    terrainRadius: 4,
+  },
   { id: "wall", label: "Zeď", layer: "terrain", widthIn: 6, heightIn: 1, bg: "#6b6b61", border: "1px solid #8f8f7e", radius: 2 },
   { id: "crater", label: "Kráter", layer: "terrain", widthIn: 5, heightIn: 5, bg: "#4a4436", border: "2px dashed #8a7a4f", radius: "50%" },
   { id: "forest", label: "Les", layer: "terrain", widthIn: 6, heightIn: 6, bg: "rgba(58,92,58,0.6)", border: "2px dashed #5e9a5e", radius: "50%" },
