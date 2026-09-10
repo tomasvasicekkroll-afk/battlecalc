@@ -4476,14 +4476,14 @@ export default function Wh40kCalculator({ session }) {
   // land as normal terrain pieces (reusing the "ruin" / "wall" looks) that
   // can then be dragged/resized/rotated or saved into a group like any other.
   const addParametricRect = () => {
-    const { x1, y1, x2, y2 } = paramTerrain;
+    const { x1, y1, x2, y2, rectLayer } = paramTerrain;
     const xMin = Math.min(x1, x2);
     const xMax = Math.max(x1, x2);
     const yMin = Math.min(y1, y2);
     const yMax = Math.max(y1, y2);
     const piece = {
       id: crypto.randomUUID(),
-      shapeId: "ruin",
+      shapeId: rectLayer === "base" ? "base-plinth" : "ruin",
       xPct: (((xMin + xMax) / 2) / board.widthIn) * 100,
       yPct: (((yMin + yMax) / 2) / board.heightIn) * 100,
       widthIn: Math.max(0.5, xMax - xMin),
@@ -4916,7 +4916,7 @@ export default function Wh40kCalculator({ session }) {
   const [customFormOpen, setCustomFormOpen] = useState(false);
   const [customForm, setCustomForm] = useState({ name: "", layer: "terrain", shape: "rect", widthIn: 4, heightIn: 4, color: "#5c5c52", baseMarginIn: 1, baseColor: "#8a8a78" });
   const [newGroupName, setNewGroupName] = useState("");
-  const [paramTerrain, setParamTerrain] = useState({ mode: "rect", x1: 0, y1: 0, x2: 6, y2: 4, thickness: 1 });
+  const [paramTerrain, setParamTerrain] = useState({ mode: "rect", rectLayer: "terrain", x1: 0, y1: 0, x2: 6, y2: 4, thickness: 1 });
   const [paramTerrainOpen, setParamTerrainOpen] = useState(false);
 
   const handleBoardTokenSelect = (token) => {
@@ -7054,6 +7054,20 @@ export default function Wh40kCalculator({ session }) {
                   ]}
                   small
                 />
+                {paramTerrain.mode === "rect" && (
+                  <div style={{ marginTop: 6 }}>
+                    <SelectField
+                      label="Vrstva"
+                      value={paramTerrain.rectLayer}
+                      onChange={(v) => setParamTerrain((s) => ({ ...s, rectLayer: v }))}
+                      options={[
+                        { value: "terrain", label: "Terén (nahoře)" },
+                        { value: "base", label: "Podložka (dole, terén na ni stojí)" },
+                      ]}
+                      small
+                    />
+                  </div>
+                )}
                 <div style={{ marginTop: 6 }}>
                   <Row cols={2}>
                     <NumberField label={paramTerrain.mode === "wall" ? "Konec 1 – X" : "Roh 1 – X"} value={paramTerrain.x1} onChange={(v) => setParamTerrain((s) => ({ ...s, x1: v }))} small />
