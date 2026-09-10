@@ -813,18 +813,39 @@ function parseNewRecruitText(text) {
 // re-uploading a full JSON roster every time.
 // ---------------------------------------------------------------------------
 const ARMY_TEXT_SKIP_PATTERNS = /detachment|strike force|incursion|onslaught|combat patrol|exported with|data version/i;
+// Lines that can carry a "(N pts)" but are never a unit — newrecruit.eu puts
+// enhancement costs and attachment notes on their own lines.
+const ARMY_TEXT_SKIP_LINE = /^(?:enhancement|leading|attached to|supporting|created with|reinforcements|secondary|total army points|number of units|faction keyword|force disposition|show\/hide|\+\s*[a-z])/i;
 
 function parseArmyTextForMatching(text) {
   const rawLines = text.split("\n").map((l) => l.trim()).filter(Boolean);
   if (rawLines.length === 0) return { listName: "", entries: [] };
 
-  // The list's own name is always the export's first line — strip a trailing
-  // "(N points)" if present, but use the line either way rather than only
-  // when that exact pattern matches (some export variants format it slightly
-  // differently).
-  const listName = rawLines[0].replace(/\s*\(\d+\s*points?\)\s*$/i, "").trim();
+  // A unit line: an optional "CharN:" tag, an optional "Nx " count, a name,
+  // then "(P pts)" or "(P points)" — which newrecruit.eu puts mid-line with
+  // the weapons after it, so this is deliberately not anchored to end-of-line.
+  const unitLineRegex = /^(?:char\s*\d+\s*:\s*)?(?:\d+\s*x\s+)?(.+?)\s*\((\d+)\s*(?:points?|pts)\)/i;
+  // newrecruit.eu exports open with a "+++ ... +++" header block of
+  // "+ KEY: value" / "& ..." lines — none of which are units.
+  const isHeaderChrome = (l) => /^\++$/.test(l) || /^[+&]\s/.test(l);
 
-  const unitLineRegex = /^(.+?)\s*\((\d+)\s*points?\)$/i;
+  // The list's own name is normally the first line (minus a trailing points
+  // count). If the export has no name line (newrecruit.eu starts straight
+  // into the "+++" header), fall back to "+ PLAYER NAME:" from that header.
+  let playerName = "";
+  for (const l of rawLines) {
+    const pm = l.match(/player name\s*:\s*(.+)$/i);
+    if (pm) {
+      playerName = pm[1].trim();
+      break;
+    }
+  }
+  let listName = "";
+  if (!isHeaderChrome(rawLines[0]) && !rawLines[0].startsWith("•") && !unitLineRegex.test(rawLines[0])) {
+    listName = rawLines[0].replace(/\s*\(\d+\s*(?:points?|pts)\)\s*$/i, "").trim();
+  }
+  if (!listName) listName = playerName;
+
   const entries = [];
   // Units listed under the same "Attached Unit N" heading (a leader + the
   // unit it's leading) get merged into a single library entry on JSON import
@@ -834,8 +855,9 @@ function parseArmyTextForMatching(text) {
   // points as a fallback against that merged entry.
   let groupIndex = 0;
   let inGroup = false;
-  for (let i = 1; i < rawLines.length; i++) {
+  for (let i = 0; i < rawLines.length; i++) {
     const line = rawLines[i];
+    if (i === 0 && (line === listName || isHeaderChrome(line))) continue;
     if (/^attached unit\b/i.test(line)) {
       groupIndex += 1;
       inGroup = true;
@@ -846,6 +868,16 @@ function parseArmyTextForMatching(text) {
       continue;
     }
     if (line.startsWith("•")) continue;
+    // newrecruit.eu lists an enhancement on its own line, with its cost as
+    // "(+N pts)", right after the character that took it — fold that back into
+    // that character's points so the total matches the datasheet cost.
+    const enh = line.match(/^enhancement\b.*\(\+(\d+)\s*(?:points?|pts)\)/i);
+    if (enh && entries.length > 0) {
+      entries[entries.length - 1].points = String(parseInt(entries[entries.length - 1].points, 10) + parseInt(enh[1], 10));
+      continue;
+    }
+    if (isHeaderChrome(line)) continue;
+    if (ARMY_TEXT_SKIP_LINE.test(line)) continue;
     if (ARMY_TEXT_SKIP_PATTERNS.test(line)) continue;
     const m = line.match(unitLineRegex);
     if (!m) continue;
@@ -2019,9 +2051,10 @@ function ArmyTextMatchBox({ onMatch }) {
   return (
     <div style={{ background: "var(--field-bg)", border: "1px dashed var(--field-border)", borderRadius: 8, padding: 12, marginTop: 10 }}>
       <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 8 }}>
-        Vlož prostý textový export listu z New Recruit (jen jména a body, žádné staty). Appka jednotky spáruje podle
-        jména a bodů s tím, co už máš v knihovně, a uloží/aktualizuje z nich armádu pro cheat sheet. Jednotky, které
-        se nenajdou, je potřeba mít nejdřív v knihovně (naimportované z JSON).
+        Vlož prostý textový export listu z New Recruit / newrecruit.eu (jen jména a body, žádné staty) — včetně formátu
+        s hlavičkou „+++ … +++". Appka jednotky spáruje podle jména a bodů s tím, co už máš v knihovně, a
+        uloží/aktualizuje z nich armádu pro cheat sheet. Když list nemá vlastní název, pojmenuje se podle „PLAYER NAME".
+        Jednotky, které se nenajdou, je potřeba mít nejdřív v knihovně (naimportované z JSON).
       </div>
       <textarea
         value={text}
@@ -4593,7 +4626,7 @@ export default function Wh40kCalculator({ session }) {
   const importArmyFromText = (text) => {
     const { listName, entries } = parseArmyTextForMatching(text);
     if (entries.length === 0) {
-      return { error: true, message: "Nepodařilo se v textu najít žádné jednotky (řádky ve tvaru \"Název (N points)\")." };
+      return { error: true, message: "Nepodařilo se v textu najít žádné jednotky (řádky ve tvaru \"Název (N pts)\" nebo \"Název (N points)\")." };
     }
     const { matchedIds, unmatched } = matchArmyEntriesToLibrary(entries, library);
     if (matchedIds.length === 0) {
