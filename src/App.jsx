@@ -152,6 +152,7 @@ const DEFAULT_LAYOUT_SLOTS = ["1", "2", "3", "4", "5"].map((n) => ({ id: n, name
 // render, which sorts base-layer pieces first.
 const TERRAIN_SHAPES = [
   { id: "ruin", label: "Ruina", layer: "terrain", widthIn: 8, heightIn: 5, bg: "#5c5c52", border: "2px dashed #8f8f7e", radius: 4 },
+  { id: "long-line", label: "Long line", layer: "terrain", widthIn: 10, heightIn: 2.5, bg: "#5c5c52", border: "2px dashed #8f8f7e", radius: 4 },
   { id: "wall", label: "Zeď", layer: "terrain", widthIn: 6, heightIn: 1, bg: "#6b6b61", border: "1px solid #8f8f7e", radius: 2 },
   { id: "crater", label: "Kráter", layer: "terrain", widthIn: 5, heightIn: 5, bg: "#4a4436", border: "2px dashed #8a7a4f", radius: "50%" },
   { id: "forest", label: "Les", layer: "terrain", widthIn: 6, heightIn: 6, bg: "rgba(58,92,58,0.6)", border: "2px dashed #5e9a5e", radius: "50%" },
@@ -3936,7 +3937,7 @@ function ManualView({ onBack }) {
             <><b>Zóna čísly (v palcích)</b> — pod tlačítkem pro kreslení je box Moje zóna se dvěma obdélníky (Obdélník 1 a 2) — zadej jim Od X/Y a Do X/Y podle čísel na okraji desky a klikni na tlačítko Nastavit. Oba obdélníky se spojí do jedné zóny, takže jde postavit i L-tvar nebo schod, ne jen jeden obdélník. „Zóna protihráče“ se vždy dopočítá automaticky jako diagonální (o 180° otočený) protějšek — nezadává se ručně.</>,
             <><b>Trojúhelník a kruhová výseč čísly</b> — pod obdélníky jsou další dva boxy: Trojúhelník (tři rohy, každý svým X/Y) a Kruhová výseč (střed X/Y, poloměr od/do, úhel od/do ve stupních — 0° doprava, 90° dolů; poloměr „od“ 0 = bez otvoru uprostřed). Každý má vlastní tlačítko Nastavit a nahradí celou „Moji zónu“ (nekombinuje se s obdélníky). „Zóna protihráče“ se i tady vždy dopočítá jako diagonální protějšek.</>,
             <><b>Rychlý souboj</b> — klikni na svůj token, pak na token protihráče. Appka spočítá zabité modely/damage jen z vestavěných schopností obou jednotek (žádné bonusy). „Otevřít v kalkulačce“ tě přenese do plné kalkulačky s modifikátory.</>,
-            <><b>Terén (stavebnice)</b> — klikni na Ruina/Zeď/Kráter/Les/Kontejner pro přidání kusu doprostřed desky, pak ho přetáhni na místo. Klik na terén otevře dole šířku/výšku/otočení, dvojklik ho odebere.</>,
+            <><b>Terén (stavebnice)</b> — klikni na Ruina/Long line/Zeď/Kráter/Les/Kontejner pro přidání kusu doprostřed desky, pak ho přetáhni na místo. Klik na terén otevře dole šířku/výšku/otočení, dvojklik ho odebere.</>,
             <><b>Uložit jako skupinu</b> — když máš na desce rozestavěno víc kusů (třeba ruinu se zdí a zelení), objeví se pole „Uložit N kusů jako skupinu". Pojmenuj a ulož → skupina se přidá do palety jako jeden kus. Klik na ni pak vysype celé to rozestavění zpět na desku (kusy zůstávají samostatně přetažitelné). „Smazat" u skupiny funguje jako u ostatních vlastních typů.</>,
             <><b>Mřížka po 1 palci</b> — přepínač u rozměrů desky, čtvercová síť odpovídající skutečným palcům na stole.</>,
             <><b>Terén čísly (obdélník / zeď)</b> — pod paletou je rozklikávací box. Obdélník zadáš dvěma protilehlými rohy (X/Y v palcích podle okraje desky), zeď dvěma konci úsečky + tloušťkou (kus se sám natočí do směru úsečky). „Přidat na desku" vytvoří normální terénní kus, který jde pak přetáhnout, zvětšit, otočit i uložit do skupiny.</>,
