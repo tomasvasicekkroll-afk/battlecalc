@@ -291,9 +291,10 @@ const TERRAIN_SHAPES = [
       { leftPct: 0, topPct: 0, widthPct: 100, heightPct: 100, bg: "#3f7a3f", clipPath: "polygon(100% 0%, 38% 0%, 100% 62%)" },
     ],
   },
-  // "Two triangles 3" = same 12 x 10" diagonal-pair podložka, but instead of
-  // solid triangle fills, an L-wall accent in each diagonal corner — green
-  // top-right, orange bottom-left.
+  // "Two triangles 3" = one 12 x 10" module holding TWO separate ruins,
+  // diagonally opposite (top-right / bottom-left), each with its own two
+  // L-wall corner accents — one green, one orange per ruin — rather than
+  // just one accent pair shared across the whole board.
   {
     id: "two-triangles-3",
     label: "Two triangles 3",
@@ -305,12 +306,18 @@ const TERRAIN_SHAPES = [
     border: "1px solid rgba(210,200,170,0.7)",
     radius: 3,
     parts: [
-      // green L, top-right
-      { leftPct: 55, topPct: 0, widthPct: 45, heightPct: 5, bg: "#3f7a3f" },
-      { leftPct: 95, topPct: 0, widthPct: 5, heightPct: 45, bg: "#3f7a3f" },
-      // orange L, bottom-left
-      { leftPct: 0, topPct: 95, widthPct: 45, heightPct: 5, bg: "#d98b3a" },
-      { leftPct: 0, topPct: 55, widthPct: 5, heightPct: 45, bg: "#d98b3a" },
+      // ruin A, top-right: green L at its outer corner, orange L at its
+      // inner corner (toward the gap between the two ruins)
+      { leftPct: 70, topPct: 0, widthPct: 30, heightPct: 5, bg: "#3f7a3f" },
+      { leftPct: 95, topPct: 0, widthPct: 5, heightPct: 25, bg: "#3f7a3f" },
+      { leftPct: 75, topPct: 53, widthPct: 25, heightPct: 5, bg: "#d98b3a" },
+      { leftPct: 95, topPct: 30, widthPct: 5, heightPct: 28, bg: "#d98b3a" },
+      // ruin B, bottom-left: orange L at its inner corner (toward the gap),
+      // green L at its outer corner
+      { leftPct: 0, topPct: 42, widthPct: 25, heightPct: 5, bg: "#d98b3a" },
+      { leftPct: 0, topPct: 42, widthPct: 5, heightPct: 25, bg: "#d98b3a" },
+      { leftPct: 0, topPct: 95, widthPct: 30, heightPct: 5, bg: "#3f7a3f" },
+      { leftPct: 0, topPct: 75, widthPct: 5, heightPct: 25, bg: "#3f7a3f" },
     ],
   },
   // "Large rectangle 1" = a 7 x 11.5" portrait podložka module: an orange
