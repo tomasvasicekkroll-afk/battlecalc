@@ -337,10 +337,9 @@ const TERRAIN_SHAPES = [
       { leftPct: 0, topPct: 62, widthPct: 7.1, heightPct: 38, bg: "#3f7a3f" },
     ],
   },
-  // "Large rectangle 3" = a 7 x 11.5" portrait podložka module: straight on
-  // three sides with a torn/zigzag right edge, plus green L-walls in the
-  // top-right and bottom-right corners (arms ~a third of the edge, ~0.5"
-  // thick — estimated).
+  // "Large rectangle 3" = a plain 7 x 11.5" portrait podložka, green L-walls
+  // in the top-right and bottom-right corners (arms ~a third of the edge,
+  // ~0.5" thick — estimated).
   {
     id: "large-rectangle-3",
     label: "Large rectangle 3",
@@ -350,8 +349,7 @@ const TERRAIN_SHAPES = [
     heightIn: 11.5,
     bg: "rgba(160,150,120,0.5)",
     border: "1px solid rgba(210,200,170,0.7)",
-    clipPath:
-      "polygon(0% 0%, 100% 0%, 94% 8%, 100% 16%, 93% 24%, 100% 32%, 95% 40%, 100% 48%, 92% 56%, 100% 64%, 94% 72%, 100% 80%, 93% 88%, 100% 96%, 96% 100%, 0% 100%)",
+    radius: 3,
     parts: [
       // green L, top-right
       { leftPct: 55, topPct: 0, widthPct: 37, heightPct: 4.3, bg: "#3f7a3f" },
