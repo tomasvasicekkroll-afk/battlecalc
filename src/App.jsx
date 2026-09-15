@@ -445,7 +445,9 @@ const TERRAIN_SHAPES = [
     ],
   },
   // "Large rectangle 8" = a plain 7 x 11.5" portrait podložka: green L-walls
-  // in diagonally opposite corners (top-right, bottom-left).
+  // in diagonally opposite corners (top-right, bottom-left). Placed at a 45°
+  // tilt by default (defaultRotationDeg) to match its diagonal reference —
+  // still freely re-rotatable afterward from the selected-piece panel.
   {
     id: "large-rectangle-8",
     label: "Large rectangle 8",
@@ -453,6 +455,7 @@ const TERRAIN_SHAPES = [
     multiCombo: true,
     widthIn: 7,
     heightIn: 11.5,
+    defaultRotationDeg: 45,
     bg: "rgba(160,150,120,0.5)",
     border: "1px solid rgba(210,200,170,0.7)",
     radius: 3,
@@ -4777,7 +4780,7 @@ export default function Wh40kCalculator({ session }) {
       setSelectedTerrainId(null);
       return;
     }
-    const piece = { id: crypto.randomUUID(), shapeId, xPct: 50, yPct: 50, widthIn: shape.widthIn, heightIn: shape.heightIn, rotationDeg: 0 };
+    const piece = { id: crypto.randomUUID(), shapeId, xPct: 50, yPct: 50, widthIn: shape.widthIn, heightIn: shape.heightIn, rotationDeg: shape.defaultRotationDeg || 0 };
     persistBoard({ ...board, terrain: [...(board.terrain || []), piece] });
     setSelectedTerrainId(piece.id);
   };
