@@ -291,33 +291,60 @@ const TERRAIN_SHAPES = [
       { leftPct: 0, topPct: 0, widthPct: 100, heightPct: 100, bg: "#3f7a3f", clipPath: "polygon(100% 0%, 38% 0%, 100% 62%)" },
     ],
   },
-  // "Two triangles 3" = one 12 x 10" module holding TWO separate ruins,
-  // diagonally opposite (top-right / bottom-left), each with its own two
-  // L-wall corner accents — one green, one orange per ruin — rather than
-  // just one accent pair shared across the whole board.
+  // "Ruin diag A" / "Ruin diag B" — two standalone 6 x 7" ruin modules (each
+  // its own podložka + two L-corner accents), meant to be placed together
+  // as the "Two triangles 3" group below but staying two separate,
+  // independently-movable pieces on two separate podložky.
   {
-    id: "two-triangles-3",
-    label: "Two triangles 3",
+    id: "ruin-diag-a",
+    label: "Ruin diag A",
     layer: "terrain",
     multiCombo: true,
-    widthIn: 12,
-    heightIn: 10,
+    widthIn: 6,
+    heightIn: 7,
     bg: "rgba(160,150,120,0.5)",
     border: "1px solid rgba(210,200,170,0.7)",
     radius: 3,
     parts: [
-      // ruin A, top-right: green L at its outer corner, orange L at its
-      // inner corner (toward the gap between the two ruins)
-      { leftPct: 70, topPct: 0, widthPct: 30, heightPct: 5, bg: "#3f7a3f" },
-      { leftPct: 95, topPct: 0, widthPct: 5, heightPct: 25, bg: "#3f7a3f" },
-      { leftPct: 75, topPct: 53, widthPct: 25, heightPct: 5, bg: "#d98b3a" },
-      { leftPct: 95, topPct: 30, widthPct: 5, heightPct: 28, bg: "#d98b3a" },
-      // ruin B, bottom-left: orange L at its inner corner (toward the gap),
-      // green L at its outer corner
-      { leftPct: 0, topPct: 42, widthPct: 25, heightPct: 5, bg: "#d98b3a" },
-      { leftPct: 0, topPct: 42, widthPct: 5, heightPct: 25, bg: "#d98b3a" },
-      { leftPct: 0, topPct: 95, widthPct: 30, heightPct: 5, bg: "#3f7a3f" },
-      { leftPct: 0, topPct: 75, widthPct: 5, heightPct: 25, bg: "#3f7a3f" },
+      // green L, top-right
+      { leftPct: 60, topPct: 0, widthPct: 40, heightPct: 6, bg: "#3f7a3f" },
+      { leftPct: 92, topPct: 0, widthPct: 8, heightPct: 40, bg: "#3f7a3f" },
+      // orange L, bottom-right
+      { leftPct: 60, topPct: 94, widthPct: 40, heightPct: 6, bg: "#d98b3a" },
+      { leftPct: 92, topPct: 60, widthPct: 8, heightPct: 40, bg: "#d98b3a" },
+    ],
+  },
+  {
+    id: "ruin-diag-b",
+    label: "Ruin diag B",
+    layer: "terrain",
+    multiCombo: true,
+    widthIn: 6,
+    heightIn: 7,
+    bg: "rgba(160,150,120,0.5)",
+    border: "1px solid rgba(210,200,170,0.7)",
+    radius: 3,
+    parts: [
+      // orange L, top-left
+      { leftPct: 0, topPct: 0, widthPct: 40, heightPct: 6, bg: "#d98b3a" },
+      { leftPct: 0, topPct: 0, widthPct: 8, heightPct: 40, bg: "#d98b3a" },
+      // green L, bottom-left
+      { leftPct: 0, topPct: 94, widthPct: 40, heightPct: 6, bg: "#3f7a3f" },
+      { leftPct: 0, topPct: 60, widthPct: 8, heightPct: 40, bg: "#3f7a3f" },
+    ],
+  },
+  // "Two triangles 3" — a group, NOT a rigid module: places "Ruin diag A"
+  // and "Ruin diag B" together (diagonally opposite, with a gap) in one
+  // click, but they land as two separate pieces on two separate podložky,
+  // each still independently draggable/rotatable/removable afterward.
+  {
+    id: "two-triangles-3",
+    label: "Two triangles 3",
+    layer: "terrain",
+    isGroup: true,
+    pieces: [
+      { shapeId: "ruin-diag-a", widthIn: 6, heightIn: 7, rotationDeg: 0, dxPct: 8, dyPct: -7 },
+      { shapeId: "ruin-diag-b", widthIn: 6, heightIn: 7, rotationDeg: 0, dxPct: -8, dyPct: 7 },
     ],
   },
   // "Large rectangle 1" = a 7 x 11.5" portrait podložka module: an orange
@@ -4587,7 +4614,7 @@ function ManualView({ onBack }) {
             <><b>Zóna čísly (v palcích)</b> — pod tlačítkem pro kreslení je box Moje zóna se dvěma obdélníky (Obdélník 1 a 2) — zadej jim Od X/Y a Do X/Y podle čísel na okraji desky a klikni na tlačítko Nastavit. Oba obdélníky se spojí do jedné zóny, takže jde postavit i L-tvar nebo schod, ne jen jeden obdélník. „Zóna protihráče“ se vždy dopočítá automaticky jako diagonální (o 180° otočený) protějšek — nezadává se ručně.</>,
             <><b>Trojúhelník a kruhová výseč čísly</b> — pod obdélníky jsou další dva boxy: Trojúhelník (tři rohy, každý svým X/Y) a Kruhová výseč (střed X/Y, poloměr od/do, úhel od/do ve stupních — 0° doprava, 90° dolů; poloměr „od“ 0 = bez otvoru uprostřed). Každý má vlastní tlačítko Nastavit a nahradí celou „Moji zónu“ (nekombinuje se s obdélníky). „Zóna protihráče“ se i tady vždy dopočítá jako diagonální protějšek.</>,
             <><b>Rychlý souboj</b> — klikni na svůj token, pak na token protihráče. Appka spočítá zabité modely/damage jen z vestavěných schopností obou jednotek (žádné bonusy). „Otevřít v kalkulačce“ tě přenese do plné kalkulačky s modifikátory.</>,
-            <><b>Terén (stavebnice)</b> — klikni na Ruina/Long line/Long line kombi/Fence line/Two triangles/Two triangles 3/Medium rectangle/Medium rectangle 1/Large rectangle/Large rectangle 1/Large rectangle 2/Large rectangle 3/Large rectangle 4/Large rectangle 5/Large rectangle 6/Large rectangle 7/Large rectangle 8/Large rectangle 9/Large rectangle 10/Large rectangle 15–26/Zeď/Kráter/Les/Kontejner pro přidání kusu doprostřed desky, pak ho přetáhni na místo. „Large rectangle", „Large rectangle 1–10, 15–26", „Medium rectangle 1", „Long line kombi", „Two triangles" i „Two triangles 3" jsou jeden pevný modul — podložka se zídkami, táhne/otáčí/škáluje se najednou. Klik na terén otevře dole šířku/výšku/otočení; odebereš ho dvojklikem, tlačítkem Odebrat, nebo klávesou Delete / Backspace, když je vybraný.</>,
+            <><b>Terén (stavebnice)</b> — klikni na Ruina/Long line/Long line kombi/Fence line/Ruin diag A/Ruin diag B/Two triangles/Two triangles 3/Medium rectangle/Medium rectangle 1/Large rectangle/Large rectangle 1/Large rectangle 2/Large rectangle 3/Large rectangle 4/Large rectangle 5/Large rectangle 6/Large rectangle 7/Large rectangle 8/Large rectangle 9/Large rectangle 10/Large rectangle 15–26/Zeď/Kráter/Les/Kontejner pro přidání kusu doprostřed desky, pak ho přetáhni na místo. „Large rectangle", „Large rectangle 1–10, 15–26", „Medium rectangle 1", „Long line kombi" i „Two triangles" jsou jeden pevný modul — podložka se zídkami, táhne/otáčí/škáluje se najednou. „Two triangles 3" je naopak skupina — vysype „Ruin diag A" a „Ruin diag B" jako dva samostatné kusy na dvou podložkách najednou, ale zůstávají nezávisle přetažitelné. Klik na terén otevře dole šířku/výšku/otočení; odebereš ho dvojklikem, tlačítkem Odebrat, nebo klávesou Delete / Backspace, když je vybraný.</>,
             <><b>Uložit jako skupinu</b> — když máš na desce rozestavěno víc kusů (třeba ruinu se zdí a zelení), objeví se pole „Uložit N kusů jako skupinu". Pojmenuj a ulož → skupina se přidá do palety jako jeden kus. Klik na ni pak vysype celé to rozestavění zpět na desku (kusy zůstávají samostatně přetažitelné). „Smazat" u skupiny funguje jako u ostatních vlastních typů.</>,
             <><b>Mřížka po 1 palci</b> — přepínač u rozměrů desky, čtvercová síť odpovídající skutečným palcům na stole.</>,
             <><b>Terén čísly (obdélník / zeď)</b> — pod paletou je rozklikávací box. Obdélník zadáš dvěma protilehlými rohy (X/Y v palcích podle okraje desky), zeď dvěma konci úsečky + tloušťkou (kus se sám natočí do směru úsečky). „Přidat na desku" vytvoří normální terénní kus, který jde pak přetáhnout, zvětšit, otočit i uložit do skupiny.</>,
