@@ -959,11 +959,9 @@ const TERRAIN_SHAPES = [
       { leftPct: 0, topPct: 0, widthPct: 100, heightPct: 100, bg: "#3f7a3f", clipPath: "polygon(0% 0%, 0% 100%, 100% 100%)" },
     ],
   },
-  // "Triangle 1" = the 8 x 11.5" right-triangle podložka (right angle
-  // bottom-right, legs along the bottom and right edges), tilted 53° by
-  // default so the hypotenuse lies roughly horizontal on top: green L-wall at
-  // the right angle, small orange L-wall at the top tip (one arm down the
-  // long leg, one along the hypotenuse). Arm lengths estimated.
+  // "Triangle 1" = a plain 8 x 11.5" portrait podložka (regular rectangle,
+  // like the Large rectangles): green L-wall bottom-right, small orange
+  // L-wall top-right, tilted 53° by default. Arm lengths estimated.
   {
     id: "triangle-1",
     label: "Triangle 1",
@@ -974,15 +972,14 @@ const TERRAIN_SHAPES = [
     defaultRotationDeg: 53,
     bg: "rgba(160,150,120,0.5)",
     border: "1px solid rgba(210,200,170,0.7)",
-    radius: 0,
-    clipPath: "polygon(100% 0%, 100% 100%, 0% 100%)",
+    radius: 3,
     parts: [
-      // green L at the right angle
+      // green L, bottom-right
       { leftPct: 35, topPct: 95.7, widthPct: 65, heightPct: 4.3, bg: "#3f7a3f" },
       { leftPct: 93.75, topPct: 45, widthPct: 6.25, heightPct: 55, bg: "#3f7a3f" },
-      // orange L at the top tip
+      // orange L, top-right
+      { leftPct: 75, topPct: 0, widthPct: 25, heightPct: 4.3, bg: "#d98b3a" },
       { leftPct: 93.75, topPct: 0, widthPct: 6.25, heightPct: 25, bg: "#d98b3a" },
-      { leftPct: 0, topPct: 0, widthPct: 100, heightPct: 100, bg: "#d98b3a", clipPath: "polygon(100% 0%, 75% 25%, 80.1% 27.5%, 100% 7.6%)" },
     ],
   },
   // "Medium rectangle 1" = an 8 x 5.5" landscape podložka module: orange
