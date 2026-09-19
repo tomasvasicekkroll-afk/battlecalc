@@ -959,6 +959,32 @@ const TERRAIN_SHAPES = [
       { leftPct: 0, topPct: 0, widthPct: 100, heightPct: 100, bg: "#3f7a3f", clipPath: "polygon(0% 0%, 0% 100%, 100% 100%)" },
     ],
   },
+  // "Triangle 1" = the 8 x 11.5" right-triangle podložka (right angle
+  // bottom-right, legs along the bottom and right edges), tilted 53° by
+  // default so the hypotenuse lies roughly horizontal on top: green L-wall at
+  // the right angle, small orange L-wall at the top tip (one arm down the
+  // long leg, one along the hypotenuse). Arm lengths estimated.
+  {
+    id: "triangle-1",
+    label: "Triangle 1",
+    layer: "terrain",
+    multiCombo: true,
+    widthIn: 8,
+    heightIn: 11.5,
+    defaultRotationDeg: 53,
+    bg: "rgba(160,150,120,0.5)",
+    border: "1px solid rgba(210,200,170,0.7)",
+    radius: 0,
+    clipPath: "polygon(100% 0%, 100% 100%, 0% 100%)",
+    parts: [
+      // green L at the right angle
+      { leftPct: 35, topPct: 95.7, widthPct: 65, heightPct: 4.3, bg: "#3f7a3f" },
+      { leftPct: 93.75, topPct: 45, widthPct: 6.25, heightPct: 55, bg: "#3f7a3f" },
+      // orange L at the top tip
+      { leftPct: 93.75, topPct: 0, widthPct: 6.25, heightPct: 25, bg: "#d98b3a" },
+      { leftPct: 0, topPct: 0, widthPct: 100, heightPct: 100, bg: "#d98b3a", clipPath: "polygon(100% 0%, 75% 25%, 80.1% 27.5%, 100% 7.6%)" },
+    ],
+  },
   // "Medium rectangle 1" = an 8 x 5.5" landscape podložka module: orange
   // L-walls in the top-left and bottom-right corners (arms ~a third of the
   // edge, ~0.5" thick — estimated).
@@ -4799,7 +4825,7 @@ function ManualView({ onBack }) {
             <><b>Zóna čísly (v palcích)</b> — pod tlačítkem pro kreslení je box Moje zóna se dvěma obdélníky (Obdélník 1 a 2) — zadej jim Od X/Y a Do X/Y podle čísel na okraji desky a klikni na tlačítko Nastavit. Oba obdélníky se spojí do jedné zóny, takže jde postavit i L-tvar nebo schod, ne jen jeden obdélník. „Zóna protihráče“ se vždy dopočítá automaticky jako diagonální (o 180° otočený) protějšek — nezadává se ručně.</>,
             <><b>Trojúhelník a kruhová výseč čísly</b> — pod obdélníky jsou další dva boxy: Trojúhelník (tři rohy, každý svým X/Y) a Kruhová výseč (střed X/Y, poloměr od/do, úhel od/do ve stupních — 0° doprava, 90° dolů; poloměr „od“ 0 = bez otvoru uprostřed). Každý má vlastní tlačítko Nastavit a nahradí celou „Moji zónu“ (nekombinuje se s obdélníky). „Zóna protihráče“ se i tady vždy dopočítá jako diagonální protějšek.</>,
             <><b>Rychlý souboj</b> — klikni na svůj token, pak na token protihráče. Appka spočítá zabité modely/damage jen z vestavěných schopností obou jednotek (žádné bonusy). „Otevřít v kalkulačce“ tě přenese do plné kalkulačky s modifikátory.</>,
-            <><b>Terén (stavebnice)</b> — klikni na Ruina/Long line/Long line kombi/Fence line/Ruin diag A/Ruin diag B/Triangle/Medium rectangle/Medium rectangle 1/Large rectangle/Large rectangle 1/Large rectangle 2/Large rectangle 3/Large rectangle 4/Large rectangle 5/Large rectangle 6/Large rectangle 7/Large rectangle 8/Large rectangle 9/Large rectangle 10/Large rectangle 15–36/Zeď/Kráter/Les/Kontejner pro přidání kusu doprostřed desky, pak ho přetáhni na místo. „Large rectangle", „Large rectangle 1–10, 15–36", „Medium rectangle 1" i „Long line kombi" jsou jeden pevný modul — podložka se zídkami, táhne/otáčí/škáluje se najednou. Klik na terén otevře dole šířku/výšku/otočení; odebereš ho dvojklikem, tlačítkem Odebrat, nebo klávesou Delete / Backspace, když je vybraný.</>,
+            <><b>Terén (stavebnice)</b> — klikni na Ruina/Long line/Long line kombi/Fence line/Ruin diag A/Ruin diag B/Triangle/Triangle 1/Medium rectangle/Medium rectangle 1/Large rectangle/Large rectangle 1/Large rectangle 2/Large rectangle 3/Large rectangle 4/Large rectangle 5/Large rectangle 6/Large rectangle 7/Large rectangle 8/Large rectangle 9/Large rectangle 10/Large rectangle 15–36/Zeď/Kráter/Les/Kontejner pro přidání kusu doprostřed desky, pak ho přetáhni na místo. „Large rectangle", „Large rectangle 1–10, 15–36", „Medium rectangle 1" i „Long line kombi" jsou jeden pevný modul — podložka se zídkami, táhne/otáčí/škáluje se najednou. Klik na terén otevře dole šířku/výšku/otočení; odebereš ho dvojklikem, tlačítkem Odebrat, nebo klávesou Delete / Backspace, když je vybraný.</>,
             <><b>Uložit jako skupinu</b> — když máš na desce rozestavěno víc kusů (třeba ruinu se zdí a zelení), objeví se pole „Uložit N kusů jako skupinu". Pojmenuj a ulož → skupina se přidá do palety jako jeden kus. Klik na ni pak vysype celé to rozestavění zpět na desku (kusy zůstávají samostatně přetažitelné). „Smazat" u skupiny funguje jako u ostatních vlastních typů.</>,
             <><b>Mřížka po 1 palci</b> — přepínač u rozměrů desky, čtvercová síť odpovídající skutečným palcům na stole.</>,
             <><b>Terén čísly (obdélník / zeď)</b> — pod paletou je rozklikávací box. Obdélník zadáš dvěma protilehlými rohy (X/Y v palcích podle okraje desky), zeď dvěma konci úsečky + tloušťkou (kus se sám natočí do směru úsečky). „Přidat na desku" vytvoří normální terénní kus, který jde pak přetáhnout, zvětšit, otočit i uložit do skupiny.</>,
