@@ -366,29 +366,33 @@ const TERRAIN_SHAPES = [
     terrainClipPath:
       "polygon(72.5% 0%, 85% 2.7%, 94.1% 10%, 97.4% 17.9%, 95.1% 28.5%, 88.6% 35.3%, 77.5% 39.6%, 77.5% 60.4%, 88.6% 64.7%, 96% 73.2%, 97.1% 83.5%, 91.6% 92.9%, 81% 98.8%, 72.5% 100%, 64% 98.8%, 53.4% 92.9%, 48.4% 85.2%, 47.5% 76.5%, 55% 65.7%, 55% 56%, 32.5% 56%, 32.5% 64%, 7.5% 64%, 7.5% 36%, 32.5% 36%, 32.5% 44%, 55% 44%, 55% 34.3%, 47.5% 20%, 50.9% 10%, 60% 2.7%)",
   },
-  // "Medium rectangle full 1" = the "Medium rectangle full" shape mirrored
-  // left-right (long upright with blobs on the left, short post on the
-  // right) on a portrait 4 x 6" podložka, the green terrain inset ~3 x 4.4"
-  // in the middle, placed rotated 90° by default. Combo, scales together.
-  // Size/inset estimated.
+  // "Medium rectangle full 1" = a portrait 4 x 6" podložka carrying one
+  // green wall outline: a tall hollow upright (right) and a shorter hollow
+  // block stepping out to its left, sharing one open T-shaped hollow inside.
+  // multiCombo = every wall segment is a % rectangle of the podložka, so it
+  // drags/resizes/rotates as one piece. Proportions read off the reference.
   {
     id: "h-blok-1",
     label: "Medium rectangle full 1",
     layer: "terrain",
-    combo: true,
+    multiCombo: true,
     widthIn: 4,
     heightIn: 6,
-    defaultRotationDeg: 90,
     bg: "rgba(160,150,120,0.5)",
     border: "1px solid rgba(210,200,170,0.7)",
     radius: 3,
-    terrainWidthIn: 3,
-    terrainHeightIn: 4.4,
-    terrainBg: "#3f7a3f",
-    terrainBorder: "none",
-    terrainRadius: 0,
-    terrainClipPath:
-      "polygon(27.5% 0%, 15% 2.7%, 5.9% 10%, 2.6% 17.9%, 4.9% 28.5%, 11.4% 35.3%, 22.5% 39.6%, 22.5% 60.4%, 11.4% 64.7%, 4% 73.2%, 2.9% 83.5%, 8.4% 92.9%, 19% 98.8%, 27.5% 100%, 36% 98.8%, 46.6% 92.9%, 51.6% 85.2%, 52.5% 76.5%, 45% 65.7%, 45% 56%, 67.5% 56%, 67.5% 64%, 92.5% 64%, 92.5% 36%, 67.5% 36%, 67.5% 44%, 45% 44%, 45% 34.3%, 52.5% 20%, 49.1% 10%, 40% 2.7%)",
+    parts: [
+      // upright: top cap, right wall, bottom cap, left wall (upper + lower)
+      { leftPct: 44.4, topPct: 8.2, widthPct: 37.6, heightPct: 8.2, bg: "#3f7a3f" },
+      { leftPct: 69.1, topPct: 16.4, widthPct: 12.9, heightPct: 64.7, bg: "#3f7a3f" },
+      { leftPct: 44.4, topPct: 81.1, widthPct: 37.6, heightPct: 9.1, bg: "#3f7a3f" },
+      { leftPct: 44.4, topPct: 16.4, widthPct: 13.6, heightPct: 16.4, bg: "#3f7a3f" },
+      { leftPct: 44.4, topPct: 65.6, widthPct: 13.6, heightPct: 15.5, bg: "#3f7a3f" },
+      // left block: top bar, left wall, bottom bar
+      { leftPct: 20.25, topPct: 24.3, widthPct: 24.15, heightPct: 8.5, bg: "#3f7a3f" },
+      { leftPct: 20.25, topPct: 32.8, widthPct: 13.05, heightPct: 32.8, bg: "#3f7a3f" },
+      { leftPct: 20.25, topPct: 65.6, widthPct: 24.15, heightPct: 8.2, bg: "#3f7a3f" },
+    ],
   },
   // "Large rectangle" = an 11.5 x 7" podložka carrying wall segments: green
   // L-walls in the top-left and bottom-right corners, a green upright on the
