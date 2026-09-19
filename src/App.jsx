@@ -985,6 +985,244 @@ const TERRAIN_SHAPES = [
       { leftPct: 93.75, topPct: 0, widthPct: 6.25, heightPct: 25, bg: "#d98b3a" },
     ],
   },
+  // "Triangle 2" = an 8 x 11.5" triangular podložka (right angle top-right,
+  // hypotenuse cut off flat at the bottom tip so it can carry a bar), plain
+  // rectangular L-wall bars: green at the right angle, small orange at the
+  // bottom tip; tilted -31° by default. Arm lengths and tip width estimated.
+  {
+    id: "triangle-2",
+    label: "Triangle 2",
+    layer: "terrain",
+    multiCombo: true,
+    widthIn: 8,
+    heightIn: 11.5,
+    defaultRotationDeg: -31,
+    bg: "rgba(160,150,120,0.5)",
+    border: "1px solid rgba(210,200,170,0.7)",
+    radius: 0,
+    clipPath: "polygon(0% 0%, 100% 0%, 100% 100%, 72% 100%)",
+    parts: [
+      // green L at the right angle (top-right)
+      { leftPct: 46, topPct: 0, widthPct: 54, heightPct: 4.3, bg: "#3f7a3f" },
+      { leftPct: 93.75, topPct: 0, widthPct: 6.25, heightPct: 41, bg: "#3f7a3f" },
+      // orange L at the bottom tip
+      { leftPct: 72, topPct: 95.7, widthPct: 28, heightPct: 4.3, bg: "#d98b3a" },
+      { leftPct: 93.75, topPct: 75, widthPct: 6.25, heightPct: 25, bg: "#d98b3a" },
+    ],
+  },
+  // "Triangle 3" = near-twin of "Triangle 2" (same podložka/right-angle-top-
+  // right layout), slightly shorter green arms and -33° default tilt.
+  {
+    id: "triangle-3",
+    label: "Triangle 3",
+    layer: "terrain",
+    multiCombo: true,
+    widthIn: 8,
+    heightIn: 11.5,
+    defaultRotationDeg: -33,
+    bg: "rgba(160,150,120,0.5)",
+    border: "1px solid rgba(210,200,170,0.7)",
+    radius: 0,
+    clipPath: "polygon(0% 0%, 100% 0%, 100% 100%, 72% 100%)",
+    parts: [
+      { leftPct: 48, topPct: 0, widthPct: 52, heightPct: 4.3, bg: "#3f7a3f" },
+      { leftPct: 93.75, topPct: 0, widthPct: 6.25, heightPct: 36, bg: "#3f7a3f" },
+      { leftPct: 72, topPct: 95.7, widthPct: 28, heightPct: 4.3, bg: "#d98b3a" },
+      { leftPct: 93.75, topPct: 75, widthPct: 6.25, heightPct: 25, bg: "#d98b3a" },
+    ],
+  },
+  // "Triangle 4" = 8 x 11.5" triangular podložka (right angle top-left,
+  // hypotenuse cut off flat at the bottom-left tip), plain rectangular L-wall
+  // bars: green at the right angle (long left arm, short top arm), small
+  // orange at the tip; tilted 123° by default. Arms/tip width estimated.
+  {
+    id: "triangle-4",
+    label: "Triangle 4",
+    layer: "terrain",
+    multiCombo: true,
+    widthIn: 8,
+    heightIn: 11.5,
+    defaultRotationDeg: 123,
+    bg: "rgba(160,150,120,0.5)",
+    border: "1px solid rgba(210,200,170,0.7)",
+    radius: 0,
+    clipPath: "polygon(0% 0%, 100% 0%, 28% 100%, 0% 100%)",
+    parts: [
+      { leftPct: 0, topPct: 0, widthPct: 75, heightPct: 4.3, bg: "#3f7a3f" },
+      { leftPct: 0, topPct: 0, widthPct: 6.25, heightPct: 34, bg: "#3f7a3f" },
+      { leftPct: 0, topPct: 95.7, widthPct: 28, heightPct: 4.3, bg: "#d98b3a" },
+      { leftPct: 0, topPct: 75, widthPct: 6.25, heightPct: 25, bg: "#d98b3a" },
+    ],
+  },
+  // "Triangle 5" = same podložka/bars as "Triangle 4" (right angle top-left,
+  // tip bottom-left) but tilted -33° by default with a longer top green arm.
+  {
+    id: "triangle-5",
+    label: "Triangle 5",
+    layer: "terrain",
+    multiCombo: true,
+    widthIn: 8,
+    heightIn: 11.5,
+    defaultRotationDeg: -33,
+    bg: "rgba(160,150,120,0.5)",
+    border: "1px solid rgba(210,200,170,0.7)",
+    radius: 0,
+    clipPath: "polygon(0% 0%, 100% 0%, 28% 100%, 0% 100%)",
+    parts: [
+      { leftPct: 0, topPct: 0, widthPct: 56, heightPct: 4.3, bg: "#3f7a3f" },
+      { leftPct: 0, topPct: 0, widthPct: 6.25, heightPct: 36, bg: "#3f7a3f" },
+      { leftPct: 0, topPct: 95.7, widthPct: 28, heightPct: 4.3, bg: "#d98b3a" },
+      { leftPct: 0, topPct: 75, widthPct: 6.25, heightPct: 25, bg: "#d98b3a" },
+    ],
+  },
+  // "Triangle 6" = same podložka/bars layout as "Triangle 1" (right angle
+  // bottom-right, tip top-right) tilted 33° by default; green arms 60% (bottom)
+  // and 37% (right), orange L at the top tip. Arms estimated.
+  {
+    id: "triangle-6",
+    label: "Triangle 6",
+    layer: "terrain",
+    multiCombo: true,
+    widthIn: 8,
+    heightIn: 11.5,
+    defaultRotationDeg: 33,
+    bg: "rgba(160,150,120,0.5)",
+    border: "1px solid rgba(210,200,170,0.7)",
+    radius: 0,
+    clipPath: "polygon(72% 0%, 100% 0%, 100% 100%, 0% 100%)",
+    parts: [
+      { leftPct: 40, topPct: 95.7, widthPct: 60, heightPct: 4.3, bg: "#3f7a3f" },
+      { leftPct: 93.75, topPct: 63, widthPct: 6.25, heightPct: 37, bg: "#3f7a3f" },
+      { leftPct: 72, topPct: 0, widthPct: 28, heightPct: 4.3, bg: "#d98b3a" },
+      { leftPct: 93.75, topPct: 0, widthPct: 6.25, heightPct: 25, bg: "#d98b3a" },
+    ],
+  },
+  // "Triangle 7" = "Triangle 4" layout (right angle top-left, tip
+  // bottom-left) tilted 53°; green arms 59% (top) / 36% (left). Estimated.
+  {
+    id: "triangle-7",
+    label: "Triangle 7",
+    layer: "terrain",
+    multiCombo: true,
+    widthIn: 8,
+    heightIn: 11.5,
+    defaultRotationDeg: 53,
+    bg: "rgba(160,150,120,0.5)",
+    border: "1px solid rgba(210,200,170,0.7)",
+    radius: 0,
+    clipPath: "polygon(0% 0%, 100% 0%, 28% 100%, 0% 100%)",
+    parts: [
+      { leftPct: 0, topPct: 0, widthPct: 59, heightPct: 4.3, bg: "#3f7a3f" },
+      { leftPct: 0, topPct: 0, widthPct: 6.25, heightPct: 36, bg: "#3f7a3f" },
+      { leftPct: 0, topPct: 95.7, widthPct: 28, heightPct: 4.3, bg: "#d98b3a" },
+      { leftPct: 0, topPct: 75, widthPct: 6.25, heightPct: 25, bg: "#d98b3a" },
+    ],
+  },
+  // "Triangle 8" = 8 x 11.5" triangular podložka, upright (no tilt), right
+  // angle bottom-left, tip cut flat at the top-left: green L at the right
+  // angle (half-height left arm, long bottom arm), small orange L at the tip.
+  {
+    id: "triangle-8",
+    label: "Triangle 8",
+    layer: "terrain",
+    multiCombo: true,
+    widthIn: 8,
+    heightIn: 11.5,
+    bg: "rgba(160,150,120,0.5)",
+    border: "1px solid rgba(210,200,170,0.7)",
+    radius: 0,
+    clipPath: "polygon(0% 0%, 28% 0%, 100% 100%, 0% 100%)",
+    parts: [
+      { leftPct: 0, topPct: 95.7, widthPct: 75, heightPct: 4.3, bg: "#3f7a3f" },
+      { leftPct: 0, topPct: 50, widthPct: 6.25, heightPct: 50, bg: "#3f7a3f" },
+      { leftPct: 0, topPct: 0, widthPct: 28, heightPct: 4.3, bg: "#d98b3a" },
+      { leftPct: 0, topPct: 0, widthPct: 6.25, heightPct: 25, bg: "#d98b3a" },
+    ],
+  },
+  // "Triangle 9" = "Triangle 2" layout (right angle top-right, tip
+  // bottom-right) tilted -27°; green arms 54% (top) / 42% (right). Estimated.
+  {
+    id: "triangle-9",
+    label: "Triangle 9",
+    layer: "terrain",
+    multiCombo: true,
+    widthIn: 8,
+    heightIn: 11.5,
+    defaultRotationDeg: -27,
+    bg: "rgba(160,150,120,0.5)",
+    border: "1px solid rgba(210,200,170,0.7)",
+    radius: 0,
+    clipPath: "polygon(0% 0%, 100% 0%, 100% 100%, 72% 100%)",
+    parts: [
+      { leftPct: 46, topPct: 0, widthPct: 54, heightPct: 4.3, bg: "#3f7a3f" },
+      { leftPct: 93.75, topPct: 0, widthPct: 6.25, heightPct: 42, bg: "#3f7a3f" },
+      { leftPct: 72, topPct: 95.7, widthPct: 28, heightPct: 4.3, bg: "#d98b3a" },
+      { leftPct: 93.75, topPct: 75, widthPct: 6.25, heightPct: 25, bg: "#d98b3a" },
+    ],
+  },
+  // "Triangle 10" = "Triangle 2" layout tilted -77° (long leg pointing
+  // right); green arms 49% (top) / 38% (right). Estimated.
+  {
+    id: "triangle-10",
+    label: "Triangle 10",
+    layer: "terrain",
+    multiCombo: true,
+    widthIn: 8,
+    heightIn: 11.5,
+    defaultRotationDeg: -77,
+    bg: "rgba(160,150,120,0.5)",
+    border: "1px solid rgba(210,200,170,0.7)",
+    radius: 0,
+    clipPath: "polygon(0% 0%, 100% 0%, 100% 100%, 72% 100%)",
+    parts: [
+      { leftPct: 51, topPct: 0, widthPct: 49, heightPct: 4.3, bg: "#3f7a3f" },
+      { leftPct: 93.75, topPct: 0, widthPct: 6.25, heightPct: 38, bg: "#3f7a3f" },
+      { leftPct: 72, topPct: 95.7, widthPct: 28, heightPct: 4.3, bg: "#d98b3a" },
+      { leftPct: 93.75, topPct: 75, widthPct: 6.25, heightPct: 25, bg: "#d98b3a" },
+    ],
+  },
+  // "Triangle 11" = "Triangle 1" layout (right angle bottom-right, tip
+  // top-right) tilted 35°; green arms 62% (bottom) / 31% (right). Estimated.
+  {
+    id: "triangle-11",
+    label: "Triangle 11",
+    layer: "terrain",
+    multiCombo: true,
+    widthIn: 8,
+    heightIn: 11.5,
+    defaultRotationDeg: 35,
+    bg: "rgba(160,150,120,0.5)",
+    border: "1px solid rgba(210,200,170,0.7)",
+    radius: 0,
+    clipPath: "polygon(72% 0%, 100% 0%, 100% 100%, 0% 100%)",
+    parts: [
+      { leftPct: 38, topPct: 95.7, widthPct: 62, heightPct: 4.3, bg: "#3f7a3f" },
+      { leftPct: 93.75, topPct: 69, widthPct: 6.25, heightPct: 31, bg: "#3f7a3f" },
+      { leftPct: 72, topPct: 0, widthPct: 28, heightPct: 4.3, bg: "#d98b3a" },
+      { leftPct: 93.75, topPct: 0, widthPct: 6.25, heightPct: 25, bg: "#d98b3a" },
+    ],
+  },
+  // "Triangle 12" = upright (no tilt) "Triangle 2" layout: right angle
+  // top-right, tip at bottom-right cut ~20% wide; green arms 51% (top) / 42%
+  // (right), small orange L at the tip. Estimated.
+  {
+    id: "triangle-12",
+    label: "Triangle 12",
+    layer: "terrain",
+    multiCombo: true,
+    widthIn: 8,
+    heightIn: 11.5,
+    bg: "rgba(160,150,120,0.5)",
+    border: "1px solid rgba(210,200,170,0.7)",
+    radius: 0,
+    clipPath: "polygon(0% 0%, 100% 0%, 100% 100%, 80% 100%)",
+    parts: [
+      { leftPct: 49, topPct: 0, widthPct: 51, heightPct: 4.3, bg: "#3f7a3f" },
+      { leftPct: 93.75, topPct: 0, widthPct: 6.25, heightPct: 42, bg: "#3f7a3f" },
+      { leftPct: 80, topPct: 95.7, widthPct: 20, heightPct: 4.3, bg: "#d98b3a" },
+      { leftPct: 93.75, topPct: 75, widthPct: 6.25, heightPct: 25, bg: "#d98b3a" },
+    ],
+  },
   // "Medium rectangle 1" = an 8 x 5.5" landscape podložka module: orange
   // L-walls in the top-left and bottom-right corners (arms ~a third of the
   // edge, ~0.5" thick — estimated).
@@ -4825,7 +5063,7 @@ function ManualView({ onBack }) {
             <><b>Zóna čísly (v palcích)</b> — pod tlačítkem pro kreslení je box Moje zóna se dvěma obdélníky (Obdélník 1 a 2) — zadej jim Od X/Y a Do X/Y podle čísel na okraji desky a klikni na tlačítko Nastavit. Oba obdélníky se spojí do jedné zóny, takže jde postavit i L-tvar nebo schod, ne jen jeden obdélník. „Zóna protihráče“ se vždy dopočítá automaticky jako diagonální (o 180° otočený) protějšek — nezadává se ručně.</>,
             <><b>Trojúhelník a kruhová výseč čísly</b> — pod obdélníky jsou další dva boxy: Trojúhelník (tři rohy, každý svým X/Y) a Kruhová výseč (střed X/Y, poloměr od/do, úhel od/do ve stupních — 0° doprava, 90° dolů; poloměr „od“ 0 = bez otvoru uprostřed). Každý má vlastní tlačítko Nastavit a nahradí celou „Moji zónu“ (nekombinuje se s obdélníky). „Zóna protihráče“ se i tady vždy dopočítá jako diagonální protějšek.</>,
             <><b>Rychlý souboj</b> — klikni na svůj token, pak na token protihráče. Appka spočítá zabité modely/damage jen z vestavěných schopností obou jednotek (žádné bonusy). „Otevřít v kalkulačce“ tě přenese do plné kalkulačky s modifikátory.</>,
-            <><b>Terén (stavebnice)</b> — klikni na Ruina/Long line/Long line kombi/Fence line/Ruin diag A/Ruin diag B/Triangle/Triangle 1/Medium rectangle/Medium rectangle 1/Large rectangle/Large rectangle 1/Large rectangle 2/Large rectangle 3/Large rectangle 4/Large rectangle 5/Large rectangle 6/Large rectangle 7/Large rectangle 8/Large rectangle 9/Large rectangle 10/Large rectangle 15–36/Zeď/Kráter/Les/Kontejner pro přidání kusu doprostřed desky, pak ho přetáhni na místo. „Large rectangle", „Large rectangle 1–10, 15–36", „Medium rectangle 1" i „Long line kombi" jsou jeden pevný modul — podložka se zídkami, táhne/otáčí/škáluje se najednou. Klik na terén otevře dole šířku/výšku/otočení; odebereš ho dvojklikem, tlačítkem Odebrat, nebo klávesou Delete / Backspace, když je vybraný.</>,
+            <><b>Terén (stavebnice)</b> — klikni na Ruina/Long line/Long line kombi/Fence line/Ruin diag A/Ruin diag B/Triangle/Triangle 1/Triangle 2/Triangle 3/Triangle 4/Triangle 5/Triangle 6/Triangle 7/Triangle 8/Triangle 9/Triangle 10/Triangle 11/Triangle 12/Medium rectangle/Medium rectangle 1/Large rectangle/Large rectangle 1/Large rectangle 2/Large rectangle 3/Large rectangle 4/Large rectangle 5/Large rectangle 6/Large rectangle 7/Large rectangle 8/Large rectangle 9/Large rectangle 10/Large rectangle 15–36/Zeď/Kráter/Les/Kontejner pro přidání kusu doprostřed desky, pak ho přetáhni na místo. „Large rectangle", „Large rectangle 1–10, 15–36", „Medium rectangle 1" i „Long line kombi" jsou jeden pevný modul — podložka se zídkami, táhne/otáčí/škáluje se najednou. Klik na terén otevře dole šířku/výšku/otočení; odebereš ho dvojklikem, tlačítkem Odebrat, nebo klávesou Delete / Backspace, když je vybraný.</>,
             <><b>Uložit jako skupinu</b> — když máš na desce rozestavěno víc kusů (třeba ruinu se zdí a zelení), objeví se pole „Uložit N kusů jako skupinu". Pojmenuj a ulož → skupina se přidá do palety jako jeden kus. Klik na ni pak vysype celé to rozestavění zpět na desku (kusy zůstávají samostatně přetažitelné). „Smazat" u skupiny funguje jako u ostatních vlastních typů.</>,
             <><b>Mřížka po 1 palci</b> — přepínač u rozměrů desky, čtvercová síť odpovídající skutečným palcům na stole.</>,
             <><b>Terén čísly (obdélník / zeď)</b> — pod paletou je rozklikávací box. Obdélník zadáš dvěma protilehlými rohy (X/Y v palcích podle okraje desky), zeď dvěma konci úsečky + tloušťkou (kus se sám natočí do směru úsečky). „Přidat na desku" vytvoří normální terénní kus, který jde pak přetáhnout, zvětšit, otočit i uložit do skupiny.</>,
