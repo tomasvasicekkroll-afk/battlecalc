@@ -369,7 +369,8 @@ const TERRAIN_SHAPES = [
   // "Medium rectangle full 1" = the "Medium rectangle full" shape mirrored
   // left-right (long upright with blobs on the left, short post on the
   // right) on a portrait 4 x 6" podložka, the green terrain inset ~3 x 4.4"
-  // in the middle. Combo, scales together. Size/inset estimated.
+  // in the middle, placed rotated 90° by default. Combo, scales together.
+  // Size/inset estimated.
   {
     id: "h-blok-1",
     label: "Medium rectangle full 1",
@@ -377,6 +378,7 @@ const TERRAIN_SHAPES = [
     combo: true,
     widthIn: 4,
     heightIn: 6,
+    defaultRotationDeg: 90,
     bg: "rgba(160,150,120,0.5)",
     border: "1px solid rgba(210,200,170,0.7)",
     radius: 3,
