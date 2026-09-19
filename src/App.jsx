@@ -231,7 +231,8 @@ const TERRAIN_SHAPES = [
     ],
   },
   // "Short line 2" = like "Short line 1": a 6 x 2" podložka with a single
-  // golden bar (~76% of the length, a bit thicker), tilted -32° by default.
+  // golden bar (~76% of the length, a bit thicker), tilted +28° by default
+  // (descending to the right).
   // Estimated.
   {
     id: "short-line-2",
@@ -240,7 +241,7 @@ const TERRAIN_SHAPES = [
     multiCombo: true,
     widthIn: 6,
     heightIn: 2,
-    defaultRotationDeg: -32,
+    defaultRotationDeg: 28,
     bg: "rgba(160,150,120,0.5)",
     border: "1px solid rgba(210,200,170,0.7)",
     radius: 3,
