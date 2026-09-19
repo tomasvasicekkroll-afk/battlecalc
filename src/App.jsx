@@ -195,9 +195,8 @@ const TERRAIN_SHAPES = [
     terrainClipPath:
       "polygon(0% 38%, 6% 38%, 6% 0%, 12% 0%, 12% 38%, 24% 38%, 24% 0%, 30% 0%, 30% 38%, 42.5% 38%, 42.5% 0%, 48.5% 0%, 48.5% 38%, 61% 38%, 61% 0%, 67% 0%, 67% 38%, 79.5% 38%, 79.5% 0%, 85.5% 0%, 85.5% 38%, 100% 38%, 100% 62%, 85.5% 62%, 85.5% 100%, 79.5% 100%, 79.5% 62%, 67% 62%, 67% 100%, 61% 100%, 61% 62%, 48.5% 62%, 48.5% 100%, 42.5% 100%, 42.5% 62%, 30% 62%, 30% 100%, 24% 100%, 24% 62%, 12% 62%, 12% 100%, 6% 100%, 6% 62%, 0% 62%)",
   },
-  // "Short line" = a 6 x 2" podložka with the Long line's yellow barricade
-  // shortened to two crossbars (only the size was specified). Combo, scales
-  // together.
+  // "Short line" = a 6 x 2" podložka with a plain yellow rectangle on it (no
+  // crossbars). Combo, scales together.
   {
     id: "short-line",
     label: "Short line",
@@ -209,12 +208,10 @@ const TERRAIN_SHAPES = [
     border: "1px solid rgba(210,200,170,0.7)",
     radius: 3,
     terrainWidthIn: 5,
-    terrainHeightIn: 1.3,
+    terrainHeightIn: 1,
     terrainBg: "#d4bf3a",
     terrainBorder: "none",
     terrainRadius: 0,
-    terrainClipPath:
-      "polygon(0% 30%, 22% 30%, 22% 0%, 34% 0%, 34% 30%, 66% 30%, 66% 0%, 78% 0%, 78% 30%, 100% 30%, 100% 70%, 78% 70%, 78% 100%, 66% 100%, 66% 70%, 34% 70%, 34% 100%, 22% 100%, 22% 70%, 0% 70%)",
   },
   // "Short line 1" = a 6 x 2" podložka with a single golden bar down the
   // middle (~60% of the length), tilted -22° by default. Estimated.
