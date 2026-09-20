@@ -5628,7 +5628,7 @@ function ManualView({ onBack }) {
             <>Dvojklik na token ho odebere z desky (odškrtne se i v seznamu).</>,
             <>Rozměry desky (šířka/výška v palcích) jdou upravit nahoře — token si přepočítá velikost podle nich.</>,
             <>Jeden token = celá jednotka (počet modelů je v odznáčku v rohu), ne model po modelu.</>,
-            <><b>Rozložení výsadku — základní mapy</b> — nahoře je řada „základních map" (nový účet začíná s pěti, sloty <b>1–5</b>). Každá je jen tvar zóny — nakresli/zadej si do ní svou „Moji zónu" a ulož přes „Uložit změny do…"; druhá strana je vždy její diagonální (o 180° otočený) protějšek. „Uložit jako novou základní mapu" přidá šestou, sedmou… „Smazat" pod mapou ji odebere i s jejími mutacemi.</>,
+            <><b>Rozložení výsadku — základní mapy</b> — nahoře je řada „základních map" (nový účet začíná s pěti, sloty <b>1–5</b>). Každá je jen tvar zóny — nakresli/zadej si do ní svou „Moji zónu" a ulož přes „Uložit změny do…"; druhá strana je vždy její diagonální (o 180° otočený) protějšek. Kliknutí na základní mapu ji rovnou zobrazí na desce (pokud máš rozdělaný neuložený tvar zóny, appka se před zahozením zeptá) — pak už jen přidávej ruiny. „Uložit jako novou základní mapu" přidá šestou, sedmou… „Smazat" pod mapou ji odebere i s jejími mutacemi.</>,
             <><b>Mutace map</b> — pod základními mapami je box „Mutace mapy „N"". Vyber základní mapu, rozestav na desce terén/podložky, případně dolaď zónu, a klikni „Uložit rozestavění jako mutaci" — uloží se jako podřízená kartička té mapy (zóna + celý terén). Kliknutí na mutaci načte její zónu i terén zpět. Takhle si z jedné základní mapy uděláš víc variant. „Uložit změny do…" u vybrané mutace přepíše i její terén.</>,
             <><b>Nakreslit vlastní výsadek</b> — klikni „Nakreslit mou zónu“, pak stiskni na desce a táhni jako štětcem (min. 3 body), a klikni Dokončit. „Zóna protihráče“ se sama dopočítá jako tvar otočený o 180° přes střed desky (diagonálně, ne jen prosté zrcadlo nahoru/dolů). „Zpět na vybrané rozložení“ obě strany zase vrátí na tvar aktuálně vybrané kartičky. Čísla po 5 palcích podél okrajů desky se zapínají/vypínají spolu s mřížkou.</>,
             <><b>Zóna čísly (v palcích)</b> — pod tlačítkem pro kreslení je box Moje zóna se dvěma obdélníky (Obdélník 1 a 2) — zadej jim Od X/Y a Do X/Y podle čísel na okraji desky a klikni na tlačítko Nastavit. Oba obdélníky se spojí do jedné zóny, takže jde postavit i L-tvar nebo schod, ne jen jeden obdélník. „Zóna protihráče“ se vždy dopočítá automaticky jako diagonální (o 180° otočený) protějšek — nezadává se ručně.</>,
@@ -6358,14 +6358,29 @@ export default function Wh40kCalculator({ session }) {
   const deleteCustomLayout = (id) => persistCustomLayouts(customLayouts.filter((l) => l.id !== id && l.parentId !== id));
   // Selecting a mutation loads its own terrain onto the board and clears any
   // freehand/typed zone override so its saved shape shows; selecting a plain
-  // base map just switches the zone and leaves terrain alone.
+  // base map likewise clears the override (otherwise a typed/drawn zone would
+  // keep covering the map that was just clicked) but leaves terrain alone. If
+  // the override is an unsaved zone (differs from the currently selected
+  // layout's saved shape), ask before throwing it away.
   const selectLayout = (id) => {
     const layout = customLayouts.find((l) => l.id === id);
-    if (layout && layout.parentId && Array.isArray(layout.terrain)) {
-      persistBoard({ ...board, layoutId: id, customZones: { mine: null, theirs: null }, terrain: layout.terrain.map((t) => ({ ...t })) });
-    } else {
-      persistBoard({ ...board, layoutId: id });
+    const apply = () => {
+      if (layout && layout.parentId && Array.isArray(layout.terrain)) {
+        persistBoard({ ...board, layoutId: id, customZones: { mine: null, theirs: null }, terrain: layout.terrain.map((t) => ({ ...t })) });
+      } else {
+        persistBoard({ ...board, layoutId: id, customZones: { mine: null, theirs: null } });
+      }
+    };
+    const override = board.customZones?.mine;
+    if (Array.isArray(override) && override.length > 0) {
+      const current = customLayouts.find((l) => l.id === board.layoutId);
+      const unsaved = !current || JSON.stringify(resolveZoneClips(override, "")) !== JSON.stringify(asClipArray(current.mineClip));
+      if (unsaved) {
+        askConfirm("Aktuální tvar zóny není uložený do žádné mapy — načtením mapy zmizí. Pokud ho chceš zachovat, zruš to a nejdřív dej „Uložit změny do…“. Pokračovat?", apply);
+        return;
+      }
     }
+    apply();
   };
 
   const saveArmy = (army) => {
