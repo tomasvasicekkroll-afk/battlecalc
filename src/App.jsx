@@ -30,6 +30,7 @@ import {
   LayoutGrid,
   ArrowLeftRight,
   Map as MapIcon,
+  Copy,
 } from "lucide-react";
 import { storage } from "./lib/storage";
 import { supabase } from "./lib/supabaseClient";
@@ -197,10 +198,10 @@ const mediumOpenShape = (n, deg) => ({
 // off small thumbnails.
 const longLineFrameShape = (n, deg) => ({
   id: `long-line-${n}`,
-  label: `Long line ${n}`,
+  label: `Short line full ${n}`,
   layer: "terrain",
   multiCombo: true,
-  widthIn: 10,
+  widthIn: 6,
   heightIn: 2,
   defaultRotationDeg: deg,
   bg: "rgba(160,150,120,0.5)",
@@ -231,15 +232,15 @@ const TERRAIN_SHAPES = [
   // together in proportion when the piece is resized.
   {
     id: "long-line",
-    label: "Long line",
+    label: "Short line full",
     layer: "terrain",
     combo: true,
-    widthIn: 10,
+    widthIn: 6,
     heightIn: 2,
     bg: "rgba(160,150,120,0.5)",
     border: "1px solid rgba(210,200,170,0.7)",
     radius: 3,
-    terrainWidthIn: 8.4,
+    terrainWidthIn: 5.04,
     terrainHeightIn: 1.3,
     terrainBg: "#3f7a3f",
     terrainBorder: "none",
@@ -508,10 +509,10 @@ const TERRAIN_SHAPES = [
   // bottom, with a yellow barricade running out to each side.
   {
     id: "long-line-kombi",
-    label: "Long line kombi",
+    label: "Short line full kombi",
     layer: "terrain",
     multiCombo: true,
-    widthIn: 10,
+    widthIn: 6,
     heightIn: 2,
     bg: "rgba(160,150,120,0.5)",
     border: "1px solid rgba(210,200,170,0.7)",
@@ -537,10 +538,10 @@ const TERRAIN_SHAPES = [
   // default. Line/frame proportions and tilt estimated.
   {
     id: "long-line-combi-2",
-    label: "Long line combi 2",
+    label: "Short line full combi 2",
     layer: "terrain",
     multiCombo: true,
-    widthIn: 10,
+    widthIn: 6,
     heightIn: 2,
     defaultRotationDeg: -25,
     bg: "rgba(160,150,120,0.5)",
@@ -561,10 +562,10 @@ const TERRAIN_SHAPES = [
   // default. Estimated.
   {
     id: "long-line-combi-3",
-    label: "Long line combi 3",
+    label: "Short line full combi 3",
     layer: "terrain",
     multiCombo: true,
-    widthIn: 10,
+    widthIn: 6,
     heightIn: 2,
     defaultRotationDeg: -20,
     bg: "rgba(160,150,120,0.5)",
@@ -583,10 +584,10 @@ const TERRAIN_SHAPES = [
   // frame centred / nudged toward the lower-left end. Estimated.
   {
     id: "long-line-combi-4",
-    label: "Long line combi 4",
+    label: "Short line full combi 4",
     layer: "terrain",
     multiCombo: true,
-    widthIn: 10,
+    widthIn: 6,
     heightIn: 2,
     defaultRotationDeg: -63,
     bg: "rgba(160,150,120,0.5)",
@@ -602,10 +603,10 @@ const TERRAIN_SHAPES = [
   },
   {
     id: "long-line-combi-5",
-    label: "Long line combi 5",
+    label: "Short line full combi 5",
     layer: "terrain",
     multiCombo: true,
-    widthIn: 10,
+    widthIn: 6,
     heightIn: 2,
     defaultRotationDeg: -56,
     bg: "rgba(160,150,120,0.5)",
@@ -623,10 +624,10 @@ const TERRAIN_SHAPES = [
   // combi 2", frame centred, tilted -42° by default. Estimated.
   {
     id: "long-line-combi-6",
-    label: "Long line combi 6",
+    label: "Short line full combi 6",
     layer: "terrain",
     multiCombo: true,
-    widthIn: 10,
+    widthIn: 6,
     heightIn: 2,
     defaultRotationDeg: -42,
     bg: "rgba(160,150,120,0.5)",
@@ -645,10 +646,10 @@ const TERRAIN_SHAPES = [
   // frame right of centre; 8: -81°; 9: -68°; 10: 0°). Estimated.
   {
     id: "long-line-combi-7",
-    label: "Long line combi 7",
+    label: "Short line full combi 7",
     layer: "terrain",
     multiCombo: true,
-    widthIn: 10,
+    widthIn: 6,
     heightIn: 2,
     bg: "rgba(160,150,120,0.5)",
     border: "1px solid rgba(210,200,170,0.7)",
@@ -663,10 +664,10 @@ const TERRAIN_SHAPES = [
   },
   {
     id: "long-line-combi-8",
-    label: "Long line combi 8",
+    label: "Short line full combi 8",
     layer: "terrain",
     multiCombo: true,
-    widthIn: 10,
+    widthIn: 6,
     heightIn: 2,
     defaultRotationDeg: -81,
     bg: "rgba(160,150,120,0.5)",
@@ -682,10 +683,10 @@ const TERRAIN_SHAPES = [
   },
   {
     id: "long-line-combi-9",
-    label: "Long line combi 9",
+    label: "Short line full combi 9",
     layer: "terrain",
     multiCombo: true,
-    widthIn: 10,
+    widthIn: 6,
     heightIn: 2,
     defaultRotationDeg: -68,
     bg: "rgba(160,150,120,0.5)",
@@ -701,10 +702,10 @@ const TERRAIN_SHAPES = [
   },
   {
     id: "long-line-combi-10",
-    label: "Long line combi 10",
+    label: "Short line full combi 10",
     layer: "terrain",
     multiCombo: true,
-    widthIn: 10,
+    widthIn: 6,
     heightIn: 2,
     bg: "rgba(160,150,120,0.5)",
     border: "1px solid rgba(210,200,170,0.7)",
@@ -721,10 +722,10 @@ const TERRAIN_SHAPES = [
   // combi 2", frame centred, tilted -38° by default. Estimated.
   {
     id: "long-line-combi-11",
-    label: "Long line combi 11",
+    label: "Short line full combi 11",
     layer: "terrain",
     multiCombo: true,
-    widthIn: 10,
+    widthIn: 6,
     heightIn: 2,
     defaultRotationDeg: -38,
     bg: "rgba(160,150,120,0.5)",
@@ -5634,7 +5635,7 @@ function ManualView({ onBack }) {
             <><b>Zóna čísly (v palcích)</b> — pod tlačítkem pro kreslení je box Moje zóna se dvěma obdélníky (Obdélník 1 a 2) — zadej jim Od X/Y a Do X/Y podle čísel na okraji desky a klikni na tlačítko Nastavit. Oba obdélníky se spojí do jedné zóny, takže jde postavit i L-tvar nebo schod, ne jen jeden obdélník. „Zóna protihráče“ se vždy dopočítá automaticky jako diagonální (o 180° otočený) protějšek — nezadává se ručně.</>,
             <><b>Trojúhelník a kruhová výseč čísly</b> — pod obdélníky jsou další dva boxy: Trojúhelník (tři rohy, každý svým X/Y) a Kruhová výseč (střed X/Y, poloměr od/do, úhel od/do ve stupních — 0° doprava, 90° dolů; poloměr „od“ 0 = bez otvoru uprostřed; zaškrtnutím „Opačně“ se z výseče stane celý výsek od středu ven s vykrojeným kruhem, tlačítko „Čtvrtina bez kruhu 9″“ to nastaví jedním klikem). Každý má vlastní tlačítko Nastavit a nahradí celou „Moji zónu“ (nekombinuje se s obdélníky). „Zóna protihráče“ se i tady vždy dopočítá jako diagonální protějšek.</>,
             <><b>Rychlý souboj</b> — klikni na svůj token, pak na token protihráče. Appka spočítá zabité modely/damage jen z vestavěných schopností obou jednotek (žádné bonusy). „Otevřít v kalkulačce“ tě přenese do plné kalkulačky s modifikátory.</>,
-            <><b>Terén (stavebnice)</b> — klikni na Ruina/Long line/Long line 1/Long line 2/Long line 3/Long line 4/Long line 5/Long line 6/Long line kombi/Long line combi 2/Long line combi 3/Long line combi 4/Long line combi 5/Long line combi 6/Long line combi 7/Long line combi 8/Long line combi 9/Long line combi 10/Long line combi 11/Short line/Short line 1/Short line 2/Short line 3/Short line 4/Short line 5/Short line 6/Short line 7/Short line 8/Ruin diag A/Ruin diag B/Triangle/Triangle 1/Triangle 2/Triangle 3/Triangle 4/Triangle 5/Triangle 6/Triangle 7/Triangle 8/Triangle 9/Triangle 10/Triangle 11/Triangle 12/Triangle 13/Triangle 14/Triangle 15/Triangle 16/Triangle 17/Medium rectangle full/Medium rectangle full 1/Medium rectangle full 2/Medium rectangle full 3/Medium rectangle full 4/Medium rectangle full 5/Medium rectangle full 6/Medium rectangle full 7/Medium rectangle full 8/Medium rectangle full 9/Medium rectangle full 10/Medium rectangle full 11/Medium rectangle open 1/Medium rectangle open 2/Medium rectangle open 3/Medium rectangle open 4/Medium rectangle open 5/Medium rectangle open 6/Medium rectangle open 7/Medium rectangle open 8/Medium rectangle open 9/Medium rectangle open 10/Medium rectangle open 11/Medium rectangle open 12/Medium rectangle 1/Large rectangle/Large rectangle 1/Large rectangle 2/Large rectangle 3/Large rectangle 4/Large rectangle 5/Large rectangle 6/Large rectangle 7/Large rectangle 8/Large rectangle 9/Large rectangle 10/Large rectangle 15–36/Zeď/Kráter/Les/Kontejner pro přidání kusu doprostřed desky, pak ho přetáhni na místo. „Large rectangle", „Large rectangle 1–10, 15–36", „Medium rectangle 1" i „Long line kombi" jsou jeden pevný modul — podložka se zídkami, táhne/otáčí/škáluje se najednou. Klik na terén otevře dole šířku/výšku/otočení; odebereš ho dvojklikem, tlačítkem Odebrat, nebo klávesou Delete / Backspace, když je vybraný. Kus, který nechceš mít v paletě, smažeš popelnicí vedle něj; „Obnovit smazané“ je vrátí.</>,
+            <><b>Terén (stavebnice)</b> — klikni na Ruina/Short line full/Short line full 1/Short line full 2/Short line full 3/Short line full 4/Short line full 5/Short line full 6/Short line full kombi/Short line full combi 2/Short line full combi 3/Short line full combi 4/Short line full combi 5/Short line full combi 6/Short line full combi 7/Short line full combi 8/Short line full combi 9/Short line full combi 10/Short line full combi 11/Short line/Short line 1/Short line 2/Short line 3/Short line 4/Short line 5/Short line 6/Short line 7/Short line 8/Ruin diag A/Ruin diag B/Triangle/Triangle 1/Triangle 2/Triangle 3/Triangle 4/Triangle 5/Triangle 6/Triangle 7/Triangle 8/Triangle 9/Triangle 10/Triangle 11/Triangle 12/Triangle 13/Triangle 14/Triangle 15/Triangle 16/Triangle 17/Medium rectangle full/Medium rectangle full 1/Medium rectangle full 2/Medium rectangle full 3/Medium rectangle full 4/Medium rectangle full 5/Medium rectangle full 6/Medium rectangle full 7/Medium rectangle full 8/Medium rectangle full 9/Medium rectangle full 10/Medium rectangle full 11/Medium rectangle open 1/Medium rectangle open 2/Medium rectangle open 3/Medium rectangle open 4/Medium rectangle open 5/Medium rectangle open 6/Medium rectangle open 7/Medium rectangle open 8/Medium rectangle open 9/Medium rectangle open 10/Medium rectangle open 11/Medium rectangle open 12/Medium rectangle 1/Large rectangle/Large rectangle 1/Large rectangle 2/Large rectangle 3/Large rectangle 4/Large rectangle 5/Large rectangle 6/Large rectangle 7/Large rectangle 8/Large rectangle 9/Large rectangle 10/Large rectangle 15–36/Zeď/Kráter/Les/Kontejner pro přidání kusu doprostřed desky, pak ho přetáhni na místo. „Large rectangle", „Large rectangle 1–10, 15–36", „Medium rectangle 1" i „Short line full kombi" jsou jeden pevný modul — podložka se zídkami, táhne/otáčí/škáluje se najednou. Klik na terén otevře dole šířku/výšku/otočení; odebereš ho dvojklikem, tlačítkem Odebrat, nebo klávesou Delete / Backspace, když je vybraný. Kus, který nechceš mít v paletě, smažeš popelnicí vedle něj; „Obnovit smazané“ je vrátí. Vybraný kus zkopíruješ tlačítkem „Kopírovat kus“ nebo klávesou Ctrl+D (případně Ctrl+C a Ctrl+V). Pod rozměry je „Umístit bod“: vyber roh (nebo střed) kusu a zadej jeho X/Y v palcích od levého horního rohu desky — počítá se i s otočením.</>,
             <><b>Uložit jako skupinu</b> — když máš na desce rozestavěno víc kusů (třeba ruinu se zdí a zelení), objeví se pole „Uložit N kusů jako skupinu". Pojmenuj a ulož → skupina se přidá do palety jako jeden kus. Klik na ni pak vysype celé to rozestavění zpět na desku (kusy zůstávají samostatně přetažitelné). „Smazat" u skupiny funguje jako u ostatních vlastních typů.</>,
             <><b>Mřížka po 1 palci</b> — přepínač u rozměrů desky, čtvercová síť odpovídající skutečným palcům na stole.</>,
             <><b>Terén čísly (obdélník / zeď)</b> — pod paletou je rozklikávací box. Obdélník zadáš dvěma protilehlými rohy (X/Y v palcích podle okraje desky), zeď dvěma konci úsečky + tloušťkou (kus se sám natočí do směru úsečky). „Přidat na desku" vytvoří normální terénní kus, který jde pak přetáhnout, zvětšit, otočit i uložit do skupiny.</>,
@@ -6133,6 +6134,15 @@ export default function Wh40kCalculator({ session }) {
     persistBoard({ ...board, terrain: (board.terrain || []).filter((p) => p.id !== pieceId) });
     setSelectedTerrainId((s) => (s === pieceId ? null : s));
   };
+  // Copies a placed piece (same shape/size/rotation) a little down-right of
+  // the original and selects the copy, so pressing again keeps cascading.
+  const duplicateTerrainPiece = (pieceId) => {
+    const src = (board.terrain || []).find((p) => p.id === pieceId);
+    if (!src) return;
+    const copy = { ...src, id: crypto.randomUUID(), xPct: Math.min(100, src.xPct + 3), yPct: Math.min(100, src.yPct + 3) };
+    persistBoard({ ...board, terrain: [...(board.terrain || []), copy] });
+    setSelectedTerrainId(copy.id);
+  };
   const moveTerrainPiece = (pieceId, xPct, yPct) => {
     setBoard((s) => ({ ...s, terrain: (s.terrain || []).map((p) => (p.id === pieceId ? { ...p, xPct, yPct } : p)) }));
   };
@@ -6613,17 +6623,36 @@ export default function Wh40kCalculator({ session }) {
   const [boardMatchup, setBoardMatchup] = useState(null); // { attackerUnit, defenderUnit, res } | null
   // Currently selected terrain piece (for the width/height/rotate controls).
   const [selectedTerrainId, setSelectedTerrainId] = useState(null);
+  // Last piece copied with Ctrl/Cmd+C (pasted with Ctrl/Cmd+V) and which
+  // corner of the selected piece the numeric X/Y fields position.
+  const terrainClipboardRef = useRef(null);
+  const [terrainAnchor, setTerrainAnchor] = useState("tl");
   // Delete / Backspace removes the currently selected terrain piece (same as
   // double-clicking it or the panel's "Odebrat"), unless a text field has
   // focus. Reads boardRef so it always sees the current terrain list.
   useEffect(() => {
     if (!selectedTerrainId) return;
     const onKey = (e) => {
-      if (e.key !== "Delete" && e.key !== "Backspace") return;
       const t = e.target;
       if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
-      e.preventDefault();
       const b = boardRef.current;
+      if (e.ctrlKey || e.metaKey) {
+        const k = e.key.toLowerCase();
+        const src = (b.terrain || []).find((p) => p.id === selectedTerrainId);
+        if (k === "c" && src) {
+          terrainClipboardRef.current = src;
+        } else if ((k === "d" && src) || (k === "v" && terrainClipboardRef.current)) {
+          e.preventDefault();
+          const base = k === "d" ? src : terrainClipboardRef.current;
+          const copy = { ...base, id: crypto.randomUUID(), xPct: Math.min(100, base.xPct + 3), yPct: Math.min(100, base.yPct + 3) };
+          persistBoard({ ...b, terrain: [...(b.terrain || []), copy] });
+          setSelectedTerrainId(copy.id);
+          if (k === "v") terrainClipboardRef.current = copy;
+        }
+        return;
+      }
+      if (e.key !== "Delete" && e.key !== "Backspace") return;
+      e.preventDefault();
       persistBoard({ ...b, terrain: (b.terrain || []).filter((p) => p.id !== selectedTerrainId) });
       setSelectedTerrainId(null);
     };
@@ -9513,12 +9542,70 @@ export default function Wh40kCalculator({ session }) {
                       small
                     />
                   </Row>
-                  <button
-                    onClick={() => removeTerrainPiece(piece.id)}
-                    style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 5, border: "1px solid #c0392b", background: "transparent", color: "#e0857c", borderRadius: 6, padding: "6px 10px", fontSize: 12, cursor: "pointer" }}
-                  >
-                    <Trash2 size={13} /> Odebrat kus terénu
-                  </button>
+                  {(() => {
+                    // Position by a chosen corner (or the center) of the piece, in
+                    // inches from the board's top-left corner. The piece is stored as
+                    // its center + rotation, so the chosen point's offset from the
+                    // center is worked out with the rotation applied.
+                    const dirs = { tl: [-1, -1], tr: [1, -1], bl: [-1, 1], br: [1, 1], c: [0, 0] };
+                    const [sx, sy] = dirs[terrainAnchor] || dirs.tl;
+                    const th = ((piece.rotationDeg || 0) * Math.PI) / 180;
+                    const lx = (sx * piece.widthIn) / 2;
+                    const ly = (sy * piece.heightIn) / 2;
+                    const rx = lx * Math.cos(th) - ly * Math.sin(th);
+                    const ry = lx * Math.sin(th) + ly * Math.cos(th);
+                    const ax = (piece.xPct / 100) * board.widthIn + rx;
+                    const ay = (piece.yPct / 100) * board.heightIn + ry;
+                    const r2 = (n) => Math.round(n * 100) / 100;
+                    return (
+                      <div style={{ marginTop: 8 }}>
+                        <Row cols={3}>
+                          <SelectField
+                            label="Umístit bod"
+                            value={terrainAnchor}
+                            onChange={setTerrainAnchor}
+                            options={[
+                              { value: "tl", label: "Levý horní roh" },
+                              { value: "tr", label: "Pravý horní roh" },
+                              { value: "bl", label: "Levý dolní roh" },
+                              { value: "br", label: "Pravý dolní roh" },
+                              { value: "c", label: "Střed" },
+                            ]}
+                            small
+                          />
+                          <NumberField
+                            label="X od levého okraje (in)"
+                            value={r2(ax)}
+                            step={0.25}
+                            onChange={(v) => updateTerrainPiece(piece.id, { xPct: ((v - rx) / board.widthIn) * 100 })}
+                            small
+                          />
+                          <NumberField
+                            label="Y od horního okraje (in)"
+                            value={r2(ay)}
+                            step={0.25}
+                            onChange={(v) => updateTerrainPiece(piece.id, { yPct: ((v - ry) / board.heightIn) * 100 })}
+                            small
+                          />
+                        </Row>
+                      </div>
+                    );
+                  })()}
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+                    <button
+                      onClick={() => duplicateTerrainPiece(piece.id)}
+                      title="Zkopíruje kus (Ctrl+D; nebo Ctrl+C a Ctrl+V)"
+                      style={{ display: "flex", alignItems: "center", gap: 5, border: "1px solid var(--accent)", background: "transparent", color: "var(--accent-text)", borderRadius: 6, padding: "6px 10px", fontSize: 12, cursor: "pointer" }}
+                    >
+                      <Copy size={13} /> Kopírovat kus
+                    </button>
+                    <button
+                      onClick={() => removeTerrainPiece(piece.id)}
+                      style={{ display: "flex", alignItems: "center", gap: 5, border: "1px solid #c0392b", background: "transparent", color: "#e0857c", borderRadius: 6, padding: "6px 10px", fontSize: 12, cursor: "pointer" }}
+                    >
+                      <Trash2 size={13} /> Odebrat kus terénu
+                    </button>
+                  </div>
                 </div>
               );
             })()}
