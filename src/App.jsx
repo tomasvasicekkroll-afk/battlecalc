@@ -5635,7 +5635,7 @@ function ManualView({ onBack }) {
             <><b>Zóna čísly (v palcích)</b> — pod tlačítkem pro kreslení je box Moje zóna se dvěma obdélníky (Obdélník 1 a 2) — zadej jim Od X/Y a Do X/Y podle čísel na okraji desky a klikni na tlačítko Nastavit. Oba obdélníky se spojí do jedné zóny, takže jde postavit i L-tvar nebo schod, ne jen jeden obdélník. „Zóna protihráče“ se vždy dopočítá automaticky jako diagonální (o 180° otočený) protějšek — nezadává se ručně.</>,
             <><b>Trojúhelník a kruhová výseč čísly</b> — pod obdélníky jsou další dva boxy: Trojúhelník (tři rohy, každý svým X/Y) a Kruhová výseč (střed X/Y, poloměr od/do, úhel od/do ve stupních — 0° doprava, 90° dolů; poloměr „od“ 0 = bez otvoru uprostřed; zaškrtnutím „Opačně“ se z výseče stane celý výsek od středu ven s vykrojeným kruhem, tlačítko „Čtvrtina bez kruhu 9″“ to nastaví jedním klikem). Každý má vlastní tlačítko Nastavit a nahradí celou „Moji zónu“ (nekombinuje se s obdélníky). „Zóna protihráče“ se i tady vždy dopočítá jako diagonální protějšek.</>,
             <><b>Rychlý souboj</b> — klikni na svůj token, pak na token protihráče. Appka spočítá zabité modely/damage jen z vestavěných schopností obou jednotek (žádné bonusy). „Otevřít v kalkulačce“ tě přenese do plné kalkulačky s modifikátory.</>,
-            <><b>Terén (stavebnice)</b> — klikni na Ruina/Short line full/Short line full 1/Short line full 2/Short line full 3/Short line full 4/Short line full 5/Short line full 6/Short line full kombi/Short line full combi 2/Short line full combi 3/Short line full combi 4/Short line full combi 5/Short line full combi 6/Short line full combi 7/Short line full combi 8/Short line full combi 9/Short line full combi 10/Short line full combi 11/Short line/Short line 1/Short line 2/Short line 3/Short line 4/Short line 5/Short line 6/Short line 7/Short line 8/Ruin diag A/Ruin diag B/Triangle/Triangle 1/Triangle 2/Triangle 3/Triangle 4/Triangle 5/Triangle 6/Triangle 7/Triangle 8/Triangle 9/Triangle 10/Triangle 11/Triangle 12/Triangle 13/Triangle 14/Triangle 15/Triangle 16/Triangle 17/Medium rectangle full/Medium rectangle full 1/Medium rectangle full 2/Medium rectangle full 3/Medium rectangle full 4/Medium rectangle full 5/Medium rectangle full 6/Medium rectangle full 7/Medium rectangle full 8/Medium rectangle full 9/Medium rectangle full 10/Medium rectangle full 11/Medium rectangle open 1/Medium rectangle open 2/Medium rectangle open 3/Medium rectangle open 4/Medium rectangle open 5/Medium rectangle open 6/Medium rectangle open 7/Medium rectangle open 8/Medium rectangle open 9/Medium rectangle open 10/Medium rectangle open 11/Medium rectangle open 12/Medium rectangle 1/Large rectangle/Large rectangle 1/Large rectangle 2/Large rectangle 3/Large rectangle 4/Large rectangle 5/Large rectangle 6/Large rectangle 7/Large rectangle 8/Large rectangle 9/Large rectangle 10/Large rectangle 15–36/Zeď/Kráter/Les/Kontejner pro přidání kusu doprostřed desky, pak ho přetáhni na místo. „Large rectangle", „Large rectangle 1–10, 15–36", „Medium rectangle 1" i „Short line full kombi" jsou jeden pevný modul — podložka se zídkami, táhne/otáčí/škáluje se najednou. Klik na terén otevře dole šířku/výšku/otočení; odebereš ho dvojklikem, tlačítkem Odebrat, nebo klávesou Delete / Backspace, když je vybraný. Kus, který nechceš mít v paletě, smažeš popelnicí vedle něj; „Obnovit smazané“ je vrátí. Vybraný kus zkopíruješ tlačítkem „Kopírovat kus“ nebo klávesou Ctrl+D (případně Ctrl+C a Ctrl+V). Pod rozměry je „Umístit bod“: vyber roh (nebo střed) kusu a zadej jeho X/Y v palcích od levého horního rohu desky — počítá se i s otočením.</>,
+            <><b>Terén (stavebnice)</b> — klikni na Ruina/Short line full/Short line full 1/Short line full 2/Short line full 3/Short line full 4/Short line full 5/Short line full 6/Short line full kombi/Short line full combi 2/Short line full combi 3/Short line full combi 4/Short line full combi 5/Short line full combi 6/Short line full combi 7/Short line full combi 8/Short line full combi 9/Short line full combi 10/Short line full combi 11/Short line/Short line 1/Short line 2/Short line 3/Short line 4/Short line 5/Short line 6/Short line 7/Short line 8/Ruin diag A/Ruin diag B/Triangle/Triangle 1/Triangle 2/Triangle 3/Triangle 4/Triangle 5/Triangle 6/Triangle 7/Triangle 8/Triangle 9/Triangle 10/Triangle 11/Triangle 12/Triangle 13/Triangle 14/Triangle 15/Triangle 16/Triangle 17/Medium rectangle full/Medium rectangle full 1/Medium rectangle full 2/Medium rectangle full 3/Medium rectangle full 4/Medium rectangle full 5/Medium rectangle full 6/Medium rectangle full 7/Medium rectangle full 8/Medium rectangle full 9/Medium rectangle full 10/Medium rectangle full 11/Medium rectangle open 1/Medium rectangle open 2/Medium rectangle open 3/Medium rectangle open 4/Medium rectangle open 5/Medium rectangle open 6/Medium rectangle open 7/Medium rectangle open 8/Medium rectangle open 9/Medium rectangle open 10/Medium rectangle open 11/Medium rectangle open 12/Medium rectangle 1/Large rectangle/Large rectangle 1/Large rectangle 2/Large rectangle 3/Large rectangle 4/Large rectangle 5/Large rectangle 6/Large rectangle 7/Large rectangle 8/Large rectangle 9/Large rectangle 10/Large rectangle 15–36/Zeď/Kráter/Les/Kontejner pro přidání kusu doprostřed desky, pak ho přetáhni na místo. „Large rectangle", „Large rectangle 1–10, 15–36", „Medium rectangle 1" i „Short line full kombi" jsou jeden pevný modul — podložka se zídkami, táhne/otáčí/škáluje se najednou. Klik na terén otevře dole šířku/výšku/otočení; odebereš ho dvojklikem, tlačítkem Odebrat, nebo klávesou Delete / Backspace, když je vybraný. Kus, který nechceš mít v paletě, smažeš popelnicí vedle něj; „Obnovit smazané“ je vrátí. Vybraný kus zkopíruješ tlačítkem „Kopírovat kus“ nebo klávesou Ctrl+D (případně Ctrl+C a Ctrl+V). Pod rozměry je „Umístit bod“: vyber roh (nebo střed) kusu a zadej jeho X/Y v palcích — měří se vždy od odpovídajících okrajů desky (pravý roh od pravého okraje, dolní roh od dolního okraje atd., střed od levého a horního), počítá se i s otočením.</>,
             <><b>Uložit jako skupinu</b> — když máš na desce rozestavěno víc kusů (třeba ruinu se zdí a zelení), objeví se pole „Uložit N kusů jako skupinu". Pojmenuj a ulož → skupina se přidá do palety jako jeden kus. Klik na ni pak vysype celé to rozestavění zpět na desku (kusy zůstávají samostatně přetažitelné). „Smazat" u skupiny funguje jako u ostatních vlastních typů.</>,
             <><b>Mřížka po 1 palci</b> — přepínač u rozměrů desky, čtvercová síť odpovídající skutečným palcům na stole.</>,
             <><b>Terén čísly (obdélník / zeď)</b> — pod paletou je rozklikávací box. Obdélník zadáš dvěma protilehlými rohy (X/Y v palcích podle okraje desky), zeď dvěma konci úsečky + tloušťkou (kus se sám natočí do směru úsečky). „Přidat na desku" vytvoří normální terénní kus, který jde pak přetáhnout, zvětšit, otočit i uložit do skupiny.</>,
@@ -9543,11 +9543,15 @@ export default function Wh40kCalculator({ session }) {
                     />
                   </Row>
                   {(() => {
-                    // Position by a chosen corner (or the center) of the piece, in
-                    // inches from the board's top-left corner. The piece is stored as
-                    // its center + rotation, so the chosen point's offset from the
-                    // center is worked out with the rotation applied.
-                    const dirs = { tl: [-1, -1], tr: [1, -1], bl: [-1, 1], br: [1, 1], c: [0, 0] };
+                    // Position by a chosen corner (or the center) of the piece,
+                    // measured from that corner's OWN matching board edges — a
+                    // top-left piece corner from the left+top board edges, a
+                    // top-right corner from the right+top edges, etc. (like a
+                    // dimensioned floor plan) — rather than always from the
+                    // board's top-left. The piece is stored as its center +
+                    // rotation, so the chosen point's offset from the center is
+                    // worked out with the rotation applied.
+                    const dirs = { tl: [-1, -1], tr: [1, -1], bl: [-1, 1], br: [1, 1], c: [-1, -1] };
                     const [sx, sy] = dirs[terrainAnchor] || dirs.tl;
                     const th = ((piece.rotationDeg || 0) * Math.PI) / 180;
                     const lx = (sx * piece.widthIn) / 2;
@@ -9557,6 +9561,14 @@ export default function Wh40kCalculator({ session }) {
                     const ax = (piece.xPct / 100) * board.widthIn + rx;
                     const ay = (piece.yPct / 100) * board.heightIn + ry;
                     const r2 = (n) => Math.round(n * 100) / 100;
+                    // Right/bottom-anchored corners measure from the far edge
+                    // inward, so the number shown is the gap to that edge.
+                    const fromRight = terrainAnchor === "tr" || terrainAnchor === "br";
+                    const fromBottom = terrainAnchor === "bl" || terrainAnchor === "br";
+                    const xShown = fromRight ? board.widthIn - ax : ax;
+                    const yShown = fromBottom ? board.heightIn - ay : ay;
+                    const xToAx = (v) => (fromRight ? board.widthIn - v : v);
+                    const yToAy = (v) => (fromBottom ? board.heightIn - v : v);
                     return (
                       <div style={{ marginTop: 8 }}>
                         <Row cols={3}>
@@ -9574,17 +9586,17 @@ export default function Wh40kCalculator({ session }) {
                             small
                           />
                           <NumberField
-                            label="X od levého okraje (in)"
-                            value={r2(ax)}
+                            label={`X od ${fromRight ? "pravého" : "levého"} okraje (in)`}
+                            value={r2(xShown)}
                             step={0.25}
-                            onChange={(v) => updateTerrainPiece(piece.id, { xPct: ((v - rx) / board.widthIn) * 100 })}
+                            onChange={(v) => updateTerrainPiece(piece.id, { xPct: ((xToAx(v) - rx) / board.widthIn) * 100 })}
                             small
                           />
                           <NumberField
-                            label="Y od horního okraje (in)"
-                            value={r2(ay)}
+                            label={`Y od ${fromBottom ? "dolního" : "horního"} okraje (in)`}
+                            value={r2(yShown)}
                             step={0.25}
-                            onChange={(v) => updateTerrainPiece(piece.id, { yPct: ((v - ry) / board.heightIn) * 100 })}
+                            onChange={(v) => updateTerrainPiece(piece.id, { yPct: ((yToAy(v) - ry) / board.heightIn) * 100 })}
                             small
                           />
                         </Row>
