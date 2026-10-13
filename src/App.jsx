@@ -1913,6 +1913,28 @@ function parseBaseSizeMm(baseSize) {
   return { w: n, h: n };
 }
 
+// Reads New Recruit's "Base" column on a Unit profile ("32mm", "100mm",
+// "170mm x 109mm") into the same "32" / "170x109" string BASE_SIZES uses.
+// Anything that isn't a plain millimetre size ("Hull", "Unique", "-", "")
+// gives null so the caller keeps its default.
+function parseBaseText(text) {
+  const m = String(text ?? "").match(/(\d+(?:[.,]\d+)?)\s*(?:mm)?\s*(?:[x×]\s*(\d+(?:[.,]\d+)?))?/i);
+  if (!m) return null;
+  const num = (v) => parseFloat(String(v).replace(",", "."));
+  const a = num(m[1]);
+  const b = m[2] ? num(m[2]) : null;
+  if (!(a >= 10 && a <= 300) || (b !== null && !(b >= 10 && b <= 300))) return null;
+  return b !== null ? `${a}x${b}` : `${a}`;
+}
+// BASE_SIZES plus the unit's own current value when it isn't one of the
+// standard ones (e.g. an imported "180x110"), so the dropdown never shows a
+// size other than the real one.
+function baseSizeOptions(current) {
+  const cur = String(current ?? "32");
+  if (BASE_SIZES.some((b) => b.value === cur)) return BASE_SIZES;
+  return [...BASE_SIZES, { value: cur, label: cur.includes("x") ? `${cur.replace("x", "×")}mm` : `${cur}mm` }];
+}
+
 const emptyUnit = () => ({
   id: crypto.randomUUID(),
   faction: "",
@@ -1957,7 +1979,7 @@ function totalModels(unit) {
 // generated ids and fields that can legitimately differ between imports of the
 // same unit without it being a different unit (points cost, favorite flag) — so
 // re-importing the same unit from a different list doesn't create a duplicate.
-const SIGNATURE_IGNORE_KEYS = new Set(["id", "points", "isFavorite"]);
+const SIGNATURE_IGNORE_KEYS = new Set(["id", "points", "isFavorite", "baseSize"]);
 function stripIds(value) {
   if (Array.isArray(value)) return value.map(stripIds);
   if (value && typeof value === "object") {
@@ -2898,6 +2920,7 @@ function extractUnitChars(up) {
     // Rare, but some data sources list Feel No Pain as its own characteristic
     // column right alongside T/Sv/W rather than as ability description text.
     fnp: parseSaveVal(uc.FNP || uc["Feel No Pain"] || uc.FNPSave || uc.FnP),
+    base: parseBaseText(uc.Base),
   };
 }
 
@@ -3072,11 +3095,25 @@ function parseBattleScribeJSON(text) {
       const charsFnp = weightedPick("fnp") || 0;
       const combinedFnp = u.fnp > 0 && charsFnp > 0 ? Math.min(u.fnp, charsFnp) : u.fnp || charsFnp || 0;
 
+      const baseTally = new Map();
+      u.members.forEach((m) => {
+        if (m.chars.base) baseTally.set(m.chars.base, (baseTally.get(m.chars.base) || 0) + m.count);
+      });
+      let baseSize = "32";
+      let baseBest = -1;
+      baseTally.forEach((w, v) => {
+        if (w > baseBest) {
+          baseBest = w;
+          baseSize = v;
+        }
+      });
+
       return {
         id: u.id,
         faction: u.faction,
         name: u.name,
         points: u.points,
+        baseSize,
         toughness: weightedPick("toughness"),
         save: weightedPick("save"),
         invul: weightedPick("invul"),
@@ -3466,7 +3503,7 @@ function UnitForm({ initial, onSave, onCancel }) {
         <NumberField label="Wounds na model" value={u.wounds} onChange={set("wounds")} min={0} />
       </Row>
       <Row cols={2}>
-        <SelectField label="Base size (pro Desku)" value={String(u.baseSize || 32)} onChange={set("baseSize")} options={BASE_SIZES} />
+        <SelectField label="Base size (pro Desku)" value={String(u.baseSize || 32)} onChange={set("baseSize")} options={baseSizeOptions(u.baseSize)} />
         <div />
       </Row>
       <Row cols={3}>
@@ -3628,7 +3665,8 @@ function ImportBox({ onImport }) {
     <div style={{ background: "var(--field-bg)", border: "1px dashed var(--field-border)", borderRadius: 8, padding: 12, marginTop: 10 }}>
       <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 8 }}>
         Nahraj JSON export z New Recruit (soubor, nebo vlož obsah níže) — vytáhnou se z něj i skutečné bojové staty
-        pro každý model i zbraň v jednotce. Jde to i s obyčejným textovým exportem, ale ten staty neobsahuje a doplní
+        pro každý model i zbraň v jednotce a velikost podstavce (sloupec „Base“, pokud ho export má — u starších exportů
+        chybí, pak zůstane 32 mm). Jde to i s obyčejným textovým exportem, ale ten staty neobsahuje a doplní
         se placeholder, který si pak upravíš ručně.
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
@@ -4241,7 +4279,7 @@ function LibraryRow({ u, onEdit, onDelete, onToggleFavorite, onSetBaseSize }) {
           title="Base size jednotky (pro Desku)"
           style={{ background: "var(--field-bg)", border: "1px solid var(--field-border)", borderRadius: 6, color: "var(--text)", fontSize: 10.5, padding: "3px 4px", cursor: "pointer" }}
         >
-          {BASE_SIZES.map((b) => (
+          {baseSizeOptions(u.baseSize).map((b) => (
             <option key={b.value} value={b.value}>
               {b.label}
             </option>
@@ -6516,19 +6554,33 @@ export default function Wh40kCalculator({ session }) {
     const existingSigToId = new Map(library.map((u) => [unitSignature(u), u.id]));
     const toAdd = [];
     const allIds = [];
+    const baseFromImport = new Map();
     let skipped = 0;
     units.forEach((u) => {
       const sig = unitSignature(u);
       if (existingSigToId.has(sig)) {
         skipped += 1;
         allIds.push(existingSigToId.get(sig));
+        if (u.baseSize && String(u.baseSize) !== "32") baseFromImport.set(existingSigToId.get(sig), String(u.baseSize));
       } else {
         existingSigToId.set(sig, u.id);
         toAdd.push(u);
         allIds.push(u.id);
       }
     });
-    if (toAdd.length > 0) persistLibrary([...library, ...toAdd]);
+    // A unit already in the library that still has the default 32mm base picks
+    // up the size the import now knows (an older import had no Base column);
+    // one the person already set to something else is left alone.
+    let baseUpdated = 0;
+    const baseUpdatedLibrary = library.map((x) => {
+      const b = baseFromImport.get(x.id);
+      if (b && String(x.baseSize || "32") === "32") {
+        baseUpdated += 1;
+        return { ...x, baseSize: b };
+      }
+      return x;
+    });
+    if (toAdd.length > 0 || baseUpdated > 0) persistLibrary([...baseUpdatedLibrary, ...toAdd]);
     setLibraryOpen(true);
 
     if (rosterName && rosterName.trim() && allIds.length > 0) {
@@ -6542,7 +6594,7 @@ export default function Wh40kCalculator({ session }) {
       }
     }
 
-    return { added: toAdd.length, skipped };
+    return { added: toAdd.length, skipped, baseUpdated };
   };
 
   const attackerUnit = useMemo(() => library.find((u) => u.id === attackerUnitId) || null, [library, attackerUnitId]);
