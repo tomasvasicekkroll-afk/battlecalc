@@ -1859,7 +1859,8 @@ const TERRAIN_SHAPES = [
 const LAYOUT_TEMPLATES = [
   {
     id: "mirror-1",
-    name: "Zrcadlová mapa 1",
+    name: "Mapa",
+    mission: "Take and Hold vs Take and Hold A",
     widthIn: 44,
     heightIn: 60,
     zoneMine: [
@@ -5723,13 +5724,13 @@ function ManualView({ onBack }) {
             <>Dvojklik na token ho odebere z desky (odškrtne se i v seznamu).</>,
             <>Rozměry desky (šířka/výška v palcích) jdou upravit nahoře — token si přepočítá velikost podle nich.</>,
             <>Jeden token = celá jednotka (počet modelů je v odznáčku v rohu), ne model po modelu.</>,
-            <><b>Rozložení výsadku — základní mapy</b> — nahoře je řada „základních map" (nový účet začíná s pěti, sloty <b>1–5</b>). Každá je jen tvar zóny — nakresli/zadej si do ní svou „Moji zónu" a ulož přes „Uložit změny do…"; druhá strana je vždy její diagonální (o 180° otočený) protějšek. Kliknutí na základní mapu ji rovnou zobrazí na desce (pokud máš rozdělaný neuložený tvar zóny, appka se před zahozením zeptá) — pak už jen přidávej ruiny. „Uložit jako novou základní mapu" přidá šestou, sedmou… „Smazat" pod mapou ji odebere i s jejími mutacemi.</>,
+            <><b>Rozložení výsadku — základní mapy</b> (v Desce sbalené pod „Tvorba mapy“) — nahoře je řada „základních map" (nový účet začíná s pěti, sloty <b>1–5</b>). Každá je jen tvar zóny — nakresli/zadej si do ní svou „Moji zónu" a ulož přes „Uložit změny do…"; druhá strana je vždy její diagonální (o 180° otočený) protějšek. Kliknutí na základní mapu ji rovnou zobrazí na desce (pokud máš rozdělaný neuložený tvar zóny, appka se před zahozením zeptá) — pak už jen přidávej ruiny. „Uložit jako novou základní mapu" přidá šestou, sedmou… „Smazat" pod mapou ji odebere i s jejími mutacemi.</>,
             <><b>Mutace map</b> — pod základními mapami je box „Mutace mapy „N"". Vyber základní mapu, rozestav na desce terén/podložky, případně dolaď zónu, a klikni „Uložit rozestavění jako mutaci" — uloží se jako podřízená kartička té mapy (zóna + celý terén). Kliknutí na mutaci načte její zónu i terén zpět. Takhle si z jedné základní mapy uděláš víc variant. „Uložit změny do…" u vybrané mutace přepíše i její terén.</>,
             <><b>Nakreslit vlastní výsadek</b> — klikni „Nakreslit mou zónu“, pak stiskni na desce a táhni jako štětcem (min. 3 body), a klikni Dokončit. „Zóna protihráče“ se sama dopočítá jako tvar otočený o 180° přes střed desky (diagonálně, ne jen prosté zrcadlo nahoru/dolů). „Zpět na vybrané rozložení“ obě strany zase vrátí na tvar aktuálně vybrané kartičky. Čísla po 5 palcích podél okrajů desky se zapínají/vypínají spolu s mřížkou.</>,
             <><b>Zóna čísly (v palcích)</b> — pod tlačítkem pro kreslení je box Moje zóna se dvěma obdélníky (Obdélník 1 a 2) — zadej jim Od X/Y a Do X/Y podle čísel na okraji desky a klikni na tlačítko Nastavit. Oba obdélníky se spojí do jedné zóny, takže jde postavit i L-tvar nebo schod, ne jen jeden obdélník. „Zóna protihráče“ se vždy dopočítá automaticky jako diagonální (o 180° otočený) protějšek — nezadává se ručně.</>,
             <><b>Trojúhelník a kruhová výseč čísly</b> — pod obdélníky jsou další dva boxy: Trojúhelník (tři rohy, každý svým X/Y) a Kruhová výseč (střed X/Y, poloměr od/do, úhel od/do ve stupních — 0° doprava, 90° dolů; poloměr „od“ 0 = bez otvoru uprostřed; zaškrtnutím „Opačně“ se z výseče stane celý výsek od středu ven s vykrojeným kruhem, tlačítko „Čtvrtina bez kruhu 9″“ to nastaví jedním klikem). Každý má vlastní tlačítko Nastavit a nahradí celou „Moji zónu“ (nekombinuje se s obdélníky). „Zóna protihráče“ se i tady vždy dopočítá jako diagonální protějšek.</>,
             <><b>Rychlý souboj</b> — klikni na svůj token, pak na token protihráče. Appka spočítá zabité modely/damage jen z vestavěných schopností obou jednotek (žádné bonusy). „Otevřít v kalkulačce“ tě přenese do plné kalkulačky s modifikátory.</>,
-            <><b>Terén (stavebnice)</b> — klikni na Ruina/Short line full/Short line full 1/Short line full 2/Short line full 3/Short line full 4/Short line full 5/Short line full 6/Short line full kombi/Short line full combi 2/Short line full combi 3/Short line full combi 4/Short line full combi 5/Short line full combi 6/Short line full combi 7/Short line full combi 8/Short line full combi 9/Short line full combi 10/Short line full combi 11/Short line/Short line 1/Short line 2/Short line 3/Short line 4/Short line 5/Short line 6/Short line 7/Short line 8/Ruin diag A/Ruin diag B/Triangle/Triangle 1/Triangle 2/Triangle 3/Triangle 4/Triangle 5/Triangle 6/Triangle 7/Triangle 8/Triangle 9/Triangle 10/Triangle 11/Triangle 12/Triangle 13/Triangle 14/Triangle 15/Triangle 16/Triangle 17/Medium rectangle full/Medium rectangle full 1/Medium rectangle full 2/Medium rectangle full 3/Medium rectangle full 4/Medium rectangle full 5/Medium rectangle full 6/Medium rectangle full 7/Medium rectangle full 8/Medium rectangle full 9/Medium rectangle full 10/Medium rectangle full 11/Medium rectangle open 1/Medium rectangle open 2/Medium rectangle open 3/Medium rectangle open 4/Medium rectangle open 5/Medium rectangle open 6/Medium rectangle open 7/Medium rectangle open 8/Medium rectangle open 9/Medium rectangle open 10/Medium rectangle open 11/Medium rectangle open 12/Medium rectangle 1/Large rectangle/Large rectangle 1/Large rectangle 2/Large rectangle 3/Large rectangle 4/Large rectangle 5/Large rectangle 6/Large rectangle 7/Large rectangle 8/Large rectangle 9/Large rectangle 10/Large rectangle 15–37/Zeď/Kráter/Les/Kontejner pro přidání kusu doprostřed desky, pak ho přetáhni na místo. „Large rectangle", „Large rectangle 1–10, 15–37", „Medium rectangle 1" i „Short line full kombi" jsou jeden pevný modul — podložka se zídkami, táhne/otáčí/škáluje se najednou. Klik na terén otevře dole šířku/výšku/otočení; odebereš ho dvojklikem, tlačítkem Odebrat, nebo klávesou Delete / Backspace, když je vybraný. Kus, který nechceš mít v paletě, smažeš popelnicí vedle něj; „Obnovit smazané“ je vrátí. Nad paletou je „Hotová rozložení“ — jedním klikem načte celou mapu (zónu i terén) z hotových kusů. Vybraný kus zkopíruješ tlačítkem „Kopírovat kus“ nebo klávesou Ctrl+D (případně Ctrl+C a Ctrl+V). Pod rozměry je „Umístit bod“: vyber roh (nebo střed) kusu a zadej jeho X/Y v palcích — měří se vždy od odpovídajících okrajů desky (pravý roh od pravého okraje, dolní roh od dolního okraje atd., střed od levého a horního), počítá se i s otočením.</>,
+            <><b>Terén (stavebnice)</b> — klikni na Ruina/Short line full/Short line full 1/Short line full 2/Short line full 3/Short line full 4/Short line full 5/Short line full 6/Short line full kombi/Short line full combi 2/Short line full combi 3/Short line full combi 4/Short line full combi 5/Short line full combi 6/Short line full combi 7/Short line full combi 8/Short line full combi 9/Short line full combi 10/Short line full combi 11/Short line/Short line 1/Short line 2/Short line 3/Short line 4/Short line 5/Short line 6/Short line 7/Short line 8/Ruin diag A/Ruin diag B/Triangle/Triangle 1/Triangle 2/Triangle 3/Triangle 4/Triangle 5/Triangle 6/Triangle 7/Triangle 8/Triangle 9/Triangle 10/Triangle 11/Triangle 12/Triangle 13/Triangle 14/Triangle 15/Triangle 16/Triangle 17/Medium rectangle full/Medium rectangle full 1/Medium rectangle full 2/Medium rectangle full 3/Medium rectangle full 4/Medium rectangle full 5/Medium rectangle full 6/Medium rectangle full 7/Medium rectangle full 8/Medium rectangle full 9/Medium rectangle full 10/Medium rectangle full 11/Medium rectangle open 1/Medium rectangle open 2/Medium rectangle open 3/Medium rectangle open 4/Medium rectangle open 5/Medium rectangle open 6/Medium rectangle open 7/Medium rectangle open 8/Medium rectangle open 9/Medium rectangle open 10/Medium rectangle open 11/Medium rectangle open 12/Medium rectangle 1/Large rectangle/Large rectangle 1/Large rectangle 2/Large rectangle 3/Large rectangle 4/Large rectangle 5/Large rectangle 6/Large rectangle 7/Large rectangle 8/Large rectangle 9/Large rectangle 10/Large rectangle 15–37/Zeď/Kráter/Les/Kontejner pro přidání kusu doprostřed desky, pak ho přetáhni na místo. „Large rectangle", „Large rectangle 1–10, 15–37", „Medium rectangle 1" i „Short line full kombi" jsou jeden pevný modul — podložka se zídkami, táhne/otáčí/škáluje se najednou. Klik na terén otevře dole šířku/výšku/otočení; odebereš ho dvojklikem, tlačítkem Odebrat, nebo klávesou Delete / Backspace, když je vybraný. Kus, který nechceš mít v paletě, smažeš popelnicí vedle něj; „Obnovit smazané“ je vrátí. Úplně nahoře v Desce je „Mapa“ — jedním klikem načte celou mapu (zónu i terén), teď pro Take and Hold vs Take and Hold A. Vybraný kus zkopíruješ tlačítkem „Kopírovat kus“ nebo klávesou Ctrl+D (případně Ctrl+C a Ctrl+V). Pod rozměry je „Umístit bod“: vyber roh (nebo střed) kusu a zadej jeho X/Y v palcích — měří se vždy od odpovídajících okrajů desky (pravý roh od pravého okraje, dolní roh od dolního okraje atd., střed od levého a horního), počítá se i s otočením.</>,
             <><b>Uložit jako skupinu</b> — když máš na desce rozestavěno víc kusů (třeba ruinu se zdí a zelení), objeví se pole „Uložit N kusů jako skupinu". Pojmenuj a ulož → skupina se přidá do palety jako jeden kus. Klik na ni pak vysype celé to rozestavění zpět na desku (kusy zůstávají samostatně přetažitelné). „Smazat" u skupiny funguje jako u ostatních vlastních typů.</>,
             <><b>Mřížka po 1 palci</b> — přepínač u rozměrů desky, čtvercová síť odpovídající skutečným palcům na stole.</>,
             <><b>Terén čísly (obdélník / zeď)</b> — pod paletou je rozklikávací box. Obdélník zadáš dvěma protilehlými rohy (X/Y v palcích podle okraje desky), zeď dvěma konci úsečky + tloušťkou (kus se sám natočí do směru úsečky). „Přidat na desku" vytvoří normální terénní kus, který jde pak přetáhnout, zvětšit, otočit i uložit do skupiny.</>,
@@ -6858,6 +6859,9 @@ export default function Wh40kCalculator({ session }) {
   const [newGroupName, setNewGroupName] = useState("");
   const [paramTerrain, setParamTerrain] = useState({ mode: "rect", rectLayer: "terrain", x1: 0, y1: 0, x2: 6, y2: 4, thickness: 1 });
   const [paramTerrainOpen, setParamTerrainOpen] = useState(false);
+  // Hand-made map tools (base maps, mutations, zone drawing/typing) are
+  // collapsed by default now that whole maps load from the "Mapa" box.
+  const [mapToolsOpen, setMapToolsOpen] = useState(false);
 
   const handleBoardTokenSelect = (token) => {
     const unit = library.find((u) => u.id === token.unitId);
@@ -8671,11 +8675,39 @@ export default function Wh40kCalculator({ session }) {
 
           <div className="wh40k-board-layout">
             <div className="wh40k-board-sidebar">
+          <div style={{ marginBottom: 10, background: "var(--field-bg)", border: "1px solid var(--accent)", borderRadius: 8, padding: 8 }}>
+            <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--label)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>Mapa</div>
+            <div style={{ fontSize: 10.5, color: "var(--muted)", marginBottom: 6 }}>
+              Jedním klikem načte na desku zónu i rozestavěný terén (nahradí současný). Pak ho můžeš upravit a uložit jako základní mapu nebo mutaci.
+            </div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {LAYOUT_TEMPLATES.map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => loadLayoutTemplate(t)}
+                  className="wh40k-btn"
+                  title={`Načíst „${t.name}“ (${t.widthIn}″ × ${t.heightIn}″)`}
+                  style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 1, border: "1px solid var(--accent)", background: "transparent", color: "var(--accent-text)", borderRadius: 6, padding: "6px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer", textAlign: "left" }}
+                >
+                  <span>Načíst: {t.name}</span>
+                  {t.mission && <span style={{ fontSize: 10.5, fontWeight: 400, color: "var(--muted)" }}>pro {t.mission}</span>}
+                </button>
+              ))}
+            </div>
+          </div>
           <Row cols={2}>
             <NumberField label="Šířka desky (in)" value={board.widthIn} onChange={(v) => setBoardSize(Math.max(1, v), board.heightIn)} min={1} small />
             <NumberField label="Výška desky (in)" value={board.heightIn} onChange={(v) => setBoardSize(board.widthIn, Math.max(1, v))} min={1} small />
           </Row>
 
+          <button
+            onClick={() => setMapToolsOpen((o) => !o)}
+            style={{ display: "flex", alignItems: "center", gap: 4, background: "transparent", border: "none", color: "var(--accent-text)", fontSize: 11.5, fontWeight: 700, cursor: "pointer", padding: 0, marginTop: 10, textTransform: "uppercase", letterSpacing: 0.4 }}
+          >
+            <Plus size={12} /> Tvorba mapy (základní mapy, mutace, zóna)
+            <ChevronDown size={12} style={{ transform: mapToolsOpen ? "rotate(180deg)" : "none" }} />
+          </button>
+          {mapToolsOpen && (
           <div style={{ marginTop: 10, marginBottom: 4 }}>
             <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--label)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>Rozložení výsadku — základní mapy</div>
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
@@ -8911,26 +8943,7 @@ export default function Wh40kCalculator({ session }) {
               </div>
             )}
           </div>
-
-          <div style={{ marginTop: 10, background: "var(--field-bg)", border: "1px dashed var(--field-border)", borderRadius: 8, padding: 8 }}>
-            <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--label)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>Hotová rozložení</div>
-            <div style={{ fontSize: 10.5, color: "var(--muted)", marginBottom: 6 }}>
-              Jedním klikem načte na desku zónu i rozestavěný terén (nahradí současný). Pak ho můžeš upravit a uložit jako základní mapu nebo mutaci.
-            </div>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-              {LAYOUT_TEMPLATES.map((t) => (
-                <button
-                  key={t.id}
-                  onClick={() => loadLayoutTemplate(t)}
-                  className="wh40k-btn"
-                  title={`Načíst „${t.name}“ (${t.widthIn}″ × ${t.heightIn}″)`}
-                  style={{ border: "1px solid var(--accent)", background: "transparent", color: "var(--accent-text)", borderRadius: 6, padding: "6px 12px", fontSize: 11.5, fontWeight: 700, cursor: "pointer" }}
-                >
-                  Načíst: {t.name}
-                </button>
-              ))}
-            </div>
-          </div>
+          )}
 
           <div style={{ marginTop: 10, marginBottom: 4 }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
