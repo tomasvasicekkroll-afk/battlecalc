@@ -4153,9 +4153,36 @@ const BASE_SIZES = [
   { value: "105x70", label: "105×70mm oválná" },
   { value: "120x92", label: "120×92mm oválná" },
   { value: "170x109", label: "170×109mm oválná" },
+  { value: "hull:115x70", label: "Hull 115×70mm (obdélník, menší tank)" },
+  { value: "hull:120x75", label: "Hull 120×75mm (obdélník, Rhino/Razorback)" },
+  { value: "hull:130x90", label: "Hull 130×90mm (obdélník, Leman Russ)" },
+  { value: "hull:140x90", label: "Hull 140×90mm (obdélník, Repulsor)" },
+  { value: "hull:165x95", label: "Hull 165×95mm (obdélník, Land Raider)" },
+  { value: "hull:220x150", label: "Hull 220×150mm (obdélník, superheavy)" },
 ];
+
+// New Recruit gives vehicles "Hull" instead of a size - they stand on their
+// own hull, which is a rectangle. These are approximate footprints (mm,
+// length x width) picked by name; the unit editor's Base size list lets the
+// person change one.
+const HULL_FOOTPRINTS = [
+  [/baneblade|shadowsword|stormsword|stormlord|banehammer|banesword|doomhammer/i, "hull:220x150"],
+  [/land raider/i, "hull:165x95"],
+  [/repulsor|executioner/i, "hull:140x90"],
+  [/leman russ|basilisk|hellhound|manticore|deathstrike|chimera|taurox/i, "hull:130x90"],
+  [/predator|whirlwind|vindicator|hunter|stalker/i, "hull:115x70"],
+];
+function hullBaseFor(name) {
+  const n = String(name || "");
+  const hit = HULL_FOOTPRINTS.find(([re]) => re.test(n));
+  return hit ? hit[1] : "hull:120x75";
+}
 function parseBaseSizeMm(baseSize) {
-  const s = String(baseSize ?? "32").trim();
+  let s = String(baseSize ?? "32").trim();
+  if (s.startsWith("hull:")) {
+    const [w, h] = s.slice(5).split("x").map((v) => parseFloat(v));
+    return { w: w || 120, h: h || w || 75, rect: true };
+  }
   if (s.includes("x")) {
     const [w, h] = s.split("x").map((v) => parseFloat(v));
     return { w: w || 32, h: h || w || 32 };
@@ -4169,6 +4196,7 @@ function parseBaseSizeMm(baseSize) {
 // Anything that isn't a plain millimetre size ("Hull", "Unique", "-", "")
 // gives null so the caller keeps its default.
 function parseBaseText(text) {
+  if (/^\s*hull/i.test(String(text ?? ""))) return "hull";
   const m = String(text ?? "").match(/(\d+(?:[.,]\d+)?)\s*(?:mm)?\s*(?:[x×]\s*(\d+(?:[.,]\d+)?))?/i);
   if (!m) return null;
   const num = (v) => parseFloat(String(v).replace(",", "."));
@@ -4183,7 +4211,8 @@ function parseBaseText(text) {
 function baseSizeOptions(current) {
   const cur = String(current ?? "32");
   if (BASE_SIZES.some((b) => b.value === cur)) return BASE_SIZES;
-  return [...BASE_SIZES, { value: cur, label: cur.includes("x") ? `${cur.replace("x", "×")}mm` : `${cur}mm` }];
+  const label = cur.startsWith("hull:") ? `Hull ${cur.slice(5).replace("x", "×")}mm` : cur.includes("x") ? `${cur.replace("x", "×")}mm` : `${cur}mm`;
+  return [...BASE_SIZES, { value: cur, label }];
 }
 
 const emptyUnit = () => ({
@@ -5372,6 +5401,7 @@ function parseBattleScribeJSON(text) {
           baseSize = v;
         }
       });
+      if (baseSize === "hull") baseSize = hullBaseFor(String(u.name || "").replace(/ \(vede.*$/, ""));
 
       return {
         id: u.id,
@@ -6866,7 +6896,7 @@ function TerrainPieceView({ piece, shape, containerRef, sizePctW, sizePctH, sele
   );
 }
 
-function BoardTokenView({ token, unit, containerRef, sizePctW, sizePctH, selected, multiSelected, onDragStart, onMove, onCommit, onRemove, onSelect }) {
+function BoardTokenView({ token, unit, containerRef, sizePctW, sizePctH, rectBase, selected, multiSelected, onDragStart, onMove, onCommit, onRemove, onSelect }) {
   const draggingRef = useRef(false);
   // Distinguishes a drag from a plain click/tap: if the pointer never moves
   // more than a few px between down and up, treat it as a click (used to
@@ -6941,7 +6971,7 @@ function BoardTokenView({ token, unit, containerRef, sizePctW, sizePctH, selecte
         transform: `translate(-50%, -50%) rotate(${token.rot || 0}deg)`,
         minWidth: 14,
         minHeight: 14,
-        borderRadius: "50%",
+        borderRadius: rectBase ? 6 : "50%",
         background: color,
         border: multiSelected ? "2px solid #ffd54a" : selected ? "2px solid #fff" : "2px solid rgba(255,255,255,0.85)",
         boxShadow: multiSelected
@@ -12108,7 +12138,7 @@ export default function Wh40kCalculator({ session }) {
                         <label key={u.id} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, padding: "2px 0", cursor: "pointer" }}>
                           <input type="checkbox" checked={board.tokens.some((t) => t.unitId === u.id && t.side === side)} onChange={() => toggleUnitOnBoard(u.id, side)} />
                           {u.name}
-                          <span style={{ fontSize: 10, color: "var(--muted)" }}>{String(u.baseSize || 32)}mm</span>
+                          <span style={{ fontSize: 10, color: "var(--muted)" }}>{String(u.baseSize || 32).startsWith("hull:") ? `hull ${String(u.baseSize).slice(5).replace("x", "×")}mm` : `${u.baseSize || 32}mm`}</span>
                         </label>
                       ))}
                     </div>
@@ -12489,6 +12519,7 @@ export default function Wh40kCalculator({ session }) {
                   containerRef={boardContainerRef}
                   sizePctW={sizePctW}
                   sizePctH={sizePctH}
+                  rectBase={baseMm.rect}
                   selected={t.id === boardAttackerTokenId}
                   multiSelected={selectedTokenIds.includes(t.id)}
                   onDragStart={beginTokenDrag}
