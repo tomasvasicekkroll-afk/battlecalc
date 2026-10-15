@@ -1,7 +1,10 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef, useId } from "react";
+import React, { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef, useId } from "react";
 import {
   Lock,
   Unlock,
+  RotateCw,
+  ZoomIn,
+  ZoomOut,
   Swords,
   Shield,
   Plus,
@@ -6787,9 +6790,7 @@ function TerrainPieceView({ piece, shape, containerRef, sizePctW, sizePctH, sele
     movedRef.current = false;
     startRef.current = { x: e.clientX, y: e.clientY };
     if (containerRef.current) {
-      const rect = containerRef.current.getBoundingClientRect();
-      const cursorXPct = ((e.clientX - rect.left) / rect.width) * 100;
-      const cursorYPct = ((e.clientY - rect.top) / rect.height) * 100;
+      const { x: cursorXPct, y: cursorYPct } = boardPctFromPointer(containerRef.current, e);
       grabOffsetRef.current = { dx: piece.xPct - cursorXPct, dy: piece.yPct - cursorYPct };
     }
   };
@@ -6799,9 +6800,7 @@ function TerrainPieceView({ piece, shape, containerRef, sizePctW, sizePctH, sele
       movedRef.current = true;
     }
     if (!movedRef.current) return;
-    const rect = containerRef.current.getBoundingClientRect();
-    const cursorXPct = ((e.clientX - rect.left) / rect.width) * 100;
-    const cursorYPct = ((e.clientY - rect.top) / rect.height) * 100;
+    const { x: cursorXPct, y: cursorYPct } = boardPctFromPointer(containerRef.current, e);
     const { dx, dy } = grabOffsetRef.current;
     const xPct = Math.max(0, Math.min(100, cursorXPct + dx));
     const yPct = Math.max(0, Math.min(100, cursorYPct + dy));
@@ -6896,7 +6895,7 @@ function TerrainPieceView({ piece, shape, containerRef, sizePctW, sizePctH, sele
   );
 }
 
-function BoardTokenView({ token, unit, containerRef, sizePctW, sizePctH, rectBase, selected, multiSelected, onDragStart, onMove, onCommit, onRemove, onSelect }) {
+function BoardTokenView({ token, unit, containerRef, sizePctW, sizePctH, rectBase, viewRot, selected, multiSelected, onDragStart, onMove, onCommit, onRemove, onSelect }) {
   const draggingRef = useRef(false);
   // Distinguishes a drag from a plain click/tap: if the pointer never moves
   // more than a few px between down and up, treat it as a click (used to
@@ -6919,9 +6918,7 @@ function BoardTokenView({ token, unit, containerRef, sizePctW, sizePctH, rectBas
     // marquee selection, or just this model - Alt flips the unit/model mode).
     if (onDragStart) onDragStart(token, e.altKey, e.shiftKey);
     if (containerRef.current) {
-      const rect = containerRef.current.getBoundingClientRect();
-      const cursorXPct = ((e.clientX - rect.left) / rect.width) * 100;
-      const cursorYPct = ((e.clientY - rect.top) / rect.height) * 100;
+      const { x: cursorXPct, y: cursorYPct } = boardPctFromPointer(containerRef.current, e);
       grabOffsetRef.current = { dx: token.xPct - cursorXPct, dy: token.yPct - cursorYPct };
     }
   };
@@ -6931,9 +6928,7 @@ function BoardTokenView({ token, unit, containerRef, sizePctW, sizePctH, rectBas
       movedRef.current = true;
     }
     if (!movedRef.current) return;
-    const rect = containerRef.current.getBoundingClientRect();
-    const cursorXPct = ((e.clientX - rect.left) / rect.width) * 100;
-    const cursorYPct = ((e.clientY - rect.top) / rect.height) * 100;
+    const { x: cursorXPct, y: cursorYPct } = boardPctFromPointer(containerRef.current, e);
     const { dx, dy } = grabOffsetRef.current;
     const xPct = Math.max(0, Math.min(100, cursorXPct + dx));
     const yPct = Math.max(0, Math.min(100, cursorYPct + dy));
@@ -6997,7 +6992,7 @@ function BoardTokenView({ token, unit, containerRef, sizePctW, sizePctH, rectBas
       {token.rot ? (
         <span style={{ position: "absolute", top: 1, left: "50%", width: 3, height: 3, marginLeft: -1.5, borderRadius: "50%", background: "#fff" }} />
       ) : null}
-      <span style={{ display: "inline-block", transform: `rotate(${-(token.rot || 0)}deg)` }}>{label}</span>
+      <span style={{ display: "inline-block", transform: `rotate(${-(token.rot || 0) - (viewRot || 0)}deg)` }}>{label}</span>
     </div>
   );
 }
@@ -7374,6 +7369,30 @@ function computeSurvivalStats(res, defenderUnit, defenderModelsCount) {
     chanceAtLeast1: Math.max(0, Math.min(1, chanceAtLeast1)),
     chanceDestroyUnit: Math.max(0, Math.min(1, 1 - survivalChance)),
   };
+}
+
+// Pointer position as a % of the board in the BOARD's own frame, whatever the
+// view rotation is: the board element is CSS-rotated for display, so its
+// bounding box is the rotated one and the fractions are turned back here.
+// (Not clamped - callers clamp as they need.)
+function boardPctFromPointer(el, e) {
+  const rect = el.getBoundingClientRect();
+  const rot = Number(el.dataset.viewRot || 0);
+  const u = (e.clientX - rect.left) / rect.width;
+  const v = (e.clientY - rect.top) / rect.height;
+  let x = u;
+  let y = v;
+  if (rot === 90) {
+    x = v;
+    y = 1 - u;
+  } else if (rot === 180) {
+    x = 1 - u;
+    y = 1 - v;
+  } else if (rot === 270) {
+    x = 1 - v;
+    y = u;
+  }
+  return { x: x * 100, y: y * 100 };
 }
 
 // Second visual set ("Taktický"): same layout, a different skin - saturated
@@ -7971,7 +7990,7 @@ function ManualView({ onBack }) {
 
       <ManualSection num="08" title="Deska">
         <ManualP>
-          <ManualPath>Deska</ManualPath> — vizuální bojiště na míru. Zaškrtni jednotky z knihovny do <b>Moje jednotky</b> nebo <b>Jednotky protihráče</b> — objeví se jako tokeny (jeden na každý model), přetáhni je na místo. Nad seznamem vybereš uloženou armádu (třeba z New Recruit) — seznam se zúží na její jednotky a „Dát celou armádu na desku“ je rozmístí najednou; „Nahrát z New Recruit (JSON)“ nahraje nový export rovnou na tuhle stranu i s base sizy ze sloupce Base. Tažením modelu hýbeš celou jednotkou (tlačítko v liště přepne na jeden model, Alt při tažení přepne na opak; Shift při tažení vezme vždy jen jeden model — třeba když ho chceš nacpat za zeď). Víc modelů označíš tažením myší po prázdné desce (Shift přidává, Shift+klik na model ho přidá/odebere) — pak se všechny označené hýbou spolu. Kolečkem myši nad modelem otočíš celou jednotku (nebo označené modely, nebo jeden model — stejná pravidla jako při tažení); kolečko dolů otáčí po směru hodin, Shift = jemné kroky po 5°. Vzhled aplikace přepneš v Nastavení (ozubené kolečko → Vzhled): „Základní“ nebo „Taktický“ (sytě modrý HUD, hexagonové tokeny, texturované podložky, kompas a měřítko na desce). Podložky jsou standardně zamčené (tlačítko „Terén zamčený“ v liště nad deskou) — táhneš jen modely, terén se nehne; odemknutím ho zase přesouváš a upravuješ. Velikost tokenu vychází z base size jednotky — přímo u jednotky v knihovně je malý rozklikávací seznam se standardními velikostmi (25 až 160mm kulaté, plus běžné oválné jako 90×52mm), není potřeba kvůli tomu otvírat celou editaci.
+          <ManualPath>Deska</ManualPath> — vizuální bojiště na míru. Zaškrtni jednotky z knihovny do <b>Moje jednotky</b> nebo <b>Jednotky protihráče</b> — objeví se jako tokeny (jeden na každý model), přetáhni je na místo. Nad seznamem vybereš uloženou armádu (třeba z New Recruit) — seznam se zúží na její jednotky a „Dát celou armádu na desku“ je rozmístí najednou; „Nahrát z New Recruit (JSON)“ nahraje nový export rovnou na tuhle stranu i s base sizy ze sloupce Base. Tažením modelu hýbeš celou jednotkou (tlačítko v liště přepne na jeden model, Alt při tažení přepne na opak; Shift při tažení vezme vždy jen jeden model — třeba když ho chceš nacpat za zeď). Víc modelů označíš tažením myší po prázdné desce (Shift přidává, Shift+klik na model ho přidá/odebere) — pak se všechny označené hýbou spolu. Kolečkem myši nad modelem otočíš celou jednotku (nebo označené modely, nebo jeden model — stejná pravidla jako při tažení); kolečko dolů otáčí po směru hodin, Shift = jemné kroky po 5°. Vzhled aplikace přepneš v Nastavení (ozubené kolečko → Vzhled): „Základní“ nebo „Taktický“ (sytě modrý HUD, hexagonové tokeny, texturované podložky, kompas a měřítko na desce). Desku můžeš otočit o 90° tlačítkem „Otočit“ (jen pohled, data zůstávají) a přibližovat tlačítky lupy nebo Ctrl + kolečkem (na touchpadu štípnutím) kolem kurzoru; přiblíženou desku posouváš posuvníky. Podložky jsou standardně zamčené (tlačítko „Terén zamčený“ v liště nad deskou) — táhneš jen modely, terén se nehne; odemknutím ho zase přesouváš a upravuješ. Velikost tokenu vychází z base size jednotky — přímo u jednotky v knihovně je malý rozklikávací seznam se standardními velikostmi (25 až 160mm kulaté, plus běžné oválné jako 90×52mm), není potřeba kvůli tomu otvírat celou editaci.
         </ManualP>
         <ManualUl
           items={[
@@ -8615,11 +8634,8 @@ export default function Wh40kCalculator({ session }) {
     setSelectedTokenIds([]);
   };
   const boardPctPoint = (e) => {
-    const rect = boardContainerRef.current.getBoundingClientRect();
-    return {
-      x: Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100)),
-      y: Math.max(0, Math.min(100, ((e.clientY - rect.top) / rect.height) * 100)),
-    };
+    const pt = boardPctFromPointer(boardContainerRef.current, e);
+    return { x: Math.max(0, Math.min(100, pt.x)), y: Math.max(0, Math.min(100, pt.y)) };
   };
   const finishMarquee = (e) => {
     const st = marqueeStartRef.current;
@@ -9323,6 +9339,57 @@ export default function Wh40kCalculator({ session }) {
       /* storage blocked - the mode still works for this session */
     }
   };
+  // View-only rotation (0/90/180/270) and zoom of the board; the data itself
+  // never changes, so the saved board looks the same when turned back.
+  const [viewRot, setViewRot] = useState(() => {
+    try {
+      const v = Number(localStorage.getItem("board_view_rot_v1"));
+      return [0, 90, 180, 270].includes(v) ? v : 0;
+    } catch (e) {
+      return 0;
+    }
+  });
+  const rotateBoardView = () => {
+    const next = (viewRot + 90) % 360;
+    setViewRot(next);
+    try {
+      localStorage.setItem("board_view_rot_v1", String(next));
+    } catch (e) {
+      /* storage blocked - the rotation still applies for this session */
+    }
+  };
+  const [boardZoom, setBoardZoom] = useState(1);
+  const boardScrollRef = useRef(null);
+  const boardSizedRef = useRef(null);
+  const zoomAnchorRef = useRef(null);
+  // Zoom around a point of the visible area (px relative to the scroll box),
+  // so that spot stays under the cursor/centre.
+  const zoomBoardTo = (nextZoom, px, py) => {
+    const sc = boardScrollRef.current;
+    const sized = boardSizedRef.current;
+    const z = Math.min(4, Math.max(1, Math.round(nextZoom * 100) / 100));
+    if (sc && sized) {
+      const rectW = sized.offsetWidth || 1;
+      const rectH = sized.offsetHeight || 1;
+      const cx = px === undefined ? sc.clientWidth / 2 : px;
+      const cy = py === undefined ? sc.clientHeight / 2 : py;
+      zoomAnchorRef.current = { fx: (sc.scrollLeft + cx) / rectW, fy: (sc.scrollTop + cy) / rectH, px: cx, py: cy };
+    }
+    setBoardZoom(z);
+  };
+  const zoomBoardToRef = useRef(null);
+  zoomBoardToRef.current = zoomBoardTo;
+  const boardZoomRef = useRef(1);
+  boardZoomRef.current = boardZoom;
+  useLayoutEffect(() => {
+    const a = zoomAnchorRef.current;
+    const sc = boardScrollRef.current;
+    const sized = boardSizedRef.current;
+    if (!a || !sc || !sized) return;
+    sc.scrollLeft = a.fx * sized.offsetWidth - a.px;
+    sc.scrollTop = a.fy * sized.offsetHeight - a.py;
+    zoomAnchorRef.current = null;
+  }, [boardZoom, viewRot]);
   const [selectedTokenIds, setSelectedTokenIds] = useState([]);
   const [marquee, setMarquee] = useState(null);
   const marqueeStartRef = useRef(null);
@@ -9453,6 +9520,16 @@ export default function Wh40kCalculator({ session }) {
     let lastId = null;
     let lastAt = 0;
     const onWheel = (e) => {
+      // Ctrl/Cmd + wheel (also a trackpad pinch) zooms the board around the cursor.
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        const sc = boardScrollRef.current;
+        if (sc) {
+          const r = sc.getBoundingClientRect();
+          zoomBoardToRef.current(boardZoomRef.current * (e.deltaY < 0 ? 1.15 : 1 / 1.15), e.clientX - r.left, e.clientY - r.top);
+        }
+        return;
+      }
       const tokEl = e.target.closest ? e.target.closest("[data-token-id]") : null;
       const now = Date.now();
       let id = tokEl ? tokEl.getAttribute("data-token-id") : null;
@@ -12272,6 +12349,38 @@ export default function Wh40kCalculator({ session }) {
             >
               {moveWholeUnit ? "Táhne celá jednotka" : "Táhne jeden model"}
             </button>
+            <button
+              onClick={rotateBoardView}
+              title="Otočit pohled na desku o 90° (jen vzhled, data se nemění)"
+              style={{ display: "flex", alignItems: "center", gap: 5, border: "1px solid var(--field-border)", background: "transparent", color: "var(--text)", borderRadius: 6, padding: "5px 8px", fontSize: 11, fontWeight: 600, cursor: "pointer" }}
+            >
+              <RotateCw size={13} /> Otočit {viewRot}°
+            </button>
+            <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
+              <button
+                onClick={() => zoomBoardTo(boardZoom / 1.25)}
+                disabled={boardZoom <= 1}
+                title="Oddálit"
+                style={{ display: "flex", border: "1px solid var(--field-border)", background: "transparent", color: boardZoom <= 1 ? "var(--muted)" : "var(--text)", borderRadius: 6, padding: "5px 6px", cursor: boardZoom <= 1 ? "not-allowed" : "pointer" }}
+              >
+                <ZoomOut size={14} />
+              </button>
+              <button
+                onClick={() => zoomBoardTo(1)}
+                title="Zoom 100 % (Ctrl + kolečko přibližuje kolem kurzoru)"
+                style={{ border: "1px solid var(--field-border)", background: "transparent", color: "var(--text)", borderRadius: 6, padding: "5px 6px", fontSize: 11, fontWeight: 600, cursor: "pointer", minWidth: 42 }}
+              >
+                {Math.round(boardZoom * 100)} %
+              </button>
+              <button
+                onClick={() => zoomBoardTo(boardZoom * 1.25)}
+                disabled={boardZoom >= 4}
+                title="Přiblížit"
+                style={{ display: "flex", border: "1px solid var(--field-border)", background: "transparent", color: boardZoom >= 4 ? "var(--muted)" : "var(--text)", borderRadius: 6, padding: "5px 6px", cursor: boardZoom >= 4 ? "not-allowed" : "pointer" }}
+              >
+                <ZoomIn size={14} />
+              </button>
+            </div>
             <div style={{ flex: 1 }} />
             <span style={{ fontSize: 11, color: "var(--muted)", fontFamily: "var(--mono)" }}>
               {board.widthIn}×{board.heightIn}″
@@ -12292,7 +12401,22 @@ export default function Wh40kCalculator({ session }) {
             </div>
           )}
           <div
+            ref={boardScrollRef}
+            style={{ width: "100%", overflow: boardZoom > 1 ? "auto" : "visible", maxHeight: boardZoom > 1 ? "88vh" : undefined, borderRadius: 8 }}
+          >
+            <div
+              ref={boardSizedRef}
+              style={{
+                position: "relative",
+                width: `${boardZoom * 100}%`,
+                maxWidth: `calc(88vh * ${viewRot % 180 === 0 ? board.widthIn : board.heightIn} / ${viewRot % 180 === 0 ? board.heightIn : board.widthIn} * ${boardZoom})`,
+                aspectRatio: viewRot % 180 === 0 ? `${board.widthIn} / ${board.heightIn}` : `${board.heightIn} / ${board.widthIn}`,
+                margin: "0 auto",
+              }}
+            >
+          <div
             ref={boardContainerRef}
+            data-view-rot={viewRot}
             className="wh40k-board"
             data-grid={showBoardGrid ? "1" : undefined}
             onPointerDown={(e) => {
@@ -12307,9 +12431,7 @@ export default function Wh40kCalculator({ session }) {
               }
               e.currentTarget.setPointerCapture(e.pointerId);
               drawStrokeActiveRef.current = true;
-              const rect = boardContainerRef.current.getBoundingClientRect();
-              const xPct = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
-              const yPct = Math.max(0, Math.min(100, ((e.clientY - rect.top) / rect.height) * 100));
+              const { x: xPct, y: yPct } = boardPctPoint(e);
               lastDrawPointRef.current = { x: xPct, y: yPct };
               addDrawPoint(xPct, yPct);
             }}
@@ -12321,9 +12443,7 @@ export default function Wh40kCalculator({ session }) {
                 return;
               }
               if (!drawMode || !drawStrokeActiveRef.current) return;
-              const rect = boardContainerRef.current.getBoundingClientRect();
-              const xPct = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
-              const yPct = Math.max(0, Math.min(100, ((e.clientY - rect.top) / rect.height) * 100));
+              const { x: xPct, y: yPct } = boardPctPoint(e);
               const last = lastDrawPointRef.current;
               // Sample by distance, not by every pointermove event — a fast
               // drag can fire dozens of these a second, which would flood
@@ -12353,20 +12473,16 @@ export default function Wh40kCalculator({ session }) {
               }
             }}
             style={{
-              position: "relative",
-              width: "100%",
-              // Cap how tall a portrait-shaped board (e.g. 44x60") can render
-              // — without this, "width: 100%" alone forces the height to
-              // whatever the aspect ratio demands, which can run to way more
-              // than a screen's height and turn the page into an endless
-              // scroll. 88vh keeps the whole board on screen on most
-              // displays while still using most of it; the aspect-ratio then
-              // also caps the width so it never overflows the column either.
-              maxWidth: `calc(88vh * ${board.widthIn} / ${board.heightIn})`,
+              position: "absolute",
+              left: "50%",
+              top: "50%",
+              // Pre-rotation size: for a quarter turn the box is turned so
+              // that, rotated, it exactly fills the wrapper (see boardSizedRef).
+              width: viewRot % 180 === 0 ? "100%" : `${(board.widthIn / board.heightIn) * 100}%`,
+              transform: `translate(-50%, -50%) rotate(${viewRot}deg)`,
               "--bw": board.widthIn,
               "--bh": board.heightIn,
               aspectRatio: `${board.widthIn} / ${board.heightIn}`,
-              margin: "0 auto",
               background: "#2b3a2e",
               backgroundImage: showBoardGrid
                 ? "repeating-linear-gradient(to right, rgba(255,255,255,0.18) 0, rgba(255,255,255,0.18) 1px, transparent 1px, transparent 100%), repeating-linear-gradient(to bottom, rgba(255,255,255,0.18) 0, rgba(255,255,255,0.18) 1px, transparent 1px, transparent 100%)"
@@ -12415,7 +12531,7 @@ export default function Wh40kCalculator({ session }) {
                       position: "absolute",
                       left: `${(n / board.widthIn) * 100}%`,
                       top: 1,
-                      transform: "translateX(2px)",
+                      transform: `translateX(2px) rotate(${-viewRot}deg)`,
                       fontSize: 8,
                       lineHeight: 1,
                       color: "rgba(255,255,255,0.55)",
@@ -12433,7 +12549,7 @@ export default function Wh40kCalculator({ session }) {
                       position: "absolute",
                       top: `${(n / board.heightIn) * 100}%`,
                       left: 1,
-                      transform: "translateY(2px)",
+                      transform: `translateY(2px) rotate(${-viewRot}deg)`,
                       fontSize: 8,
                       lineHeight: 1,
                       color: "rgba(255,255,255,0.55)",
@@ -12520,6 +12636,7 @@ export default function Wh40kCalculator({ session }) {
                   sizePctW={sizePctW}
                   sizePctH={sizePctH}
                   rectBase={baseMm.rect}
+                  viewRot={viewRot}
                   selected={t.id === boardAttackerTokenId}
                   multiSelected={selectedTokenIds.includes(t.id)}
                   onDragStart={beginTokenDrag}
@@ -12563,6 +12680,8 @@ export default function Wh40kCalculator({ session }) {
                 }}
               />
             )}
+          </div>
+            </div>
           </div>
 
           {selectedTerrainId &&
