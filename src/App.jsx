@@ -7909,7 +7909,7 @@ function ManualView({ onBack }) {
 
       <ManualSection num="08" title="Deska">
         <ManualP>
-          <ManualPath>Deska</ManualPath> — vizuální bojiště na míru. Zaškrtni jednotky z knihovny do <b>Moje jednotky</b> nebo <b>Jednotky protihráče</b> — objeví se jako token, přetáhni ho na místo. Velikost tokenu vychází z base size jednotky — přímo u jednotky v knihovně je malý rozklikávací seznam se standardními velikostmi (25 až 160mm kulaté, plus běžné oválné jako 90×52mm), není potřeba kvůli tomu otvírat celou editaci.
+          <ManualPath>Deska</ManualPath> — vizuální bojiště na míru. Zaškrtni jednotky z knihovny do <b>Moje jednotky</b> nebo <b>Jednotky protihráče</b> — objeví se jako token, přetáhni ho na místo. Nad seznamem vybereš uloženou armádu (třeba z New Recruit) — seznam se zúží na její jednotky a „Dát celou armádu na desku“ je rozmístí najednou; „Nahrát z New Recruit (JSON)“ nahraje nový export rovnou na tuhle stranu i s base sizy ze sloupce Base. Velikost tokenu vychází z base size jednotky — přímo u jednotky v knihovně je malý rozklikávací seznam se standardními velikostmi (25 až 160mm kulaté, plus běžné oválné jako 90×52mm), není potřeba kvůli tomu otvírat celou editaci.
         </ManualP>
         <ManualUl
           items={[
@@ -8369,6 +8369,30 @@ export default function Wh40kCalculator({ session }) {
       tokens: [...board.tokens, { id: crypto.randomUUID(), unitId, side, xPct, yPct }],
     });
   };
+
+  // Puts every given unit on a side's baseline in one go (units already there
+  // are left alone) - used by "celou armadu na desku" and the New Recruit
+  // import on the board. Rows of 8 tokens, the next row stacked inward.
+  const addUnitsToBoardSide = (unitIds, side) => {
+    const have = new Set(board.tokens.filter((t) => t.side === side).map((t) => t.unitId));
+    const fresh = unitIds.filter((id) => !have.has(id));
+    if (fresh.length === 0) return;
+    let sideCount = board.tokens.filter((t) => t.side === side).length;
+    const tokens = [...board.tokens];
+    fresh.forEach((unitId) => {
+      const row = Math.floor(sideCount / 8);
+      tokens.push({
+        id: crypto.randomUUID(),
+        unitId,
+        side,
+        xPct: 8 + (sideCount % 8) * 11,
+        yPct: side === "mine" ? 90 - row * 9 : 10 + row * 9,
+      });
+      sideCount += 1;
+    });
+    persistBoard({ ...board, tokens });
+  };
+  const clearSideTokens = (side) => persistBoard({ ...board, tokens: board.tokens.filter((t) => t.side !== side) });
 
   const removeBoardToken = (tokenId) => persistBoard({ ...board, tokens: board.tokens.filter((t) => t.id !== tokenId) });
 
@@ -8876,18 +8900,21 @@ export default function Wh40kCalculator({ session }) {
     if (toAdd.length > 0 || baseUpdated > 0) persistLibrary([...baseUpdatedLibrary, ...toAdd]);
     setLibraryOpen(true);
 
+    let armyId = "";
     if (rosterName && rosterName.trim() && allIds.length > 0) {
       const name = rosterName.trim();
       const existingArmy = armies.find((a) => a.name === name);
       if (existingArmy) {
+        armyId = existingArmy.id;
         const mergedIds = Array.from(new Set([...existingArmy.unitIds, ...allIds]));
         persistArmies(armies.map((a) => (a.id === existingArmy.id ? { ...a, unitIds: mergedIds } : a)));
       } else {
-        persistArmies([...armies, { id: crypto.randomUUID(), name, unitIds: allIds }]);
+        armyId = crypto.randomUUID();
+        persistArmies([...armies, { id: armyId, name, unitIds: allIds }]);
       }
     }
 
-    return { added: toAdd.length, skipped, baseUpdated };
+    return { added: toAdd.length, skipped, baseUpdated, armyId, unitIds: allIds };
   };
 
   const attackerUnit = useMemo(() => library.find((u) => u.id === attackerUnitId) || null, [library, attackerUnitId]);
@@ -9062,6 +9089,8 @@ export default function Wh40kCalculator({ session }) {
   const [mapMissionA, setMapMissionA] = useState(MAP_MISSIONS[0]);
   const [mapMissionB, setMapMissionB] = useState(MAP_MISSIONS[0]);
   const [mapVariantLoaded, setMapVariantLoaded] = useState("");
+  const [boardArmySel, setBoardArmySel] = useState({ mine: "", theirs: "" });
+  const [boardImportSide, setBoardImportSide] = useState("");
   // Everything below the "Mapa" box (map creation, terrain palette, numeric
   // terrain, custom pieces, saved plinths) sits behind one toggle, closed by default.
   const [boardEditOpen, setBoardEditOpen] = useState(false);
@@ -11590,40 +11619,77 @@ export default function Wh40kCalculator({ session }) {
               this now lives in the fixed-width sidebar, which is too narrow
               for two roster panels side by side regardless of screen size. */}
           <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 10, marginBottom: 12 }}>
-            <div style={{ background: "var(--panel)", border: "1px solid var(--accent)", borderRadius: 10, padding: 12, maxHeight: 220, overflowY: "auto" }}>
-              <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--accent-text)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8, position: "sticky", top: 0, background: "var(--panel)" }}>
-                Moje jednotky
-              </div>
-              {Object.entries(groupedLibrary).map(([faction, units]) => (
-                <div key={faction} style={{ marginBottom: 8 }}>
-                  <div style={{ fontSize: 9.5, fontWeight: 700, color: "var(--amber)", textTransform: "uppercase", marginBottom: 3 }}>{faction}</div>
-                  {units.map((u) => (
-                    <label key={u.id} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, padding: "2px 0", cursor: "pointer" }}>
-                      <input type="checkbox" checked={board.tokens.some((t) => t.unitId === u.id && t.side === "mine")} onChange={() => toggleUnitOnBoard(u.id, "mine")} />
-                      {u.name}
-                    </label>
+            {[
+              ["mine", "Moje jednotky", "var(--accent)", "var(--accent-text)"],
+              ["theirs", "Jednotky protihráče", "#c0392b", "#e0857c"],
+            ].map(([side, title, borderColor, titleColor]) => {
+              const army = armies.find((a) => a.id === boardArmySel[side]);
+              const inArmy = army ? new Set(army.unitIds) : null;
+              const grouped = {};
+              (inArmy ? library.filter((u) => inArmy.has(u.id)) : library).forEach((u) => {
+                const f = u.faction || "Bez frakce";
+                if (!grouped[f]) grouped[f] = [];
+                grouped[f].push(u);
+              });
+              const sideTokens = board.tokens.filter((t) => t.side === side).length;
+              const smallBtn = { border: `1px solid ${borderColor}`, background: "transparent", color: titleColor, borderRadius: 6, padding: "4px 8px", fontSize: 11, fontWeight: 700, cursor: "pointer" };
+              return (
+                <div key={side} style={{ background: "var(--panel)", border: `1px solid ${borderColor}`, borderRadius: 10, padding: 12, maxHeight: boardImportSide === side ? 460 : 260, overflowY: "auto" }}>
+                  <div style={{ fontSize: 10.5, fontWeight: 700, color: titleColor, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8, position: "sticky", top: 0, background: "var(--panel)" }}>
+                    {title}
+                  </div>
+                  <select
+                    value={army ? army.id : ""}
+                    onChange={(e) => setBoardArmySel((st) => ({ ...st, [side]: e.target.value }))}
+                    style={{ width: "100%", marginBottom: 6, background: "var(--field-bg)", color: "var(--text)", border: "1px solid var(--field-border)", borderRadius: 6, padding: "5px 6px", fontSize: 12 }}
+                  >
+                    <option value="">Všechny jednotky z knihovny</option>
+                    {[...armies].sort((x, y) => x.name.localeCompare(y.name)).map((a) => (
+                      <option key={a.id} value={a.id}>{a.name} ({a.unitIds.length})</option>
+                    ))}
+                  </select>
+                  <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 8 }}>
+                    {army && (
+                      <button className="wh40k-btn" onClick={() => addUnitsToBoardSide(army.unitIds.filter((id) => library.some((u) => u.id === id)), side)} style={smallBtn}>
+                        Dát celou armádu na desku
+                      </button>
+                    )}
+                    {sideTokens > 0 && (
+                      <button className="wh40k-btn" onClick={() => clearSideTokens(side)} style={smallBtn}>Odebrat tokeny ({sideTokens})</button>
+                    )}
+                    <button className="wh40k-btn" onClick={() => setBoardImportSide((cur) => (cur === side ? "" : side))} style={smallBtn}>
+                      <Upload size={11} style={{ verticalAlign: "-1px" }} /> Nahrát z New Recruit (JSON)
+                    </button>
+                  </div>
+                  {boardImportSide === side && (
+                    <div style={{ marginBottom: 8 }}>
+                      <ImportBox
+                        onImport={(units, rosterName) => {
+                          const r = importFromNewRecruit(units, rosterName);
+                          if (r.armyId) setBoardArmySel((st) => ({ ...st, [side]: r.armyId }));
+                          addUnitsToBoardSide(r.unitIds, side);
+                          return r;
+                        }}
+                      />
+                    </div>
+                  )}
+                  {Object.entries(grouped).map(([faction, units]) => (
+                    <div key={faction} style={{ marginBottom: 8 }}>
+                      <div style={{ fontSize: 9.5, fontWeight: 700, color: "var(--amber)", textTransform: "uppercase", marginBottom: 3 }}>{faction}</div>
+                      {units.map((u) => (
+                        <label key={u.id} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, padding: "2px 0", cursor: "pointer" }}>
+                          <input type="checkbox" checked={board.tokens.some((t) => t.unitId === u.id && t.side === side)} onChange={() => toggleUnitOnBoard(u.id, side)} />
+                          {u.name}
+                          <span style={{ fontSize: 10, color: "var(--muted)" }}>{String(u.baseSize || 32)}mm</span>
+                        </label>
+                      ))}
+                    </div>
                   ))}
+                  {library.length === 0 && <div style={{ fontSize: 12, color: "var(--muted)" }}>Knihovna je prázdná — nahraj armádu z New Recruit tlačítkem výše.</div>}
+                  {library.length > 0 && Object.keys(grouped).length === 0 && <div style={{ fontSize: 12, color: "var(--muted)" }}>V téhle armádě nejsou žádné jednotky z knihovny.</div>}
                 </div>
-              ))}
-              {library.length === 0 && <div style={{ fontSize: 12, color: "var(--muted)" }}>Knihovna je prázdná.</div>}
-            </div>
-            <div style={{ background: "var(--panel)", border: "1px solid #c0392b", borderRadius: 10, padding: 12, maxHeight: 220, overflowY: "auto" }}>
-              <div style={{ fontSize: 10.5, fontWeight: 700, color: "#e0857c", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8, position: "sticky", top: 0, background: "var(--panel)" }}>
-                Jednotky protihráče
-              </div>
-              {Object.entries(groupedLibrary).map(([faction, units]) => (
-                <div key={faction} style={{ marginBottom: 8 }}>
-                  <div style={{ fontSize: 9.5, fontWeight: 700, color: "var(--amber)", textTransform: "uppercase", marginBottom: 3 }}>{faction}</div>
-                  {units.map((u) => (
-                    <label key={u.id} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, padding: "2px 0", cursor: "pointer" }}>
-                      <input type="checkbox" checked={board.tokens.some((t) => t.unitId === u.id && t.side === "theirs")} onChange={() => toggleUnitOnBoard(u.id, "theirs")} />
-                      {u.name}
-                    </label>
-                  ))}
-                </div>
-              ))}
-              {library.length === 0 && <div style={{ fontSize: 12, color: "var(--muted)" }}>Knihovna je prázdná.</div>}
-            </div>
+              );
+            })}
           </div>
             </div>
 
