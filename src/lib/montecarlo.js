@@ -212,7 +212,10 @@ function resolveWeapon(pw, state, rng) {
 
   let dealt = 0;
   for (let i = 0; i < failedSaves; i++) dealt += applyDamage(state, afterFnp(rollDamage(), pw.fnpProb, rng), false);
-  for (let i = 0; i < devWounds; i++) dealt += applyDamage(state, afterFnp(rollDamage(), pw.fnpProb, rng), true);
+  // Devastating Wounds: mortal wounds that carry over to the next model (10th)
+  // or are applied to one model with the excess lost (11th).
+  const devSpill = s.devastatingSpill !== false;
+  for (let i = 0; i < devWounds; i++) dealt += applyDamage(state, afterFnp(rollDamage(), pw.fnpProb, rng), devSpill);
   return dealt;
 }
 

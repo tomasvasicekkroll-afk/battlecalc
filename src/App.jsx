@@ -36,6 +36,7 @@ import {
 } from "lucide-react";
 import { storage } from "./lib/storage";
 import { runMonteCarlo } from "./lib/montecarlo";
+import { RULESETS, DEFAULT_EDITION, normalizeEdition, RulesContext, useRules } from "./lib/rules";
 import { supabase } from "./lib/supabaseClient";
 
 const REROLL_OPTIONS = [
@@ -4344,8 +4345,16 @@ function autoDetectBonus(unit) {
 // ---------------------------------------------------------------------------
 // Core probability math for a single weapon profile vs a defender profile
 // ---------------------------------------------------------------------------
-export function computeWeapon(weapon, modelCount, def, bonus) {
+export function computeWeapon(weapon, modelCount, def, bonus, rules = RULESETS[DEFAULT_EDITION], skipLethalChoice = false) {
   const b = bonus || emptyBonus();
+  // 11th edition: Lethal Hits is optional. With Devastating Wounds on the same
+  // weapon the attacker picks whichever is better - auto-wounding the critical
+  // hits, or rolling them to wound so they can become Critical Wounds.
+  if (rules.lethalHitsOptional && !skipLethalChoice && weapon.devastatingWounds && (weapon.lethalHits || b.lethalHits)) {
+    const withLethal = computeWeapon(weapon, modelCount, def, b, rules, true);
+    const withoutLethal = computeWeapon({ ...weapon, lethalHits: false }, modelCount, def, { ...b, lethalHits: false }, rules, true);
+    return withoutLethal.totalDamage > withLethal.totalDamage ? { ...withoutLethal, lethalChoice: "wound-roll" } : { ...withLethal, lethalChoice: "auto-wound" };
+  }
   // Some units (e.g. GMNDK) can re-roll all hit and wound rolls specifically
   // against a keyword like MONSTER/VEHICLE — distinct from Anti-X, which
   // instead lowers the auto-wound threshold.
@@ -4385,7 +4394,10 @@ export function computeWeapon(weapon, modelCount, def, bonus) {
     devastatingWounds: !!weapon.devastatingWounds,
     antiKeyword: weapon.antiKeyword || "none",
     antiValue: weapon.antiValue || 0,
-    rerollHit: betterReroll(betterReroll(weapon.rerollHit || "none", b.rerollHit), rerollKeywordActive ? "all" : "none"),
+    rerollHit:
+      b.fireOverwatch && !rules.overwatchRerolls
+        ? "none"
+        : betterReroll(betterReroll(weapon.rerollHit || "none", b.rerollHit), rerollKeywordActive ? "all" : "none"),
     rerollWound: betterReroll(betterReroll(weapon.rerollWound || "none", b.rerollWound), rerollKeywordActive ? "all" : "none"),
   };
 
@@ -4393,7 +4405,8 @@ export function computeWeapon(weapon, modelCount, def, bonus) {
   // Benefit of Cover (11th ed.): -1 to the attacker's Ballistic Skill against
   // ranged attacks — def.benefitOfCover is only ever set on the ranged
   // defender profile, so this naturally never applies to melee weapons.
-  const coverPenalty = def.benefitOfCover ? 1 : 0;
+  const coverPenalty = rules.coverMode === "hit" && def.benefitOfCover ? 1 : 0;
+  const rerollOneHit = !!weapon.rerollOneHit && !(b.fireOverwatch && !rules.overwatchRerolls);
   // Fire Overwatch stratagem: the unit can only score a hit on an unmodified
   // hit roll of 6 — ignores the weapon's normal BS and every hit modifier
   // (including cover above). Reusing effectiveHitX = 6 for this means every
@@ -4430,7 +4443,7 @@ export function computeWeapon(weapon, modelCount, def, bonus) {
   // attempt, not a blanket reroll — modeled as: chance there was at least one
   // failure among this attack's hit rolls, times the chance of succeeding on
   // that one reroll.
-  const rerollOneHitBonus = weapon.rerollOneHit && attacks > 0 ? (1 - (1 - pHitAdj) ** attacks) * pHitAdj : 0;
+  const rerollOneHitBonus = rerollOneHit && attacks > 0 ? (1 - (1 - pHitAdj) ** attacks) * pHitAdj : 0;
   const hitsTotal = hitsNormal + sustainedExtra + rerollOneHitBonus;
 
   const S = att.strength;
@@ -4487,7 +4500,9 @@ export function computeWeapon(weapon, modelCount, def, bonus) {
   const normalWoundsPortion = woundsTotal - devWounds;
 
   const apAbs = Math.abs(att.ap);
-  const normalSave = Math.min(def.save + apAbs, 7);
+  let normalSave = Math.min(def.save + apAbs, 7);
+  // 10th edition cover: +1 to the armour save, but not for Sv 3+ or better against AP 0.
+  if (rules.coverMode === "save" && def.benefitOfCover && !(def.save <= 3 && apAbs === 0)) normalSave = Math.max(2, normalSave - 1);
   const effSave = def.invul > 0 && def.invul < normalSave ? def.invul : normalSave;
   const pSaveSuccessBase = Math.min(1, Math.max(0, (7 - effSave) / 6));
   // Re-roll Saving Throws (defender ability) — same "ones" vs "all" reroll
@@ -4556,7 +4571,7 @@ export function computeWeapon(weapon, modelCount, def, bonus) {
     hitX: effectiveHitX,
     critHitsOn: att.critHitsOn,
     rerollHit: att.rerollHit,
-    rerollOneHit: !!weapon.rerollOneHit,
+    rerollOneHit,
     lethalHits: !!att.lethalHits,
     sustained: att.sustained,
     woundNeed,
@@ -4564,6 +4579,7 @@ export function computeWeapon(weapon, modelCount, def, bonus) {
     rerollWound: att.rerollWound,
     rerollOneWound: !!weapon.rerollOneWound,
     devastatingWounds: att.devastatingWounds,
+    devastatingSpill: rules.devastatingSpill,
     effSave,
     saveReroll: def.saveReroll || "none",
     damageMean: weapon.damage,
@@ -4615,7 +4631,7 @@ function pickByType(value, type) {
   return value;
 }
 
-export function computeUnitVsUnit(attackerUnit, def, bonus) {
+export function computeUnitVsUnit(attackerUnit, def, bonus, rules = RULESETS[DEFAULT_EDITION]) {
   let rangedDamage = 0;
   let meleeDamage = 0;
   let killedModels = 0;
@@ -4627,7 +4643,7 @@ export function computeUnitVsUnit(attackerUnit, def, bonus) {
     (member.weapons || []).forEach((weapon) => {
       const d = pickByType(def, weapon.type);
       const b = pickByType(bonus, weapon.type);
-      const r = computeWeapon(weapon, clampNum(member.count), d, b);
+      const r = computeWeapon(weapon, clampNum(member.count), d, b, rules);
       if (weapon.type === "melee") meleeDamage += r.totalDamage;
       else rangedDamage += r.totalDamage;
       killedModels += r.killedModels;
@@ -7840,12 +7856,25 @@ function BonusFieldsGroup({ bonus, setBonus, isRanged }) {
   );
 }
 
+// Cover works differently per edition (see lib/rules.js), so the label says which.
+const coverLabel = (rules) => (rules.coverMode === "hit" ? "Benefit of Cover (-1 BS)" : "Benefit of Cover (+1 save)");
+
+// Which rules edition a calculation used, as a small chip.
+function EditionChip({ rules }) {
+  return (
+    <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: 0.5, color: "var(--accent-text)", border: "1px solid var(--field-border)", borderRadius: 999, padding: "1px 7px", textTransform: "uppercase" }}>
+      {rules.label}
+    </span>
+  );
+}
+
 // Cheat sheet only: the offensive fields above (BonusFieldsGroup) plus the
 // defensive ones a "Debuffy obránce" panel used to have on its own — merged
 // so either slot panel can hold both, letting values follow an army through
 // a "Prohodit útočníky a cíle" swap. `mod` is one type-slice (ranged/melee)
 // of a slot's modifiers (see emptyFullModifier).
 function FullModifierFields({ mod, setMod, isRanged }) {
+  const rules = useRules();
   return (
     <>
       <BonusFieldsGroup bonus={mod} setBonus={setMod} isRanged={isRanged} />
@@ -7861,7 +7890,7 @@ function FullModifierFields({ mod, setMod, isRanged }) {
         <ToggleField label="Debuff: -1 WR pokud S > T" value={mod.woundDebuff} onChange={(v) => setMod((s) => ({ ...s, woundDebuff: v }))} small />
         {isRanged && (
           <ToggleField
-            label="Benefit of Cover (-1 BS)"
+            label={coverLabel(rules)}
             value={mod.benefitOfCover}
             onChange={(v) => setMod((s) => ({ ...s, benefitOfCover: v }))}
             hint="jen na dálku"
@@ -8126,7 +8155,8 @@ function ManualView({ onBack }) {
           items={[
             <><b>Připojit vůdce</b> — dočasně spojí jednotku s postavou z knihovny (jen pro tenhle výpočet).</>,
             <><b>Bonusy na dálku / na blízko zvlášť</b> — Lethal Hits, Sustained, přehoz zásahu/zranění, modifikátor hit rollu, wound rollu, AP bonus, mortal wounds navíc.</>,
-            <><b>Fire Overwatch</b> — jen bonusy na dálku. Zásah jen na neupravenou 6, ignoruje ostatní hit modifikátory (přesně dle strategemu).</>,
+            <><b>Fire Overwatch</b> — jen bonusy na dálku. Zásah jen na neupravenou 6, ignoruje ostatní hit modifikátory. V 11. edici (Snap Shooting) se navíc nepřehazuje hod na zásah.</>,
+            <><b>Edice pravidel</b> — Nastavení → Edice pravidel. 11. edice: cover dává −1 k hodu na zásah (10.: +1 k save, ne pro Sv 3+ a lepší proti AP 0); Lethal Hits je volitelný, takže u zbraně s Devastating Wounds kalkulačka vybere výhodnější z obou možností; zranění z Devastating Wounds nepřetéká na další model. Pravidla 11. edice jsou ze sekundárních shrnutí, ověř je v oficiální příručce.</>,
             <><b>Profil zbraně</b> — pokud má zbraň víc profilů (např. Sweep/Strike), zvolíš který se použije.</>,
             <><b>Melta</b> — přepínač „v polovičním dosahu“ u zbraní s Meltou X.</>,
             <><b>Rapid Fire</b> — přepínač „v polovičním dosahu“ u zbraní s Rapid Fire X (přidá X útoků).</>,
@@ -8404,6 +8434,24 @@ export default function Wh40kCalculator({ session }) {
       localStorage.setItem("ui_theme_v1", t);
     } catch (e) {
       /* storage blocked - the theme still applies for this session */
+    }
+  };
+  // Rules edition (10th / 11th): per device, like the theme. Everything the
+  // calculation depends on is in lib/rules.js.
+  const [edition, setEdition] = useState(() => {
+    try {
+      return normalizeEdition(localStorage.getItem("battlecalc:edition"));
+    } catch (e) {
+      return DEFAULT_EDITION;
+    }
+  });
+  const rules = RULESETS[edition];
+  const chooseEdition = (e) => {
+    setEdition(e);
+    try {
+      localStorage.setItem("battlecalc:edition", e);
+    } catch (err) {
+      /* storage blocked - the edition still applies for this session */
     }
   };
   const [forceCompact, setForceCompact] = useState(() => {
@@ -9749,8 +9797,9 @@ export default function Wh40kCalculator({ session }) {
         saveReroll: defenderSaveReroll.melee,
       }),
     };
-    return computeUnitVsUnit(effectiveAttackerUnit, defByType, attackerBonus);
+    return computeUnitVsUnit(effectiveAttackerUnit, defByType, attackerBonus, rules);
   }, [
+    rules,
     effectiveAttackerUnit,
     defenderUnit,
     attackerBonus,
@@ -9783,7 +9832,7 @@ export default function Wh40kCalculator({ session }) {
 
         // Baseline: only whatever the units already have built in (weapon abilities,
         // the defender's own stored FNP / debuff) — no cheat-sheet panel involved.
-        const baseRes = computeUnitVsUnit(att, defenderProfile(tgt), ZERO_BONUS);
+        const baseRes = computeUnitVsUnit(att, defenderProfile(tgt), ZERO_BONUS, rules);
 
         // Boosted: same units, plus whatever the cheat-sheet panel adds on top
         // (attacker bonuses merge with each weapon's own abilities; defender FNP/
@@ -9807,7 +9856,7 @@ export default function Wh40kCalculator({ session }) {
             saveReroll: cheatSlotB.melee.saveReroll,
           }),
         };
-        const boostedRes = computeUnitVsUnit(att, boostedProfile, { ranged: cheatSlotA.ranged, melee: cheatSlotA.melee });
+        const boostedRes = computeUnitVsUnit(att, boostedProfile, { ranged: cheatSlotA.ranged, melee: cheatSlotA.melee }, rules);
 
         const baseStats = computeSurvivalStats(baseRes, tgt, tgtModels);
         const boostedStats = computeSurvivalStats(boostedRes, tgt, tgtModels);
@@ -9819,7 +9868,7 @@ export default function Wh40kCalculator({ session }) {
         };
       }),
     }));
-  }, [library, cheatAttackerIds, cheatTargetIds, cheatSlotA, cheatSlotB]);
+  }, [rules, library, cheatAttackerIds, cheatTargetIds, cheatSlotA, cheatSlotB]);
 
   const groupedLibrary = useMemo(() => {
     const g = {};
@@ -10050,6 +10099,7 @@ export default function Wh40kCalculator({ session }) {
   };
 
   return (
+    <RulesContext.Provider value={rules}>
     <div
       className={`wh40k-shell${forceCompact ? " wh40k-compact" : ""}${uiTheme === "tactical" ? " wh40k-theme-tactical" : ""}`}
       style={{
@@ -10293,6 +10343,34 @@ export default function Wh40kCalculator({ session }) {
                 {session.user.email}
               </div>
             )}
+            <div style={{ padding: "6px 10px 8px", borderBottom: "1px solid var(--field-border)", marginBottom: 4 }}>
+              <div style={{ fontSize: 10.5, color: "var(--muted)", marginBottom: 5, textTransform: "uppercase", letterSpacing: 0.5, fontWeight: 700 }}>Edice pravidel</div>
+              <div style={{ display: "flex", gap: 6 }}>
+                {Object.values(RULESETS).map((r) => (
+                  <button
+                    key={r.id}
+                    onClick={() => chooseEdition(r.id)}
+                    aria-pressed={edition === r.id}
+                    style={{
+                      flex: 1,
+                      border: `1px solid ${edition === r.id ? "var(--accent)" : "var(--field-border)"}`,
+                      background: edition === r.id ? "var(--accent)" : "transparent",
+                      color: edition === r.id ? "#fff" : "var(--text)",
+                      borderRadius: 6,
+                      padding: "5px 8px",
+                      fontSize: 12,
+                      fontWeight: 700,
+                      cursor: "pointer",
+                    }}
+                  >
+                    {r.label}
+                  </button>
+                ))}
+              </div>
+              <div style={{ fontSize: 10, color: "var(--muted)", marginTop: 5, lineHeight: 1.4, maxWidth: 200 }}>
+                Mění cover, Lethal + Devastating Wounds, přetékání Devastating a Fire Overwatch. Detaily v návodu.
+              </div>
+            </div>
             <div style={{ padding: "6px 10px 8px", borderBottom: "1px solid var(--field-border)", marginBottom: 4 }}>
               <div style={{ fontSize: 10.5, color: "var(--muted)", marginBottom: 5, textTransform: "uppercase", letterSpacing: 0.5, fontWeight: 700 }}>Vzhled</div>
               <div style={{ display: "flex", gap: 6 }}>
@@ -10731,7 +10809,7 @@ export default function Wh40kCalculator({ session }) {
                                 small
                               />
                               <ToggleField
-                                label="Benefit of Cover (-1 BS)"
+                                label={coverLabel(rules)}
                                 value={defenderBenefitOfCover}
                                 onChange={setDefenderBenefitOfCover}
                                 hint="jen proti útokům na dálku"
@@ -10802,7 +10880,9 @@ export default function Wh40kCalculator({ session }) {
                 className="wh40k-hero-card"
                 style={{ background: "var(--panel)", border: "1px solid var(--field-border)", borderRadius: 14, padding: "18px 18px", boxShadow: "0 0 0 1px rgba(47,143,232,0.12), 0 8px 24px rgba(0,0,0,0.25)" }}
               >
-                <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--accent-text)", textTransform: "uppercase", letterSpacing: 0.9, marginBottom: 4, position: "relative" }}>Výsledek</div>
+                <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--accent-text)", textTransform: "uppercase", letterSpacing: 0.9, marginBottom: 4, position: "relative", display: "flex", alignItems: "center", gap: 8 }}>
+                  Výsledek <EditionChip rules={rules} />
+                </div>
                 <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 12, position: "relative" }}>
                   {effectiveAttackerUnit.name} → {defenderUnit.name}
                 </div>
@@ -13013,5 +13093,6 @@ export default function Wh40kCalculator({ session }) {
         </div>
       )}
     </div>
+    </RulesContext.Provider>
   );
 }
