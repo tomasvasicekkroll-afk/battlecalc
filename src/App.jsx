@@ -33,10 +33,12 @@ import {
   ArrowLeftRight,
   Map as MapIcon,
   Copy,
+  Eye,
 } from "lucide-react";
 import { storage } from "./lib/storage";
 import { runMonteCarlo } from "./lib/montecarlo";
 import { rosterBytesToText } from "./lib/roster";
+import { buildBlockers, blocksByDefault, tokenGeometry, computeLineOfSight } from "./lib/los";
 import { RULESETS, DEFAULT_EDITION, normalizeEdition, RulesContext, useRules } from "./lib/rules";
 import { supabase } from "./lib/supabaseClient";
 
@@ -8325,6 +8327,7 @@ function ManualView({ onBack }) {
             <><b>Nakreslit vlastní výsadek</b> — klikni „Nakreslit mou zónu“, pak stiskni na desce a táhni jako štětcem (min. 3 body), a klikni Dokončit. „Zóna protihráče“ se sama dopočítá jako tvar otočený o 180° přes střed desky (diagonálně, ne jen prosté zrcadlo nahoru/dolů). „Zpět na vybrané rozložení“ obě strany zase vrátí na tvar aktuálně vybrané kartičky. Čísla po 5 palcích podél okrajů desky se zapínají/vypínají spolu s mřížkou.</>,
             <><b>Zóna čísly (v palcích)</b> — pod tlačítkem pro kreslení je box Moje zóna se dvěma obdélníky (Obdélník 1 a 2) — zadej jim Od X/Y a Do X/Y podle čísel na okraji desky a klikni na tlačítko Nastavit. Oba obdélníky se spojí do jedné zóny, takže jde postavit i L-tvar nebo schod, ne jen jeden obdélník. „Zóna protihráče“ se vždy dopočítá automaticky jako diagonální (o 180° otočený) protějšek — nezadává se ručně.</>,
             <><b>Trojúhelník a kruhová výseč čísly</b> — pod obdélníky jsou další dva boxy: Trojúhelník (tři rohy, každý svým X/Y) a Kruhová výseč (střed X/Y, poloměr od/do, úhel od/do ve stupních — 0° doprava, 90° dolů; poloměr „od“ 0 = bez otvoru uprostřed; zaškrtnutím „Opačně“ se z výseče stane celý výsek od středu ven s vykrojeným kruhem, tlačítko „Čtvrtina bez kruhu 9″“ to nastaví jedním klikem). Každý má vlastní tlačítko Nastavit a nahradí celou „Moji zónu“ (nekombinuje se s obdélníky). „Zóna protihráče“ se i tady vždy dopočítá jako diagonální protějšek.</>,
+            <><b>Line of sight</b> — tlačítko v liště nad deskou. Zapni ho, klikni na model a appka z celé jeho jednotky natáhne čáry ke všem nepřátelským modelům: zeleně = někdo z jednotky na ně vidí, červeně čárkovaně = blokuje terén. Vedle je souhrn po jednotkách (plně / částečně / nevidí). Pravidlo: čára může vést z kterékoli části podstavce na kteroukoli část cíle; terén blokuje výhled, ale model stojící uvnitř daného kusu terénu z něj vidí ven i dovnitř. Jiné modely výhled neblokují. Co terén blokuje, nastavíš u kusu terénu („Blokuje výhled“) — objektivy a podložky neblokují nikdy. Pozor: platí zjednodušení „ruiny blokují“, ověř si u konkrétní mapy a edice pravidel.</>,
             <><b>Rychlý souboj</b> — klikni na svůj token, pak na token protihráče. Appka spočítá zabité modely/damage jen z vestavěných schopností obou jednotek (žádné bonusy). „Otevřít v kalkulačce“ tě přenese do plné kalkulačky s modifikátory.</>,
             <><b>Terén (stavebnice)</b> — klikni na Ruina/T obrys (bez podložky)/Objektiv domácí červený/Objektiv domácí modrý/Objektiv střed/Objektiv expanze/Short line full/Short line full 1/Short line full 2/Short line full 3/Short line full 4/Short line full 5/Short line full 6/Short line full kombi/Short line full combi 2/Short line full combi 3/Short line full combi 4/Short line full combi 5/Short line full combi 6/Short line full combi 7/Short line full combi 8/Short line full combi 9/Short line full combi 10/Short line full combi 11/Short line/Short line 1/Short line 2/Short line 3/Short line 4/Short line 5/Short line 6/Short line 7/Short line 8/Ruin diag A/Ruin diag B/Triangle/Triangle 1/Triangle 2/Triangle 3/Triangle 4/Triangle 5/Triangle 6/Triangle 7/Triangle 8/Triangle 9/Triangle 10/Triangle 11/Triangle 12/Triangle 13/Triangle 14/Triangle 15/Triangle 16/Triangle 17/Medium rectangle full/Medium rectangle full 1/Medium rectangle full 2/Medium rectangle full 3/Medium rectangle full 4/Medium rectangle full 5/Medium rectangle full 6/Medium rectangle full 7/Medium rectangle full 8/Medium rectangle full 9/Medium rectangle full 10/Medium rectangle full 11/Medium rectangle open 1/Medium rectangle open 2/Medium rectangle open 3/Medium rectangle open 4/Medium rectangle open 5/Medium rectangle open 6/Medium rectangle open 7/Medium rectangle open 8/Medium rectangle open 9/Medium rectangle open 10/Medium rectangle open 11/Medium rectangle open 12/Medium rectangle open 13/Medium rectangle 1/Large rectangle/Large rectangle 1/Large rectangle 2/Large rectangle 3/Large rectangle 4/Large rectangle 5/Large rectangle 6/Large rectangle 7/Large rectangle 8/Large rectangle 9/Large rectangle 10/Large rectangle 15–58/Zeď/Kráter/Les/Kontejner pro přidání kusu doprostřed desky, pak ho přetáhni na místo. „Large rectangle", „Large rectangle 1–10, 15–37", „Medium rectangle 1" i „Short line full kombi" jsou jeden pevný modul — podložka se zídkami, táhne/otáčí/škáluje se najednou. Klik na terén otevře dole šířku/výšku/otočení; odebereš ho dvojklikem, tlačítkem Odebrat, nebo klávesou Delete / Backspace, když je vybraný. Kus, který nechceš mít v paletě, smažeš popelnicí vedle něj; „Obnovit smazané“ je vrátí. Úplně nahoře v Desce vybereš, co hraješ („Já hraju“) a proti čemu („Proti“) — Take and Hold, Purge the Foe, Reconnaissance, Priority Assets nebo Disruption (pořadí je jedno) — a pak variantu A, B nebo C: jedním klikem se načte celá mapa (zónu i terén); všechny mají navíc značky objektivů (vlastní: čtverec = domácí, kroužek = střed, kosočtverec = expanze). Všechno ostatní pod tím (tvorba mapy, paleta terénu, Terén čísly, vlastní terén, Moje podložky) je schované pod rozbalovátkem „Úpravy mapy a terénu“. Vybraný kus zkopíruješ tlačítkem „Kopírovat kus“ nebo klávesou Ctrl+D (případně Ctrl+C a Ctrl+V). Pod rozměry je „Umístit bod“: vyber roh (nebo střed) kusu a zadej jeho X/Y v palcích — měří se vždy od odpovídajících okrajů desky (pravý roh od pravého okraje, dolní roh od dolního okraje atd., střed od levého a horního), počítá se i s otočením.</>,
             <><b>Uložit jako skupinu</b> — když máš na desce rozestavěno víc kusů (třeba ruinu se zdí a zelení), objeví se pole „Uložit N kusů jako skupinu". Pojmenuj a ulož → skupina se přidá do palety jako jeden kus. Klik na ni pak vysype celé to rozestavění zpět na desku (kusy zůstávají samostatně přetažitelné). „Smazat" u skupiny funguje jako u ostatních vlastních typů.</>,
@@ -9757,7 +9760,45 @@ export default function Wh40kCalculator({ session }) {
   // terrain, custom pieces, saved plinths) sits behind one toggle, closed by default.
   const [boardEditOpen, setBoardEditOpen] = useState(false);
 
+  // Line of sight: in this mode a click on a model picks the observing unit
+  // (instead of the quick-fight attacker) and lines are drawn to every enemy model.
+  const [losMode, setLosMode] = useState(false);
+  const [losObserverId, setLosObserverId] = useState(null);
+
+  const losData = useMemo(() => {
+    if (!losMode || !losObserverId) return null;
+    const observerToken = board.tokens.find((t) => t.id === losObserverId);
+    if (!observerToken) return null;
+    const geom = (t) => {
+      const u = library.find((x) => x.id === t.unitId);
+      return tokenGeometry(t, parseBaseSizeMm(u ? u.baseSize : 32), board.widthIn, board.heightIn);
+    };
+    const observers = board.tokens.filter((t) => t.side === observerToken.side && t.unitId === observerToken.unitId && (t.inst || 0) === (observerToken.inst || 0));
+    const targetTokens = board.tokens.filter((t) => t.side !== observerToken.side);
+    const blockers = buildBlockers(board.terrain, board.widthIn, board.heightIn, (pc) => {
+      const sh = pc.freehand
+        ? { id: "freehand", layer: "terrain", clipPath: pc.clipPath, widthIn: pc.widthIn, heightIn: pc.heightIn }
+        : TERRAIN_SHAPES.find((x) => x.id === pc.shapeId) || customPieceTypes.find((x) => x.id === pc.shapeId);
+      return sh;
+    });
+    const results = computeLineOfSight(observers.map(geom), targetTokens.map(geom), blockers);
+    const byUnit = new Map();
+    results.forEach((r) => {
+      const t = targetTokens.find((x) => x.id === r.targetId);
+      const key = `${t.unitId}#${t.inst || 0}`;
+      const entry = byUnit.get(key) || { key, unitId: t.unitId, total: 0, visible: 0 };
+      entry.total += 1;
+      if (r.visible) entry.visible += 1;
+      byUnit.set(key, entry);
+    });
+    return { observerToken, observerCount: observers.length, results, units: Array.from(byUnit.values()), blockerCount: blockers.length };
+  }, [losMode, losObserverId, board, library, customPieceTypes]);
+
   const handleBoardTokenSelect = (token, e) => {
+    if (losMode && !(e && (e.shiftKey || e.ctrlKey || e.metaKey))) {
+      setLosObserverId((prev) => (prev === token.id ? null : token.id));
+      return;
+    }
     if (e && (e.shiftKey || e.ctrlKey || e.metaKey)) {
       setSelectedTokenIds((cur) => (cur.includes(token.id) ? cur.filter((id) => id !== token.id) : [...cur, token.id]));
       return;
@@ -12689,11 +12730,67 @@ export default function Wh40kCalculator({ session }) {
             >
               {moveWholeUnit ? "Táhne celá jednotka" : "Táhne jeden model"}
             </button>
+            <button
+              onClick={() => {
+                setLosMode((on) => !on);
+                setLosObserverId(null);
+              }}
+              aria-pressed={losMode}
+              title="Line of sight: klikni na model a uvidíš, na které nepřátelské modely má výhled (zeleně) a kam ho blokuje terén (červeně)"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 5,
+                border: `1px solid ${losMode ? "#4ade80" : "var(--field-border)"}`,
+                background: losMode ? "rgba(74,222,128,0.14)" : "transparent",
+                color: losMode ? "#4ade80" : "var(--muted)",
+                borderRadius: 6,
+                padding: "5px 8px",
+                fontSize: 11,
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+            >
+              <Eye size={13} /> Line of sight
+            </button>
             <div style={{ flex: 1 }} />
             <span style={{ fontSize: 11, color: "var(--muted)", fontFamily: "var(--mono)" }}>
               {board.widthIn}×{board.heightIn}″
             </span>
           </div>
+
+          {losMode && (
+            <div role="status" style={{ marginBottom: 8, background: "var(--panel)", border: "1px solid #4ade80", borderRadius: 10, padding: "8px 10px", fontSize: 12 }}>
+              {!losData ? (
+                <span style={{ color: "var(--muted)" }}>
+                  Klikni na model — zobrazí se, co z jeho jednotky vidí. Zeleně = výhled, červeně čárkovaně = blokuje terén.
+                </span>
+              ) : (
+                <>
+                  <div style={{ fontWeight: 700, marginBottom: 4 }}>
+                    Výhled z: {(library.find((u) => u.id === losData.observerToken.unitId) || {}).name || "jednotka"} ({losData.observerCount} {losData.observerCount === 1 ? "model" : "modelů"})
+                  </div>
+                  {losData.units.length === 0 && <div style={{ color: "var(--muted)" }}>Na desce nejsou žádné nepřátelské modely.</div>}
+                  {losData.units.map((u) => {
+                    const name = (library.find((x) => x.id === u.unitId) || {}).name || "jednotka";
+                    const state = u.visible === 0 ? "nevidí" : u.visible === u.total ? "plně viditelná" : "částečně viditelná";
+                    const color = u.visible === 0 ? "#f87171" : u.visible === u.total ? "#4ade80" : "#fbbf24";
+                    return (
+                      <div key={u.key} style={{ display: "flex", justifyContent: "space-between", gap: 8, padding: "2px 0" }}>
+                        <span>{name}</span>
+                        <span style={{ color, fontWeight: 700, whiteSpace: "nowrap" }}>
+                          {state} ({u.visible}/{u.total})
+                        </span>
+                      </div>
+                    );
+                  })}
+                  <div style={{ color: "var(--muted)", fontSize: 10.5, marginTop: 4 }}>
+                    Blokuje {losData.blockerCount} {losData.blockerCount === 1 ? "kus terénu" : "kusů terénu"}; model uvnitř ruiny z ní vidí ven. U kusu terénu jde blokování vypnout.
+                  </div>
+                </>
+              )}
+            </div>
+          )}
 
           {selectedTokenIds.length > 0 && (
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, background: "var(--panel)", border: "1px solid #ffd54a", borderRadius: 10, padding: "6px 10px", fontSize: 12 }}>
@@ -12867,7 +12964,7 @@ export default function Wh40kCalculator({ session }) {
                 has clicked so far, plus the closed shape once there are
                 enough to form a polygon. */}
             {drawMode && drawPoints.length > 0 && (
-              <svg viewBox="0 0 100 100" preserveAspectRatio="none" style={{ position: "absolute", inset: 0, pointerEvents: "none", zIndex: 5 }}>
+              <svg viewBox="0 0 100 100" preserveAspectRatio="none" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none", zIndex: 5 }}>
                 {drawPoints.length >= 3 && (
                   <polygon
                     points={drawPoints.map((p) => `${p.x},${p.y}`).join(" ")}
@@ -12946,6 +13043,29 @@ export default function Wh40kCalculator({ session }) {
                 />
               );
             })}
+            {losData && (
+              <svg viewBox="0 0 100 100" preserveAspectRatio="none" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none", zIndex: 6 }}>
+                {losData.results.map((r) => {
+                  const from = board.tokens.find((t) => t.id === r.observerId);
+                  const to = board.tokens.find((t) => t.id === r.targetId);
+                  if (!from || !to) return null;
+                  return (
+                    <line
+                      key={r.targetId}
+                      x1={from.xPct}
+                      y1={from.yPct}
+                      x2={to.xPct}
+                      y2={to.yPct}
+                      stroke={r.visible ? "#4ade80" : "#f87171"}
+                      strokeWidth={r.visible ? 1.6 : 1.2}
+                      strokeDasharray={r.visible ? undefined : "3 2.5"}
+                      strokeOpacity={r.visible ? 0.9 : 0.75}
+                      vectorEffect="non-scaling-stroke"
+                    />
+                  );
+                })}
+              </svg>
+            )}
             {uiTheme === "tactical" && (
               <>
                 {/* compass (top-right) and a 6" scale bar (bottom-right) */}
@@ -13023,6 +13143,12 @@ export default function Wh40kCalculator({ session }) {
                       small
                     />
                   </Row>
+                  <ToggleField
+                    label="Blokuje výhled (line of sight)"
+                    value={piece.blocksLos === undefined ? blocksByDefault(piece, shape) : !!piece.blocksLos}
+                    onChange={(v) => updateTerrainPiece(piece.id, { blocksLos: v })}
+                    small
+                  />
                   {(() => {
                     // Position by a chosen corner (or the center) of the piece,
                     // measured from that corner's OWN matching board edges — a

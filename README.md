@@ -20,6 +20,22 @@ přihlášení se nezobrazí. Vyžaduje `.env.local` s `VITE_SUPABASE_URL` a
 `VITE_SUPABASE_ANON_KEY` (viz `.env.example`); na Vercelu jsou nastavené jako
 Environment Variables projektu.
 
+## Funkce
+
+- Přesný výpočet očekávaného poškození + **Monte Carlo simulace** (`src/lib/montecarlo.js`):
+  hází každou kostkou zvlášť a přiděluje zranění po modelech.
+- **Edice pravidel 10./11.** (Nastavení; `src/lib/rules.js`). Pravidla 11. edice jsou ze sekundárních
+  shrnutí — ověř je v oficiální příručce, položky označené `verify` jsou nejméně jisté.
+- Import z New Recruit / BattleScribe: `.rosz`, `.ros`, JSON (`src/lib/roster.js`), ukázková armáda pro první start.
+- Deska s terénem, tokeny a **line of sight** (`src/lib/los.js`).
+- **PWA**: instalovatelná, funguje offline (`public/sw.js`, data se cachují a zápisy se odešlou po připojení).
+
+## Testy
+
+```bash
+npm test
+```
+
 ## Lokální vývoj
 
 Vyžaduje Node.js (LTS, 18+). Pak:
