@@ -6786,6 +6786,7 @@ function TerrainPieceView({ piece, shape, containerRef, sizePctW, sizePctH, sele
 
   return (
     <div
+      data-board-piece="terrain"
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
@@ -6863,7 +6864,7 @@ function TerrainPieceView({ piece, shape, containerRef, sizePctW, sizePctH, sele
   );
 }
 
-function BoardTokenView({ token, unit, containerRef, sizePctW, sizePctH, selected, onMove, onCommit, onRemove, onSelect }) {
+function BoardTokenView({ token, unit, containerRef, sizePctW, sizePctH, selected, multiSelected, onDragStart, onMove, onCommit, onRemove, onSelect }) {
   const draggingRef = useRef(false);
   // Distinguishes a drag from a plain click/tap: if the pointer never moves
   // more than a few px between down and up, treat it as a click (used to
@@ -6882,6 +6883,9 @@ function BoardTokenView({ token, unit, containerRef, sizePctW, sizePctH, selecte
     draggingRef.current = true;
     movedRef.current = false;
     startRef.current = { x: e.clientX, y: e.clientY };
+    // Lets the board decide what moves with this token (the whole unit, the
+    // marquee selection, or just this model - Alt flips the unit/model mode).
+    if (onDragStart) onDragStart(token, e.altKey);
     if (containerRef.current) {
       const rect = containerRef.current.getBoundingClientRect();
       const cursorXPct = ((e.clientX - rect.left) / rect.width) * 100;
@@ -6903,22 +6907,22 @@ function BoardTokenView({ token, unit, containerRef, sizePctW, sizePctH, selecte
     const yPct = Math.max(0, Math.min(100, cursorYPct + dy));
     onMove(token.id, xPct, yPct);
   };
-  const handlePointerUp = () => {
+  const handlePointerUp = (e) => {
     if (!draggingRef.current) return;
     draggingRef.current = false;
     if (movedRef.current) {
       onCommit();
     } else {
-      onSelect(token);
+      onSelect(token, e);
     }
   };
 
   const label = unit ? unit.name.slice(0, 3).toUpperCase() : "?";
-  const count = unit ? totalModels(unit) : 1;
   const color = token.side === "mine" ? "var(--accent)" : "#c0392b";
 
   return (
     <div
+      data-board-piece="token"
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
@@ -6939,8 +6943,12 @@ function BoardTokenView({ token, unit, containerRef, sizePctW, sizePctH, selecte
         minHeight: 14,
         borderRadius: "50%",
         background: color,
-        border: selected ? "2px solid #fff" : "2px solid rgba(255,255,255,0.85)",
-        boxShadow: selected ? "0 0 0 3px rgba(255,255,255,0.55), 0 2px 6px rgba(0,0,0,0.4)" : "0 2px 6px rgba(0,0,0,0.4)",
+        border: multiSelected ? "2px solid #ffd54a" : selected ? "2px solid #fff" : "2px solid rgba(255,255,255,0.85)",
+        boxShadow: multiSelected
+          ? "0 0 0 3px rgba(255,213,74,0.7), 0 2px 6px rgba(0,0,0,0.4)"
+          : selected
+            ? "0 0 0 3px rgba(255,255,255,0.55), 0 2px 6px rgba(0,0,0,0.4)"
+            : "0 2px 6px rgba(0,0,0,0.4)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -6951,28 +6959,10 @@ function BoardTokenView({ token, unit, containerRef, sizePctW, sizePctH, selecte
         cursor: "grab",
         userSelect: "none",
         touchAction: "none",
-        zIndex: selected ? 3 : 2,
+        zIndex: multiSelected || selected ? 3 : 2,
       }}
     >
       {label}
-      {count > 1 && (
-        <span
-          style={{
-            position: "absolute",
-            bottom: -5,
-            right: -5,
-            background: "#0a121e",
-            border: "1px solid rgba(255,255,255,0.6)",
-            borderRadius: 8,
-            fontSize: 8,
-            lineHeight: 1.4,
-            padding: "0 3px",
-            fontWeight: 700,
-          }}
-        >
-          {count}
-        </span>
-      )}
     </div>
   );
 }
@@ -7927,7 +7917,7 @@ function ManualView({ onBack }) {
 
       <ManualSection num="08" title="Deska">
         <ManualP>
-          <ManualPath>Deska</ManualPath> — vizuální bojiště na míru. Zaškrtni jednotky z knihovny do <b>Moje jednotky</b> nebo <b>Jednotky protihráče</b> — objeví se jako tokeny (jeden na každý model), přetáhni je na místo. Nad seznamem vybereš uloženou armádu (třeba z New Recruit) — seznam se zúží na její jednotky a „Dát celou armádu na desku“ je rozmístí najednou; „Nahrát z New Recruit (JSON)“ nahraje nový export rovnou na tuhle stranu i s base sizy ze sloupce Base. Podložky jsou standardně zamčené (tlačítko „Terén zamčený“ v liště nad deskou) — táhneš jen modely, terén se nehne; odemknutím ho zase přesouváš a upravuješ. Velikost tokenu vychází z base size jednotky — přímo u jednotky v knihovně je malý rozklikávací seznam se standardními velikostmi (25 až 160mm kulaté, plus běžné oválné jako 90×52mm), není potřeba kvůli tomu otvírat celou editaci.
+          <ManualPath>Deska</ManualPath> — vizuální bojiště na míru. Zaškrtni jednotky z knihovny do <b>Moje jednotky</b> nebo <b>Jednotky protihráče</b> — objeví se jako tokeny (jeden na každý model), přetáhni je na místo. Nad seznamem vybereš uloženou armádu (třeba z New Recruit) — seznam se zúží na její jednotky a „Dát celou armádu na desku“ je rozmístí najednou; „Nahrát z New Recruit (JSON)“ nahraje nový export rovnou na tuhle stranu i s base sizy ze sloupce Base. Tažením modelu hýbeš celou jednotkou (tlačítko v liště přepne na jeden model, Alt při tažení přepne na opak). Víc modelů označíš tažením myší po prázdné desce (Shift přidává, Shift+klik na model ho přidá/odebere) — pak se všechny označené hýbou spolu. Podložky jsou standardně zamčené (tlačítko „Terén zamčený“ v liště nad deskou) — táhneš jen modely, terén se nehne; odemknutím ho zase přesouváš a upravuješ. Velikost tokenu vychází z base size jednotky — přímo u jednotky v knihovně je malý rozklikávací seznam se standardními velikostmi (25 až 160mm kulaté, plus běžné oválné jako 90×52mm), není potřeba kvůli tomu otvírat celou editaci.
         </ManualP>
         <ManualUl
           items={[
@@ -8462,8 +8452,67 @@ export default function Wh40kCalculator({ session }) {
 
   const removeBoardToken = (tokenId) => persistBoard({ ...board, tokens: board.tokens.filter((t) => t.id !== tokenId) });
 
+  // What moves when a token is grabbed: the marquee selection if the token is
+  // part of one, else the whole unit instance (or just the one model - the
+  // toolbar mode, flipped while Alt is held).
+  const beginTokenDrag = (token, altKey) => {
+    if (selectedTokenIds.length > 1 && selectedTokenIds.includes(token.id)) {
+      dragGroupRef.current = selectedTokenIds;
+    } else if (moveWholeUnit !== altKey) {
+      dragGroupRef.current = board.tokens
+        .filter((t) => t.side === token.side && t.unitId === token.unitId && (t.inst || 0) === (token.inst || 0))
+        .map((t) => t.id);
+    } else {
+      dragGroupRef.current = [token.id];
+    }
+  };
+  // The grabbed token follows the cursor; everything else in the group keeps
+  // its offset to it (the shift is clamped so nobody leaves the board).
   const moveBoardToken = (tokenId, xPct, yPct) => {
-    setBoard((s) => ({ ...s, tokens: s.tokens.map((t) => (t.id === tokenId ? { ...t, xPct, yPct } : t)) }));
+    setBoard((s) => {
+      const cur = s.tokens.find((t) => t.id === tokenId);
+      if (!cur) return s;
+      const group = dragGroupRef.current.includes(tokenId) ? dragGroupRef.current : [tokenId];
+      const members = s.tokens.filter((t) => group.includes(t.id));
+      let dx = xPct - cur.xPct;
+      let dy = yPct - cur.yPct;
+      members.forEach((t) => {
+        dx = Math.max(-t.xPct, Math.min(100 - t.xPct, dx));
+        dy = Math.max(-t.yPct, Math.min(100 - t.yPct, dy));
+      });
+      if (dx === 0 && dy === 0) return s;
+      const ids = new Set(group);
+      return { ...s, tokens: s.tokens.map((t) => (ids.has(t.id) ? { ...t, xPct: t.xPct + dx, yPct: t.yPct + dy } : t)) };
+    });
+  };
+  const removeSelectedTokens = () => {
+    const ids = new Set(selectedTokenIds);
+    persistBoard({ ...board, tokens: board.tokens.filter((t) => !ids.has(t.id)) });
+    setSelectedTokenIds([]);
+  };
+  const boardPctPoint = (e) => {
+    const rect = boardContainerRef.current.getBoundingClientRect();
+    return {
+      x: Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100)),
+      y: Math.max(0, Math.min(100, ((e.clientY - rect.top) / rect.height) * 100)),
+    };
+  };
+  const finishMarquee = (e) => {
+    const st = marqueeStartRef.current;
+    if (!st) return;
+    marqueeStartRef.current = null;
+    setMarquee(null);
+    const p = boardPctPoint(e);
+    const x0 = Math.min(st.x, p.x);
+    const x1 = Math.max(st.x, p.x);
+    const y0 = Math.min(st.y, p.y);
+    const y1 = Math.max(st.y, p.y);
+    if (x1 - x0 < 0.8 && y1 - y0 < 0.8) {
+      if (!st.add) setSelectedTokenIds([]);
+      return;
+    }
+    const hit = board.tokens.filter((t) => t.xPct >= x0 && t.xPct <= x1 && t.yPct >= y0 && t.yPct <= y1).map((t) => t.id);
+    setSelectedTokenIds(st.add ? Array.from(new Set([...selectedTokenIds, ...hit])) : hit);
   };
   // Only write to storage once the drag actually ends — dragging fires
   // moveBoardToken on every pointer move (fast setState, no network), and
@@ -9133,6 +9182,27 @@ export default function Wh40kCalculator({ session }) {
       return true;
     }
   });
+  // Moving whole units / marquee selection of several models on the board.
+  const [moveWholeUnit, setMoveWholeUnit] = useState(() => {
+    try {
+      return localStorage.getItem("board_move_unit_v1") !== "0";
+    } catch (e) {
+      return true;
+    }
+  });
+  const toggleMoveWholeUnit = () => {
+    const next = !moveWholeUnit;
+    setMoveWholeUnit(next);
+    try {
+      localStorage.setItem("board_move_unit_v1", next ? "1" : "0");
+    } catch (e) {
+      /* storage blocked - the mode still works for this session */
+    }
+  };
+  const [selectedTokenIds, setSelectedTokenIds] = useState([]);
+  const [marquee, setMarquee] = useState(null);
+  const marqueeStartRef = useRef(null);
+  const dragGroupRef = useRef([]);
   const toggleTerrainLocked = () => {
     const next = !terrainLocked;
     setTerrainLocked(next);
@@ -9206,7 +9276,12 @@ export default function Wh40kCalculator({ session }) {
   // terrain, custom pieces, saved plinths) sits behind one toggle, closed by default.
   const [boardEditOpen, setBoardEditOpen] = useState(false);
 
-  const handleBoardTokenSelect = (token) => {
+  const handleBoardTokenSelect = (token, e) => {
+    if (e && (e.shiftKey || e.ctrlKey || e.metaKey)) {
+      setSelectedTokenIds((cur) => (cur.includes(token.id) ? cur.filter((id) => id !== token.id) : [...cur, token.id]));
+      return;
+    }
+    if (selectedTokenIds.length > 0) setSelectedTokenIds([]);
     const unit = library.find((u) => u.id === token.unitId);
     if (!unit) return;
     if (token.side === "mine") {
@@ -9229,6 +9304,13 @@ export default function Wh40kCalculator({ session }) {
   // If the selected attacker's token gets removed from the board (double
   // click, clear, etc.) drop the dangling selection instead of pointing at
   // nothing.
+  useEffect(() => {
+    setSelectedTokenIds((cur) => {
+      const alive = cur.filter((id) => board.tokens.some((t) => t.id === id));
+      return alive.length === cur.length ? cur : alive;
+    });
+  }, [board.tokens]);
+
   useEffect(() => {
     if (boardAttackerTokenId && !board.tokens.some((t) => t.id === boardAttackerTokenId)) {
       setBoardAttackerTokenId(null);
@@ -11906,16 +11988,56 @@ export default function Wh40kCalculator({ session }) {
             >
               {terrainLocked ? <Lock size={13} /> : <Unlock size={13} />} {terrainLocked ? "Terén zamčený" : "Terén odemčený"}
             </button>
+            <button
+              onClick={toggleMoveWholeUnit}
+              title="Při tažení se hýbe celá jednotka, nebo jen jeden model. Držení Alt přepne na opak. Označit víc modelů: táhni myší po prázdné desce (Shift přidává)."
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 5,
+                border: `1px solid ${moveWholeUnit ? "var(--accent)" : "var(--field-border)"}`,
+                background: moveWholeUnit ? "var(--accent-dim)" : "transparent",
+                color: moveWholeUnit ? "var(--accent-text)" : "var(--muted)",
+                borderRadius: 6,
+                padding: "5px 8px",
+                fontSize: 11,
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+            >
+              {moveWholeUnit ? "Táhne celá jednotka" : "Táhne jeden model"}
+            </button>
             <div style={{ flex: 1 }} />
             <span style={{ fontSize: 11, color: "var(--muted)", fontFamily: "var(--mono)" }}>
               {board.widthIn}×{board.heightIn}″
             </span>
           </div>
 
+          {selectedTokenIds.length > 0 && (
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, background: "var(--panel)", border: "1px solid #ffd54a", borderRadius: 10, padding: "6px 10px", fontSize: 12 }}>
+              <span style={{ fontWeight: 700 }}>Označeno modelů: {selectedTokenIds.length}</span>
+              <span style={{ color: "var(--muted)", fontSize: 11 }}>táhni libovolný z nich - hýbou se spolu</span>
+              <div style={{ flex: 1 }} />
+              <button onClick={() => setSelectedTokenIds([])} style={{ border: "1px solid var(--field-border)", background: "transparent", color: "var(--text)", borderRadius: 6, padding: "4px 8px", fontSize: 11, cursor: "pointer" }}>
+                Zrušit označení
+              </button>
+              <button onClick={removeSelectedTokens} style={{ border: "1px solid #c0392b", background: "transparent", color: "#e0857c", borderRadius: 6, padding: "4px 8px", fontSize: 11, cursor: "pointer" }}>
+                Odebrat označené
+              </button>
+            </div>
+          )}
           <div
             ref={boardContainerRef}
             onPointerDown={(e) => {
-              if (!drawMode) return;
+              if (!drawMode) {
+                // Empty board space: start a marquee (Shift adds to the selection).
+                if (e.target.closest("[data-board-piece]")) return;
+                e.currentTarget.setPointerCapture(e.pointerId);
+                const pt = boardPctPoint(e);
+                marqueeStartRef.current = { x: pt.x, y: pt.y, add: e.shiftKey };
+                setMarquee({ x0: pt.x, y0: pt.y, x1: pt.x, y1: pt.y });
+                return;
+              }
               e.currentTarget.setPointerCapture(e.pointerId);
               drawStrokeActiveRef.current = true;
               const rect = boardContainerRef.current.getBoundingClientRect();
@@ -11925,6 +12047,12 @@ export default function Wh40kCalculator({ session }) {
               addDrawPoint(xPct, yPct);
             }}
             onPointerMove={(e) => {
+              if (marqueeStartRef.current) {
+                const pt = boardPctPoint(e);
+                const st = marqueeStartRef.current;
+                setMarquee({ x0: st.x, y0: st.y, x1: pt.x, y1: pt.y });
+                return;
+              }
               if (!drawMode || !drawStrokeActiveRef.current) return;
               const rect = boardContainerRef.current.getBoundingClientRect();
               const xPct = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
@@ -11938,11 +12066,14 @@ export default function Wh40kCalculator({ session }) {
               lastDrawPointRef.current = { x: xPct, y: yPct };
               addDrawPoint(xPct, yPct);
             }}
-            onPointerUp={() => {
+            onPointerUp={(e) => {
+              if (marqueeStartRef.current) finishMarquee(e);
               drawStrokeActiveRef.current = false;
               lastDrawPointRef.current = null;
             }}
             onPointerCancel={() => {
+              marqueeStartRef.current = null;
+              setMarquee(null);
               drawStrokeActiveRef.current = false;
               lastDrawPointRef.current = null;
             }}
@@ -12120,6 +12251,8 @@ export default function Wh40kCalculator({ session }) {
                   sizePctW={sizePctW}
                   sizePctH={sizePctH}
                   selected={t.id === boardAttackerTokenId}
+                  multiSelected={selectedTokenIds.includes(t.id)}
+                  onDragStart={beginTokenDrag}
                   onMove={moveBoardToken}
                   onCommit={commitBoardTokenMove}
                   onRemove={removeBoardToken}
@@ -12127,6 +12260,21 @@ export default function Wh40kCalculator({ session }) {
                 />
               );
             })}
+            {marquee && (
+              <div
+                style={{
+                  position: "absolute",
+                  left: `${Math.min(marquee.x0, marquee.x1)}%`,
+                  top: `${Math.min(marquee.y0, marquee.y1)}%`,
+                  width: `${Math.abs(marquee.x1 - marquee.x0)}%`,
+                  height: `${Math.abs(marquee.y1 - marquee.y0)}%`,
+                  border: "1px dashed #ffd54a",
+                  background: "rgba(255,213,74,0.12)",
+                  pointerEvents: "none",
+                  zIndex: 5,
+                }}
+              />
+            )}
           </div>
 
           {selectedTerrainId &&
