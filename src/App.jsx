@@ -6885,7 +6885,7 @@ function BoardTokenView({ token, unit, containerRef, sizePctW, sizePctH, selecte
     startRef.current = { x: e.clientX, y: e.clientY };
     // Lets the board decide what moves with this token (the whole unit, the
     // marquee selection, or just this model - Alt flips the unit/model mode).
-    if (onDragStart) onDragStart(token, e.altKey);
+    if (onDragStart) onDragStart(token, e.altKey, e.shiftKey);
     if (containerRef.current) {
       const rect = containerRef.current.getBoundingClientRect();
       const cursorXPct = ((e.clientX - rect.left) / rect.width) * 100;
@@ -7923,7 +7923,7 @@ function ManualView({ onBack }) {
 
       <ManualSection num="08" title="Deska">
         <ManualP>
-          <ManualPath>Deska</ManualPath> — vizuální bojiště na míru. Zaškrtni jednotky z knihovny do <b>Moje jednotky</b> nebo <b>Jednotky protihráče</b> — objeví se jako tokeny (jeden na každý model), přetáhni je na místo. Nad seznamem vybereš uloženou armádu (třeba z New Recruit) — seznam se zúží na její jednotky a „Dát celou armádu na desku“ je rozmístí najednou; „Nahrát z New Recruit (JSON)“ nahraje nový export rovnou na tuhle stranu i s base sizy ze sloupce Base. Tažením modelu hýbeš celou jednotkou (tlačítko v liště přepne na jeden model, Alt při tažení přepne na opak). Víc modelů označíš tažením myší po prázdné desce (Shift přidává, Shift+klik na model ho přidá/odebere) — pak se všechny označené hýbou spolu. Kolečkem myši nad modelem otočíš celou jednotku (nebo označené modely, nebo jeden model — stejná pravidla jako při tažení); kolečko dolů otáčí po směru hodin, Shift = jemné kroky po 5°. Podložky jsou standardně zamčené (tlačítko „Terén zamčený“ v liště nad deskou) — táhneš jen modely, terén se nehne; odemknutím ho zase přesouváš a upravuješ. Velikost tokenu vychází z base size jednotky — přímo u jednotky v knihovně je malý rozklikávací seznam se standardními velikostmi (25 až 160mm kulaté, plus běžné oválné jako 90×52mm), není potřeba kvůli tomu otvírat celou editaci.
+          <ManualPath>Deska</ManualPath> — vizuální bojiště na míru. Zaškrtni jednotky z knihovny do <b>Moje jednotky</b> nebo <b>Jednotky protihráče</b> — objeví se jako tokeny (jeden na každý model), přetáhni je na místo. Nad seznamem vybereš uloženou armádu (třeba z New Recruit) — seznam se zúží na její jednotky a „Dát celou armádu na desku“ je rozmístí najednou; „Nahrát z New Recruit (JSON)“ nahraje nový export rovnou na tuhle stranu i s base sizy ze sloupce Base. Tažením modelu hýbeš celou jednotkou (tlačítko v liště přepne na jeden model, Alt při tažení přepne na opak; Shift při tažení vezme vždy jen jeden model — třeba když ho chceš nacpat za zeď). Víc modelů označíš tažením myší po prázdné desce (Shift přidává, Shift+klik na model ho přidá/odebere) — pak se všechny označené hýbou spolu. Kolečkem myši nad modelem otočíš celou jednotku (nebo označené modely, nebo jeden model — stejná pravidla jako při tažení); kolečko dolů otáčí po směru hodin, Shift = jemné kroky po 5°. Podložky jsou standardně zamčené (tlačítko „Terén zamčený“ v liště nad deskou) — táhneš jen modely, terén se nehne; odemknutím ho zase přesouváš a upravuješ. Velikost tokenu vychází z base size jednotky — přímo u jednotky v knihovně je malý rozklikávací seznam se standardními velikostmi (25 až 160mm kulaté, plus běžné oválné jako 90×52mm), není potřeba kvůli tomu otvírat celou editaci.
         </ManualP>
         <ManualUl
           items={[
@@ -8461,8 +8461,12 @@ export default function Wh40kCalculator({ session }) {
   // What moves when a token is grabbed: the marquee selection if the token is
   // part of one, else the whole unit instance (or just the one model - the
   // toolbar mode, flipped while Alt is held).
-  const beginTokenDrag = (token, altKey) => {
-    if (selectedTokenIds.length > 1 && selectedTokenIds.includes(token.id)) {
+  const beginTokenDrag = (token, altKey, shiftKey) => {
+    if (shiftKey) {
+      // Shift-drag always takes just this one model (e.g. to tuck it behind a
+      // wall); a Shift-click without moving still toggles the selection.
+      dragGroupRef.current = [token.id];
+    } else if (selectedTokenIds.length > 1 && selectedTokenIds.includes(token.id)) {
       dragGroupRef.current = selectedTokenIds;
     } else if (moveWholeUnit !== altKey) {
       dragGroupRef.current = board.tokens
@@ -9368,9 +9372,19 @@ export default function Wh40kCalculator({ session }) {
     if (!el) return undefined;
     let acc = 0;
     let accTimer = null;
+    let lastId = null;
+    let lastAt = 0;
     const onWheel = (e) => {
       const tokEl = e.target.closest ? e.target.closest("[data-token-id]") : null;
-      if (!tokEl) return; // empty board / terrain: let the page scroll as usual
+      const now = Date.now();
+      let id = tokEl ? tokEl.getAttribute("data-token-id") : null;
+      // Turning a unit moves its models, so the cursor often ends up beside
+      // the model it started on - keep turning that unit for a moment instead
+      // of letting the page scroll.
+      if (!id && lastId && now - lastAt < 800) id = lastId;
+      if (!id) return; // empty board / terrain: let the page scroll as usual
+      lastId = id;
+      lastAt = now;
       e.preventDefault();
       // A trackpad fires many tiny wheel events: collect them so one notch's
       // worth (~50) turns the unit one step instead of every event doing so.
@@ -9382,7 +9396,7 @@ export default function Wh40kCalculator({ session }) {
       if (Math.abs(acc) < 50) return;
       const dir = acc;
       acc = 0;
-      rotateTokensRef.current(tokEl.getAttribute("data-token-id"), dir, e.altKey, e.shiftKey);
+      rotateTokensRef.current(id, dir, e.altKey, e.shiftKey);
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
@@ -12074,7 +12088,7 @@ export default function Wh40kCalculator({ session }) {
             </button>
             <button
               onClick={toggleMoveWholeUnit}
-              title="Při tažení se hýbe celá jednotka, nebo jen jeden model. Držení Alt přepne na opak. Označit víc modelů: táhni myší po prázdné desce (Shift přidává). Kolečko myši nad modelem otáčí jednotku (Shift = jemně)."
+              title="Při tažení se hýbe celá jednotka, nebo jen jeden model. Držení Alt přepne na opak, Shift při tažení vezme vždy jen jeden model. Označit víc modelů: táhni myší po prázdné desce (Shift přidává). Kolečko myši nad modelem otáčí jednotku (Shift = jemně)."
               style={{
                 display: "flex",
                 alignItems: "center",
