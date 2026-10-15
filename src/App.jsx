@@ -38,6 +38,11 @@ import {
 import { storage } from "./lib/storage";
 import { runMonteCarlo } from "./lib/montecarlo";
 import { rosterBytesToText } from "./lib/roster";
+import CommunityLibrary from "./CommunityLibrary";
+
+// The shared community library stays hidden unless explicitly switched on
+// (VITE_ENABLE_COMMUNITY=1 at build time), see supabase/community.sql.
+const COMMUNITY_ENABLED = import.meta.env.VITE_ENABLE_COMMUNITY === "1";
 import { buildBlockers, blocksByDefault, tokenGeometry, computeLineOfSight } from "./lib/los";
 import { RULESETS, DEFAULT_EDITION, normalizeEdition, RulesContext, useRules } from "./lib/rules";
 import { supabase } from "./lib/supabaseClient";
@@ -8490,7 +8495,7 @@ export default function Wh40kCalculator({ session }) {
   const [attackerFilter, setAttackerFilter] = useState(null); // { type: 'faction'|'army', key, label } | null
   const [defenderFilter, setDefenderFilter] = useState(null);
   const [librarySearch, setLibrarySearch] = useState("");
-  const [libraryTab, setLibraryTab] = useState("units"); // units | weapons
+  const [libraryTab, setLibraryTab] = useState("units"); // units | weapons | community
   const [menuOpen, setMenuOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [defenderModifiersOpen, setDefenderModifiersOpen] = useState(false);
@@ -11335,7 +11340,25 @@ export default function Wh40kCalculator({ session }) {
             <button onClick={() => setLibraryTab("weapons")} style={tabBtnStyle(libraryTab === "weapons")}>
               Zbraně
             </button>
+            {COMMUNITY_ENABLED && (
+              <button onClick={() => setLibraryTab("community")} style={tabBtnStyle(libraryTab === "community")}>
+                Komunita
+              </button>
+            )}
           </div>
+
+          {COMMUNITY_ENABLED && libraryTab === "community" && (
+            <CommunityLibrary
+              library={library}
+              askConfirm={askConfirm}
+              signatureOf={unitSignature}
+              onAdd={(units) => {
+                const clean = sanitizeImportedUnits(units);
+                const result = importUnits(clean);
+                return { added: result.added, skipped: result.skipped + (units.length - clean.length) };
+              }}
+            />
+          )}
 
           {libraryTab === "units" && (
             <>

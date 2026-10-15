@@ -32,18 +32,5 @@ create policy "user_data_delete_own"
   using (auth.uid() = user_id);
 
 -- ---------------------------------------------------------------------------
--- Goal 3 (later): community-shared units. Each row is one unit a user chose
--- to publish from their own library — never an official GW datasheet dump.
--- Left here as a placeholder so the shape is decided up front; not wired into
--- the app yet.
+-- Goal 3 (community library): see community.sql (run it after this file).
 -- ---------------------------------------------------------------------------
--- create table if not exists public.shared_units (
---   id uuid primary key default gen_random_uuid(),
---   owner_id uuid not null references auth.users(id) on delete cascade,
---   unit jsonb not null,
---   created_at timestamptz not null default now()
--- );
--- alter table public.shared_units enable row level security;
--- create policy "shared_units_public_read" on public.shared_units for select using (true);
--- create policy "shared_units_owner_write" on public.shared_units for insert with check (auth.uid() = owner_id);
--- create policy "shared_units_owner_delete" on public.shared_units for delete using (auth.uid() = owner_id);
