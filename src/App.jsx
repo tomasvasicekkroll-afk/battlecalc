@@ -226,6 +226,31 @@ const longLineFrameShape = (n, deg) => ({
 // render, which sorts base-layer pieces first.
 const TERRAIN_SHAPES = [
   { id: "ruin", label: "Ruina", layer: "terrain", widthIn: 8, heightIn: 5, bg: "#5c5c52", border: "2px dashed #8f8f7e", radius: 4 },
+  // "T obrys" = the hollow green T-shaped wall outline of the "Medium
+  // rectangle full" modules WITHOUT a podložka (transparent, no border), for
+  // layouts where the ruin overlaps the edge of other plates.
+  {
+    id: "t-bare",
+    label: "T obrys (bez podložky)",
+    layer: "terrain",
+    multiCombo: true,
+    bare: true,
+    widthIn: 6,
+    heightIn: 4,
+    bg: "transparent",
+    border: "none",
+    radius: 0,
+    parts: [
+      { leftPct: 17.2, topPct: 20.6, widthPct: 70.3, heightPct: 8.8, bg: "#3f7a3f" },
+      { leftPct: 17.2, topPct: 29.4, widthPct: 6.2, heightPct: 22.1, bg: "#3f7a3f" },
+      { leftPct: 81.2, topPct: 29.4, widthPct: 6.3, heightPct: 22.1, bg: "#3f7a3f" },
+      { leftPct: 17.2, topPct: 44.1, widthPct: 18.8, heightPct: 7.4, bg: "#3f7a3f" },
+      { leftPct: 67, topPct: 44.1, widthPct: 20.5, heightPct: 7.4, bg: "#3f7a3f" },
+      { leftPct: 31, topPct: 51.5, widthPct: 5, heightPct: 22, bg: "#3f7a3f" },
+      { leftPct: 67, topPct: 51.5, widthPct: 5, heightPct: 22, bg: "#3f7a3f" },
+      { leftPct: 31, topPct: 64.7, widthPct: 41, heightPct: 8.8, bg: "#3f7a3f" },
+    ],
+  },
   // Objective markers: ~40mm (1.6") round tokens with our own plain geometric
   // glyphs — a coloured square (home objective, red/blue side), a gold ring
   // (centre) and a teal diamond (expansion) — to mark objectives on a map.
@@ -2236,7 +2261,7 @@ const MIRROR_PTF_C_LAYOUT = {
   ],
 };
 // Order of the buttons in the "Mapa" box.
-const LAYOUT_TEMPLATE_ORDER = ["mirror-1", "mirror-1b", "mirror-c", "ptf-a", "ptf-b", "ptf-c", "rec-a", "rec-b", "rec-c", "pri-a", "pri-b", "pri-c", "dis-a", "dis-b", "dis-c", "ptfptf-a", "ptfptf-c"];
+const LAYOUT_TEMPLATE_ORDER = ["mirror-1", "mirror-1b", "mirror-c", "ptf-a", "ptf-b", "ptf-c", "rec-a", "rec-b", "rec-c", "pri-a", "pri-b", "pri-c", "dis-a", "dis-b", "dis-c", "ptfptf-a", "ptfptf-c", "ptfrec-a"];
 // Take and Hold vs Reconnaissance A: same two-rectangle zone as Map A
 // (22" x 20" + 22" x 12", the opponent's the diagonal mirror), all ruins
 // upright, a 10 x 11.5" four-corner plate in the middle carrying the centre
@@ -2462,6 +2487,28 @@ const MIRROR_PTF_PTF_C_LAYOUT = {
     { shapeId: "long-line-combi-10", cx: 9.55, cy: 29.5, widthIn: 10, heightIn: 2, rot: 307 },
     { shapeId: "short-line-5", cx: 9.7, cy: 22.3, widthIn: 6, heightIn: 2, rot: 27 },
     { shapeId: "large-rectangle-20", cx: 23.9, cy: 23.3, widthIn: 11.5, heightIn: 7, rot: 0 },
+  ],
+};
+// Purge the Foe vs Reconnaissance A: strips along the top and bottom (a 44" x
+// 18" zone along the top, the opponent's along the bottom). The castle plate
+// has an empty 6 x 4" plate and a bare T-shaped ruin outline overlapping its
+// edge, a short line plate beside them, a vertical frame + open plate in the
+// corner, and two tilted triangle plates in the middle.
+const MIRROR_PTF_REC_A_LAYOUT = {
+  widthIn: 44,
+  heightIn: 60,
+  zoneMine: [{ x1: 0, y1: 0, x2: 44, y2: 18 }],
+  mirror: true,
+  pieces: [
+    { shapeId: "large-rectangle-35", cx: 18.8, cy: 11.6, widthIn: 11.5, heightIn: 7, rot: 0 },
+    { shapeId: "base-plinth", cx: 30, cy: 14.1, widthIn: 6, heightIn: 4, rot: 0 },
+    { shapeId: "t-bare", cx: 25.6, cy: 13.8, widthIn: 6, heightIn: 4, rot: 0 },
+    { shapeId: "short-line-5", cx: 35.7, cy: 10.9, widthIn: 6, heightIn: 2, rot: 180 },
+    { shapeId: "long-line-2", cx: 8.2, cy: 10.2, widthIn: 6, heightIn: 2, rot: 270 },
+    { shapeId: "h-blok-open-7", cx: 6.2, cy: 15.1, widthIn: 6, heightIn: 4, rot: 180 },
+    { shapeId: "long-line-combi-10", cx: 9.5, cy: 23.35, widthIn: 10, heightIn: 2, rot: 346 },
+    { shapeId: "large-rectangle-43", cx: 36.3, cy: 24.7, widthIn: 7, heightIn: 11.5, rot: 0 },
+    { shapeId: "triangle-2", cx: 23.9, cy: 25.3, widthIn: 8, heightIn: 11.5, rot: 270 },
   ],
 };
 const LAYOUT_TEMPLATES = [
@@ -2695,6 +2742,21 @@ const LAYOUT_TEMPLATES = [
       { ...OBJ_MARKER, shapeId: "obj-expansion", cx: 13.9, cy: 52.4 },
       { ...OBJ_MARKER, shapeId: "obj-center", cx: 23.9, cy: 23.3 },
       { ...OBJ_MARKER, shapeId: "obj-center", cx: 20.1, cy: 36.7 },
+    ],
+  },
+  {
+    id: "ptfrec-a",
+    name: "Mapa PtF-Rec A",
+    mission: "Purge the Foe vs Reconnaissance A",
+    ...MIRROR_PTF_REC_A_LAYOUT,
+    pieces: [
+      ...MIRROR_PTF_REC_A_LAYOUT.pieces,
+      { ...OBJ_MARKER, shapeId: "obj-home-red", cx: 18.8, cy: 11.5 },
+      { ...OBJ_MARKER, shapeId: "obj-home-blue", cx: 25.2, cy: 48.5 },
+      { ...OBJ_MARKER, shapeId: "obj-expansion", cx: 36.4, cy: 24.6 },
+      { ...OBJ_MARKER, shapeId: "obj-expansion", cx: 7.6, cy: 35.4 },
+      { ...OBJ_MARKER, shapeId: "obj-center", cx: 23.8, cy: 25.1 },
+      { ...OBJ_MARKER, shapeId: "obj-center", cx: 20.2, cy: 34.9 },
     ],
   },
   {
@@ -5321,7 +5383,7 @@ function LayoutSwatch({ layout, selected, onClick }) {
 function PieceSwatch({ shape }) {
   if (shape.multiCombo) {
     return (
-      <span style={{ position: "relative", display: "inline-block", width: 16, height: 12, background: shape.bg, border: shape.border, borderRadius: shape.radius, flexShrink: 0 }}>
+      <span style={{ position: "relative", display: "inline-block", width: 16, height: 12, background: shape.bare ? "rgba(255,255,255,0.08)" : shape.bg, border: shape.bare ? "1px dashed rgba(210,200,170,0.5)" : shape.border, borderRadius: shape.radius, flexShrink: 0 }}>
         {(shape.parts || []).map((pt, i) => (
           <span
             key={i}
@@ -5431,7 +5493,7 @@ function TerrainPieceView({ piece, shape, containerRef, sizePctW, sizePctH, sele
         clipPath: shape.clipPath,
         background: shape.bg,
         border: shape.border,
-        boxShadow: selected ? "0 0 0 2px #fff, 0 2px 6px rgba(0,0,0,0.4)" : "0 2px 6px rgba(0,0,0,0.4)",
+        boxShadow: selected ? "0 0 0 2px #fff, 0 2px 6px rgba(0,0,0,0.4)" : shape.bare ? "none" : "0 2px 6px rgba(0,0,0,0.4)",
         cursor: "grab",
         userSelect: "none",
         touchAction: "none",
@@ -6562,7 +6624,7 @@ function ManualView({ onBack }) {
             <><b>Zóna čísly (v palcích)</b> — pod tlačítkem pro kreslení je box Moje zóna se dvěma obdélníky (Obdélník 1 a 2) — zadej jim Od X/Y a Do X/Y podle čísel na okraji desky a klikni na tlačítko Nastavit. Oba obdélníky se spojí do jedné zóny, takže jde postavit i L-tvar nebo schod, ne jen jeden obdélník. „Zóna protihráče“ se vždy dopočítá automaticky jako diagonální (o 180° otočený) protějšek — nezadává se ručně.</>,
             <><b>Trojúhelník a kruhová výseč čísly</b> — pod obdélníky jsou další dva boxy: Trojúhelník (tři rohy, každý svým X/Y) a Kruhová výseč (střed X/Y, poloměr od/do, úhel od/do ve stupních — 0° doprava, 90° dolů; poloměr „od“ 0 = bez otvoru uprostřed; zaškrtnutím „Opačně“ se z výseče stane celý výsek od středu ven s vykrojeným kruhem, tlačítko „Čtvrtina bez kruhu 9″“ to nastaví jedním klikem). Každý má vlastní tlačítko Nastavit a nahradí celou „Moji zónu“ (nekombinuje se s obdélníky). „Zóna protihráče“ se i tady vždy dopočítá jako diagonální protějšek.</>,
             <><b>Rychlý souboj</b> — klikni na svůj token, pak na token protihráče. Appka spočítá zabité modely/damage jen z vestavěných schopností obou jednotek (žádné bonusy). „Otevřít v kalkulačce“ tě přenese do plné kalkulačky s modifikátory.</>,
-            <><b>Terén (stavebnice)</b> — klikni na Ruina/Objektiv domácí červený/Objektiv domácí modrý/Objektiv střed/Objektiv expanze/Short line full/Short line full 1/Short line full 2/Short line full 3/Short line full 4/Short line full 5/Short line full 6/Short line full kombi/Short line full combi 2/Short line full combi 3/Short line full combi 4/Short line full combi 5/Short line full combi 6/Short line full combi 7/Short line full combi 8/Short line full combi 9/Short line full combi 10/Short line full combi 11/Short line/Short line 1/Short line 2/Short line 3/Short line 4/Short line 5/Short line 6/Short line 7/Short line 8/Ruin diag A/Ruin diag B/Triangle/Triangle 1/Triangle 2/Triangle 3/Triangle 4/Triangle 5/Triangle 6/Triangle 7/Triangle 8/Triangle 9/Triangle 10/Triangle 11/Triangle 12/Triangle 13/Triangle 14/Triangle 15/Triangle 16/Triangle 17/Medium rectangle full/Medium rectangle full 1/Medium rectangle full 2/Medium rectangle full 3/Medium rectangle full 4/Medium rectangle full 5/Medium rectangle full 6/Medium rectangle full 7/Medium rectangle full 8/Medium rectangle full 9/Medium rectangle full 10/Medium rectangle full 11/Medium rectangle open 1/Medium rectangle open 2/Medium rectangle open 3/Medium rectangle open 4/Medium rectangle open 5/Medium rectangle open 6/Medium rectangle open 7/Medium rectangle open 8/Medium rectangle open 9/Medium rectangle open 10/Medium rectangle open 11/Medium rectangle open 12/Medium rectangle open 13/Medium rectangle 1/Large rectangle/Large rectangle 1/Large rectangle 2/Large rectangle 3/Large rectangle 4/Large rectangle 5/Large rectangle 6/Large rectangle 7/Large rectangle 8/Large rectangle 9/Large rectangle 10/Large rectangle 15–45/Zeď/Kráter/Les/Kontejner pro přidání kusu doprostřed desky, pak ho přetáhni na místo. „Large rectangle", „Large rectangle 1–10, 15–37", „Medium rectangle 1" i „Short line full kombi" jsou jeden pevný modul — podložka se zídkami, táhne/otáčí/škáluje se najednou. Klik na terén otevře dole šířku/výšku/otočení; odebereš ho dvojklikem, tlačítkem Odebrat, nebo klávesou Delete / Backspace, když je vybraný. Kus, který nechceš mít v paletě, smažeš popelnicí vedle něj; „Obnovit smazané“ je vrátí. Úplně nahoře v Desce jsou „Mapa A“, „Mapa B“, „Mapa C“ a „Mapa PtF A/B/C“ a „Mapa Rec A/B/C“ a „Mapa Pri A/B/C“ a „Mapa Dis A/B/C“ a „Mapa PtF-PtF A/C“ — jedním klikem načtou celou mapu (zónu i terén) pro Take and Hold vs Take and Hold A, B a C a Take and Hold vs Purge the Foe A, B a C a vs Reconnaissance A, B a C a vs Priority Assets A, B a C a vs Disruption A, B a C a Purge the Foe vs Purge the Foe A a C; všechny mají navíc značky objektivů (vlastní: čtverec = domácí, kroužek = střed, kosočtverec = expanze). Všechno ostatní pod tím (tvorba mapy, paleta terénu, Terén čísly, vlastní terén, Moje podložky) je schované pod rozbalovátkem „Úpravy mapy a terénu“. Vybraný kus zkopíruješ tlačítkem „Kopírovat kus“ nebo klávesou Ctrl+D (případně Ctrl+C a Ctrl+V). Pod rozměry je „Umístit bod“: vyber roh (nebo střed) kusu a zadej jeho X/Y v palcích — měří se vždy od odpovídajících okrajů desky (pravý roh od pravého okraje, dolní roh od dolního okraje atd., střed od levého a horního), počítá se i s otočením.</>,
+            <><b>Terén (stavebnice)</b> — klikni na Ruina/T obrys (bez podložky)/Objektiv domácí červený/Objektiv domácí modrý/Objektiv střed/Objektiv expanze/Short line full/Short line full 1/Short line full 2/Short line full 3/Short line full 4/Short line full 5/Short line full 6/Short line full kombi/Short line full combi 2/Short line full combi 3/Short line full combi 4/Short line full combi 5/Short line full combi 6/Short line full combi 7/Short line full combi 8/Short line full combi 9/Short line full combi 10/Short line full combi 11/Short line/Short line 1/Short line 2/Short line 3/Short line 4/Short line 5/Short line 6/Short line 7/Short line 8/Ruin diag A/Ruin diag B/Triangle/Triangle 1/Triangle 2/Triangle 3/Triangle 4/Triangle 5/Triangle 6/Triangle 7/Triangle 8/Triangle 9/Triangle 10/Triangle 11/Triangle 12/Triangle 13/Triangle 14/Triangle 15/Triangle 16/Triangle 17/Medium rectangle full/Medium rectangle full 1/Medium rectangle full 2/Medium rectangle full 3/Medium rectangle full 4/Medium rectangle full 5/Medium rectangle full 6/Medium rectangle full 7/Medium rectangle full 8/Medium rectangle full 9/Medium rectangle full 10/Medium rectangle full 11/Medium rectangle open 1/Medium rectangle open 2/Medium rectangle open 3/Medium rectangle open 4/Medium rectangle open 5/Medium rectangle open 6/Medium rectangle open 7/Medium rectangle open 8/Medium rectangle open 9/Medium rectangle open 10/Medium rectangle open 11/Medium rectangle open 12/Medium rectangle open 13/Medium rectangle 1/Large rectangle/Large rectangle 1/Large rectangle 2/Large rectangle 3/Large rectangle 4/Large rectangle 5/Large rectangle 6/Large rectangle 7/Large rectangle 8/Large rectangle 9/Large rectangle 10/Large rectangle 15–45/Zeď/Kráter/Les/Kontejner pro přidání kusu doprostřed desky, pak ho přetáhni na místo. „Large rectangle", „Large rectangle 1–10, 15–37", „Medium rectangle 1" i „Short line full kombi" jsou jeden pevný modul — podložka se zídkami, táhne/otáčí/škáluje se najednou. Klik na terén otevře dole šířku/výšku/otočení; odebereš ho dvojklikem, tlačítkem Odebrat, nebo klávesou Delete / Backspace, když je vybraný. Kus, který nechceš mít v paletě, smažeš popelnicí vedle něj; „Obnovit smazané“ je vrátí. Úplně nahoře v Desce jsou „Mapa A“, „Mapa B“, „Mapa C“ a „Mapa PtF A/B/C“ a „Mapa Rec A/B/C“ a „Mapa Pri A/B/C“ a „Mapa Dis A/B/C“ a „Mapa PtF-PtF A/C“ a „Mapa PtF-Rec A“ — jedním klikem načtou celou mapu (zónu i terén) pro Take and Hold vs Take and Hold A, B a C a Take and Hold vs Purge the Foe A, B a C a vs Reconnaissance A, B a C a vs Priority Assets A, B a C a vs Disruption A, B a C a Purge the Foe vs Purge the Foe A a C a Purge the Foe vs Reconnaissance A; všechny mají navíc značky objektivů (vlastní: čtverec = domácí, kroužek = střed, kosočtverec = expanze). Všechno ostatní pod tím (tvorba mapy, paleta terénu, Terén čísly, vlastní terén, Moje podložky) je schované pod rozbalovátkem „Úpravy mapy a terénu“. Vybraný kus zkopíruješ tlačítkem „Kopírovat kus“ nebo klávesou Ctrl+D (případně Ctrl+C a Ctrl+V). Pod rozměry je „Umístit bod“: vyber roh (nebo střed) kusu a zadej jeho X/Y v palcích — měří se vždy od odpovídajících okrajů desky (pravý roh od pravého okraje, dolní roh od dolního okraje atd., střed od levého a horního), počítá se i s otočením.</>,
             <><b>Uložit jako skupinu</b> — když máš na desce rozestavěno víc kusů (třeba ruinu se zdí a zelení), objeví se pole „Uložit N kusů jako skupinu". Pojmenuj a ulož → skupina se přidá do palety jako jeden kus. Klik na ni pak vysype celé to rozestavění zpět na desku (kusy zůstávají samostatně přetažitelné). „Smazat" u skupiny funguje jako u ostatních vlastních typů.</>,
             <><b>Mřížka po 1 palci</b> — přepínač u rozměrů desky, čtvercová síť odpovídající skutečným palcům na stole.</>,
             <><b>Terén čísly (obdélník / zeď)</b> — pod paletou je rozklikávací box. Obdélník zadáš dvěma protilehlými rohy (X/Y v palcích podle okraje desky), zeď dvěma konci úsečky + tloušťkou (kus se sám natočí do směru úsečky). „Přidat na desku" vytvoří normální terénní kus, který jde pak přetáhnout, zvětšit, otočit i uložit do skupiny.</>,
