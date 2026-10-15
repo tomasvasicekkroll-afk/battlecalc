@@ -6931,11 +6931,7 @@ function BoardTokenView({ token, unit, containerRef, sizePctW, sizePctH, selecte
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerUp}
-      onDoubleClick={(e) => {
-        e.stopPropagation();
-        onRemove(token.id);
-      }}
-      title={unit ? `${unit.name} — klik pro výběr do souboje, táhni pro přesun, dvojklik pro odebrání` : "dvojklik pro odebrání"}
+      title={unit ? `${unit.name} — klik pro výběr do souboje, táhni pro přesun, Shift+klik označí` : "model"}
       style={{
         position: "absolute",
         left: `${token.xPct}%`,
@@ -7949,7 +7945,7 @@ function ManualView({ onBack }) {
         </ManualP>
         <ManualUl
           items={[
-            <>Dvojklik na token ho odebere z desky (odškrtne se i v seznamu).</>,
+            <>Model odebereš tak, že ho označíš (Shift+klik nebo tažením myší po desce) a stiskneš Delete, nebo tlačítkem „Odebrat označené“; jednotku celou odškrtnutím v seznamu.</>,
             <>Rozměry desky (šířka/výška v palcích) jdou upravit nahoře — token si přepočítá velikost podle nich.</>,
             <>Jeden token = celá jednotka (počet modelů je v odznáčku v rohu), ne model po modelu.</>,
             <><b>Rozložení výsadku — základní mapy</b> (v Desce sbalené pod „Tvorba mapy“) — nahoře je řada „základních map" (nový účet začíná s pěti, sloty <b>1–5</b>). Každá je jen tvar zóny — nakresli/zadej si do ní svou „Moji zónu" a ulož přes „Uložit změny do…"; druhá strana je vždy její diagonální (o 180° otočený) protějšek. Kliknutí na základní mapu ji rovnou zobrazí na desce (pokud máš rozdělaný neuložený tvar zóny, appka se před zahozením zeptá) — pak už jen přidávej ruiny. „Uložit jako novou základní mapu" přidá šestou, sedmou… „Smazat" pod mapou ji odebere i s jejími mutacemi.</>,
@@ -8582,6 +8578,7 @@ export default function Wh40kCalculator({ session }) {
     clearTimeout(wheelSaveTimerRef.current);
     wheelSaveTimerRef.current = setTimeout(() => commitBoardTokenMove(), 400);
   };
+  const removeSelectedTokensRef = useRef(null);
   const removeSelectedTokens = () => {
     const ids = new Set(selectedTokenIds);
     persistBoard({ ...board, tokens: board.tokens.filter((t) => !ids.has(t.id)) });
@@ -9404,6 +9401,20 @@ export default function Wh40kCalculator({ session }) {
   // click, clear, etc.) drop the dangling selection instead of pointing at
   // nothing.
   rotateTokensRef.current = rotateTokensAt;
+  removeSelectedTokensRef.current = removeSelectedTokens;
+  useEffect(() => {
+    if (view !== "board") return undefined;
+    const onKey = (e) => {
+      if (e.key !== "Delete" && e.key !== "Backspace") return;
+      const tag = e.target && e.target.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || (e.target && e.target.isContentEditable)) return;
+      if (selectedTokenIds.length === 0) return;
+      e.preventDefault();
+      removeSelectedTokensRef.current();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [view, selectedTokenIds]);
   useEffect(() => {
     const el = boardContainerRef.current;
     if (!el) return undefined;
@@ -9967,14 +9978,11 @@ export default function Wh40kCalculator({ session }) {
           border: 1px solid #8c959e !important;
           box-shadow: 0 0 0 1px rgba(0,0,0,0.65), 0 4px 10px rgba(0,0,0,0.6) !important;
         }
-        .wh40k-theme-tactical [data-board-piece="token"]:not([data-sel]) {
-          clip-path: polygon(25% 4%, 75% 4%, 100% 50%, 75% 96%, 25% 96%, 0% 50%);
-          border-radius: 0 !important;
-          border: none !important;
-          box-shadow: none !important;
+        .wh40k-theme-tactical [data-board-piece="token"] {
           background-image:
             linear-gradient(160deg, rgba(255,255,255,0.34), rgba(255,255,255,0) 48%),
             radial-gradient(circle at 50% 125%, rgba(0,0,0,0.40), transparent 62%) !important;
+          box-shadow: 0 0 10px rgba(45,140,255,0.55), inset 0 0 0 1px rgba(255,255,255,0.35) !important;
           font-weight: 800;
         }
         .wh40k-theme-tactical [data-board-piece="token"][data-sel] { box-shadow: 0 0 12px 3px rgba(255,255,255,0.6) !important; }
@@ -11313,7 +11321,7 @@ export default function Wh40kCalculator({ session }) {
         <div className="no-print" style={{ padding: "4px 14px 16px" }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: "var(--label)", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 10 }}>Deska</div>
           <div style={{ fontSize: 11.5, color: "var(--muted)", marginBottom: 10, lineHeight: 1.5 }}>
-            Zaškrtni jednotky z knihovny do své strany nebo strany protihráče — objeví se jako tokeny na desce (jeden na každý model), které přetáhneš na místo. Dvojklik na token ho odebere.
+            Zaškrtni jednotky z knihovny do své strany nebo strany protihráče — objeví se jako tokeny na desce (jeden na každý model), které přetáhneš na místo. Model odebereš označením (Shift+klik) a klávesou Delete.
           </div>
 
           <div className="wh40k-board-layout">
