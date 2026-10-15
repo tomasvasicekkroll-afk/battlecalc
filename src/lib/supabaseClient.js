@@ -1,7 +1,7 @@
-// Not wired into the app yet — this is the connection point for goal 2
-// (user accounts + database). Once there's a real Supabase project, fill in
-// .env.local (see .env.example) and this client becomes usable; storage.js
-// and an auth screen still need to be built on top of it.
+// Supabase client. Configured from VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY
+// (see .env.example); `null` when they are missing, in which case AuthGate
+// shows a configuration message instead of the app. Used by auth.js, AuthGate
+// and storage.js.
 import { createClient } from "@supabase/supabase-js";
 
 const url = import.meta.env.VITE_SUPABASE_URL;

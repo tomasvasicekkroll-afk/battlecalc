@@ -4245,6 +4245,38 @@ function stripIds(value) {
   }
   return value;
 }
+function isPlainObject(v) {
+  return v !== null && typeof v === "object" && !Array.isArray(v);
+}
+
+// Imported files come from other people (or are hand-edited), so only let
+// well-formed entries into the library: drop non-objects and nameless units,
+// make sure every unit has a string id, and repair wrongly typed collections
+// that the rest of the app iterates over.
+function sanitizeImportedUnits(units) {
+  return units
+    .filter((u) => isPlainObject(u) && typeof u.name === "string" && u.name.trim())
+    .map((u) => ({
+      ...u,
+      id: typeof u.id === "string" && u.id ? u.id : crypto.randomUUID(),
+      ...(u.members !== undefined && !Array.isArray(u.members) ? { members: [] } : {}),
+      ...(u.keywords !== undefined && !isPlainObject(u.keywords) ? { keywords: {} } : {}),
+    }));
+}
+
+function sanitizeImportedArmies(armiesIn) {
+  return armiesIn
+    .filter((a) => isPlainObject(a) && typeof a.name === "string" && a.name.trim())
+    .map((a) => ({ ...a, unitIds: Array.isArray(a.unitIds) ? a.unitIds.filter((id) => typeof id === "string") : [] }));
+}
+
+function sanitizeImportedPresets(presets) {
+  const dim = (v) => (Number.isFinite(v) && v >= 1 && v <= 200 ? v : null);
+  return presets
+    .filter((p) => isPlainObject(p) && dim(p.widthIn) && dim(p.heightIn))
+    .map((p) => ({ ...p, name: typeof p.name === "string" ? p.name : "", terrain: Array.isArray(p.terrain) ? p.terrain.filter(isPlainObject) : [] }));
+}
+
 function unitSignature(unit) {
   return JSON.stringify(stripIds(unit));
 }
@@ -5890,7 +5922,12 @@ function ImportBox({ onImport }) {
     if (!trimmed) return;
 
     if (trimmed.startsWith("{")) {
-      const units = parseBattleScribeJSON(trimmed);
+      let units = null;
+      try {
+        units = parseBattleScribeJSON(trimmed);
+      } catch (e) {
+        console.error("Import rosteru selhal", e);
+      }
       if (!units || units.length === 0) {
         setSummary({ error: true, message: "Nepodařilo se rozpoznat strukturu JSON rosteru. Zkontroluj, že jde o export z New Recruit / BattleScribe." });
         return;
@@ -6112,12 +6149,17 @@ function ExportImportBox({ library, armies, onImport }) {
       setImportSummary({ error: true, message: "Tohle nevypadá jako platný export z Battlecalc (neplatný JSON)." });
       return;
     }
-    const units = Array.isArray(data.units) ? data.units : Array.isArray(data) ? data : null;
-    if (!units) {
+    const rawUnits = Array.isArray(data) ? data : data && Array.isArray(data.units) ? data.units : null;
+    if (!rawUnits) {
       setImportSummary({ error: true, message: "Tohle nevypadá jako platný export z Battlecalc." });
       return;
     }
-    const armiesIn = Array.isArray(data.armies) ? data.armies : [];
+    const units = sanitizeImportedUnits(rawUnits);
+    if (units.length === 0 && rawUnits.length > 0) {
+      setImportSummary({ error: true, message: "V souboru nejsou žádné použitelné jednotky." });
+      return;
+    }
+    const armiesIn = data && Array.isArray(data.armies) ? sanitizeImportedArmies(data.armies) : [];
     const { added, skipped } = onImport(units, armiesIn);
     setImportSummary({ error: false, added, skipped, armiesAdded: armiesIn.length });
     setImportText("");
@@ -6303,9 +6345,14 @@ function BoardShareBox({ boardPresets, onImport }) {
       setImportSummary({ error: true, message: "Tohle nevypadá jako platný export podložek z Battlecalc (neplatný JSON)." });
       return;
     }
-    const presets = Array.isArray(data.presets) ? data.presets : Array.isArray(data) ? data : null;
-    if (!presets) {
+    const rawPresets = Array.isArray(data) ? data : data && Array.isArray(data.presets) ? data.presets : null;
+    if (!rawPresets) {
       setImportSummary({ error: true, message: "Tohle nevypadá jako platný export podložek z Battlecalc." });
+      return;
+    }
+    const presets = sanitizeImportedPresets(rawPresets);
+    if (presets.length === 0 && rawPresets.length > 0) {
+      setImportSummary({ error: true, message: "V souboru nejsou žádné použitelné podložky." });
       return;
     }
     const { added } = onImport(presets);
@@ -8180,12 +8227,23 @@ export default function Wh40kCalculator({ session }) {
   const askConfirm = (message, onConfirm) => setConfirmDialog({ message, onConfirm });
   const [alertMessage, setAlertMessage] = useState(null);
 
+  // Shown when saving fails; throttled so a flaky connection doesn't stack a
+  // dialog on every drag/keystroke.
+  const lastSaveErrorAtRef = useRef(0);
+  const notifySaveError = useCallback((what, e) => {
+    console.error("Nepodařilo se uložit " + what, e);
+    const now = Date.now();
+    if (now - lastSaveErrorAtRef.current < 15000) return;
+    lastSaveErrorAtRef.current = now;
+    setAlertMessage("Nepodařilo se uložit " + what + ". Změna zůstala jen v otevřeném okně a po obnovení stránky se ztratí. Zkontroluj připojení nebo se znovu přihlas.");
+  }, []);
+
   const persistHistory = useCallback(async (next) => {
     setHistory(next);
     try {
       await storage.set("history_v1", JSON.stringify(next), false);
     } catch (e) {
-      console.error("Nepodařilo se uložit historii", e);
+      notifySaveError("historii", e);
     }
   }, []);
 
@@ -8193,85 +8251,43 @@ export default function Wh40kCalculator({ session }) {
   const clearHistory = () => persistHistory([]);
 
   useEffect(() => {
-    (async () => {
+    // Loads one stored key. A failed load (network error, timeout, corrupt or
+    // unexpected data) must not be mistaken for "nothing saved yet": the key is
+    // blocked so a later save can't overwrite the real data with the empty
+    // default, and the person is told.
+    const failedLabels = [];
+    const loadKey = async (key, label, isValid, apply, onDone) => {
       try {
-        const res = await withTimeout(storage.get("library_v2", false));
-        if (res && res.value) setLibrary(JSON.parse(res.value));
+        const res = await withTimeout(storage.get(key, false));
+        if (res && res.value) {
+          const parsed = JSON.parse(res.value);
+          if (!isValid(parsed)) throw new Error("unexpected data shape");
+          apply(parsed);
+        }
       } catch (e) {
-        // nothing saved yet, or the request stalled — either way, don't
-        // block the UI on it forever
+        storage.block(key);
+        failedLabels.push(label);
+        console.error("Nepodařilo se načíst " + label, e);
       } finally {
-        setLoaded(true);
+        if (onDone) onDone();
       }
-    })();
-    (async () => {
-      try {
-        const res = await withTimeout(storage.get("armies_v1", false));
-        if (res && res.value) setArmies(JSON.parse(res.value));
-      } catch (e) {
-        // nothing saved yet, or the request stalled
-      } finally {
-        setArmiesLoaded(true);
+    };
+    const isArr = Array.isArray;
+    const isObj = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+    Promise.all([
+      loadKey("library_v2", "knihovnu", isArr, setLibrary, () => setLoaded(true)),
+      loadKey("armies_v1", "armády", isArr, setArmies, () => setArmiesLoaded(true)),
+      loadKey("history_v1", "historii", isArr, setHistory, () => setHistoryLoaded(true)),
+      loadKey("board_v1", "desku", isObj, setBoard, () => setBoardLoaded(true)),
+      loadKey("board_presets_v1", "podložky", isArr, setBoardPresets, () => setBoardPresetsLoaded(true)),
+      loadKey("custom_pieces_v1", "vlastní terén", isArr, setCustomPieceTypes, () => setCustomPieceTypesLoaded(true)),
+      loadKey("hidden_terrain_shapes_v1", "skryté kusy terénu", isArr, setHiddenShapeIds),
+      loadKey("custom_layouts_v1", "vlastní rozložení", isArr, setCustomLayouts, () => setCustomLayoutsLoaded(true)),
+    ]).then(() => {
+      if (failedLabels.length > 0) {
+        setAlertMessage("Nepodařilo se načíst uložená data (" + failedLabels.join(", ") + "). Ukládání těchto dat je pozastavené, aby se nepřepsala. Obnov stránku; pokud to nepomůže, zkontroluj připojení.");
       }
-    })();
-    (async () => {
-      try {
-        const res = await withTimeout(storage.get("history_v1", false));
-        if (res && res.value) setHistory(JSON.parse(res.value));
-      } catch (e) {
-        // nothing saved yet, or the request stalled
-      } finally {
-        setHistoryLoaded(true);
-      }
-    })();
-    (async () => {
-      try {
-        const res = await withTimeout(storage.get("board_v1", false));
-        if (res && res.value) setBoard(JSON.parse(res.value));
-      } catch (e) {
-        // nothing saved yet, or the request stalled
-      } finally {
-        setBoardLoaded(true);
-      }
-    })();
-    (async () => {
-      try {
-        const res = await withTimeout(storage.get("board_presets_v1", false));
-        if (res && res.value) setBoardPresets(JSON.parse(res.value));
-      } catch (e) {
-        // nothing saved yet, or the request stalled
-      } finally {
-        setBoardPresetsLoaded(true);
-      }
-    })();
-    (async () => {
-      try {
-        const res = await withTimeout(storage.get("custom_pieces_v1", false));
-        if (res && res.value) setCustomPieceTypes(JSON.parse(res.value));
-      } catch (e) {
-        // nothing saved yet, or the request stalled
-      } finally {
-        setCustomPieceTypesLoaded(true);
-      }
-    })();
-    (async () => {
-      try {
-        const res = await withTimeout(storage.get("hidden_terrain_shapes_v1", false));
-        if (res && res.value) setHiddenShapeIds(JSON.parse(res.value));
-      } catch (e) {
-        // nothing saved yet, or the request stalled
-      }
-    })();
-    (async () => {
-      try {
-        const res = await withTimeout(storage.get("custom_layouts_v1", false));
-        if (res && res.value) setCustomLayouts(JSON.parse(res.value));
-      } catch (e) {
-        // nothing saved yet, or the request stalled
-      } finally {
-        setCustomLayoutsLoaded(true);
-      }
-    })();
+    });
   }, []);
 
   const persistLibrary = useCallback(async (next) => {
@@ -8279,7 +8295,7 @@ export default function Wh40kCalculator({ session }) {
     try {
       await storage.set("library_v2", JSON.stringify(next), false);
     } catch (e) {
-      console.error("Nepodařilo se uložit knihovnu", e);
+      notifySaveError("knihovnu", e);
     }
   }, []);
 
@@ -8288,7 +8304,7 @@ export default function Wh40kCalculator({ session }) {
     try {
       await storage.set("armies_v1", JSON.stringify(next), false);
     } catch (e) {
-      console.error("Nepodařilo se uložit armády", e);
+      notifySaveError("armády", e);
     }
   }, []);
 
@@ -8322,7 +8338,7 @@ export default function Wh40kCalculator({ session }) {
     try {
       await storage.set("board_v1", JSON.stringify(next), false);
     } catch (e) {
-      console.error("Nepodařilo se uložit desku", e);
+      notifySaveError("desku", e);
     }
   }, []);
 
@@ -8331,7 +8347,7 @@ export default function Wh40kCalculator({ session }) {
     try {
       await storage.set("board_presets_v1", JSON.stringify(next), false);
     } catch (e) {
-      console.error("Nepodařilo se uložit podložky", e);
+      notifySaveError("podložky", e);
     }
   }, []);
 
@@ -8368,7 +8384,7 @@ export default function Wh40kCalculator({ session }) {
     try {
       await storage.set("custom_pieces_v1", JSON.stringify(next), false);
     } catch (e) {
-      console.error("Nepodařilo se uložit vlastní terén", e);
+      notifySaveError("vlastní terén", e);
     }
   }, []);
   const addCustomPieceType = (def) => {
@@ -8382,7 +8398,7 @@ export default function Wh40kCalculator({ session }) {
     try {
       await storage.set("hidden_terrain_shapes_v1", JSON.stringify(next), false);
     } catch (e) {
-      console.error("Nepodařilo se uložit skryté kusy terénu", e);
+      notifySaveError("skryté kusy terénu", e);
     }
   };
   // Looks up a shape definition by id across both the built-in TERRAIN_SHAPES
@@ -8614,7 +8630,7 @@ export default function Wh40kCalculator({ session }) {
   // boardRef instead of the `board` closure variable, since setState from
   // moveBoardToken above won't be reflected in this render's `board` yet.
   const commitBoardTokenMove = () => {
-    storage.set("board_v1", JSON.stringify(boardRef.current), false).catch((e) => console.error("Nepodařilo se uložit desku", e));
+    storage.set("board_v1", JSON.stringify(boardRef.current), false).catch((e) => notifySaveError("desku", e));
   };
 
   const clearBoardTokens = () => persistBoard({ ...board, tokens: [] });
@@ -8899,7 +8915,7 @@ export default function Wh40kCalculator({ session }) {
     try {
       await storage.set("custom_layouts_v1", JSON.stringify(next), false);
     } catch (e) {
-      console.error("Nepodařilo se uložit vlastní rozložení", e);
+      notifySaveError("vlastní rozložení", e);
     }
   }, []);
   // What "Moje zóna" currently is, as a plain array of clip-path strings —

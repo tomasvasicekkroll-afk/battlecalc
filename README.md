@@ -53,6 +53,9 @@ Není potřeba mít Node nainstalovaný lokálně — build proběhne na jejich 
 
 ## Struktura
 
-- `src/App.jsx` — celá appka (zatím jeden soubor, jako v původním artifactu)
-- `src/lib/storage.js` — abstraktní úložná vrstva (dnes localStorage, zítra Supabase)
+- `src/App.jsx` — celá appka (zatím jeden velký soubor)
+- `src/lib/storage.js` — úložná vrstva nad Supabase (chyby se vyhazují; klíč, který se nepodařilo načíst, se nepřepisuje)
+- `src/AuthGate.jsx`, `src/lib/auth.js` — přihlášení
+- `src/ErrorBoundary.jsx` — záchytná síť proti bílé obrazovce při chybě vykreslení
+- `vercel.json` — bezpečnostní hlavičky (CSP, HSTS, …); při přidání externí domény je potřeba upravit CSP
 - `src/main.jsx` — vstupní bod
