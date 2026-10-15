@@ -226,6 +226,60 @@ const longLineFrameShape = (n, deg) => ({
 // render, which sorts base-layer pieces first.
 const TERRAIN_SHAPES = [
   { id: "ruin", label: "Ruina", layer: "terrain", widthIn: 8, heightIn: 5, bg: "#5c5c52", border: "2px dashed #8f8f7e", radius: 4 },
+  // Objective markers: ~40mm (1.6") round tokens with our own plain geometric
+  // glyphs — a coloured square (home objective, red/blue side), a gold ring
+  // (centre) and a teal diamond (expansion) — to mark objectives on a map.
+  {
+    id: "obj-home-red",
+    label: "Objektiv domácí červený",
+    layer: "terrain",
+    multiCombo: true,
+    widthIn: 1.6,
+    heightIn: 1.6,
+    bg: "rgba(16,20,28,0.92)",
+    border: "2px solid #c0392b",
+    radius: "50%",
+    parts: [{ leftPct: 30, topPct: 30, widthPct: 40, heightPct: 40, bg: "#c0392b" }],
+  },
+  {
+    id: "obj-home-blue",
+    label: "Objektiv domácí modrý",
+    layer: "terrain",
+    multiCombo: true,
+    widthIn: 1.6,
+    heightIn: 1.6,
+    bg: "rgba(16,20,28,0.92)",
+    border: "2px solid #3b82c4",
+    radius: "50%",
+    parts: [{ leftPct: 30, topPct: 30, widthPct: 40, heightPct: 40, bg: "#3b82c4" }],
+  },
+  {
+    id: "obj-center",
+    label: "Objektiv střed",
+    layer: "terrain",
+    multiCombo: true,
+    widthIn: 1.6,
+    heightIn: 1.6,
+    bg: "rgba(16,20,28,0.92)",
+    border: "2px solid #e0c34a",
+    radius: "50%",
+    parts: [
+      { leftPct: 24, topPct: 24, widthPct: 52, heightPct: 52, bg: "#e0c34a", radius: "50%" },
+      { leftPct: 38, topPct: 38, widthPct: 24, heightPct: 24, bg: "rgb(16,20,28)", radius: "50%" },
+    ],
+  },
+  {
+    id: "obj-expansion",
+    label: "Objektiv expanze",
+    layer: "terrain",
+    multiCombo: true,
+    widthIn: 1.6,
+    heightIn: 1.6,
+    bg: "rgba(16,20,28,0.92)",
+    border: "2px solid #3fa7a0",
+    radius: "50%",
+    parts: [{ leftPct: 28, topPct: 28, widthPct: 44, heightPct: 44, bg: "#3fa7a0", rotationDeg: 45 }],
+  },
   // "Long line" = a terrain feature on a 10 x 2" podložka: a long barricade
   // — a horizontal bar with three crossbars poking out top and bottom, drawn
   // as one clip-path polygon. Combo, so the podložka and the barricade scale
@@ -1856,11 +1910,7 @@ const TERRAIN_SHAPES = [
 // set mirror: true to add the 180°-rotated copy of every non-center piece.
 // Loaded with the "Hotová rozložení" button on the Deska tab, which replaces
 // the board's zone and terrain.
-const LAYOUT_TEMPLATES = [
-  {
-    id: "mirror-1",
-    name: "Mapa",
-    mission: "Take and Hold vs Take and Hold A",
+const MIRROR_1_LAYOUT = {
     widthIn: 44,
     heightIn: 60,
     zoneMine: [
@@ -1877,6 +1927,28 @@ const LAYOUT_TEMPLATES = [
       { shapeId: "h-blok-1", cx: 10, cy: 25, widthIn: 4, heightIn: 6, rot: 180 },
       { shapeId: "short-line-5", cx: 7, cy: 29, widthIn: 6, heightIn: 2, rot: 180 },
       { shapeId: "large-rectangle-37", cx: 22, cy: 30, widthIn: 11.5, heightIn: 10, rot: 0, center: true },
+    ],
+};
+const OBJ_MARKER = { widthIn: 1.6, heightIn: 1.6, rot: 0, marker: true };
+const LAYOUT_TEMPLATES = [
+  {
+    id: "mirror-1",
+    name: "Mapa A",
+    mission: "Take and Hold vs Take and Hold A",
+    ...MIRROR_1_LAYOUT,
+  },
+  {
+    id: "mirror-1b",
+    name: "Mapa B",
+    mission: "Take and Hold vs Take and Hold B",
+    ...MIRROR_1_LAYOUT,
+    pieces: [
+      ...MIRROR_1_LAYOUT.pieces,
+      { ...OBJ_MARKER, shapeId: "obj-home-red", cx: 17.5, cy: 11.75 },
+      { ...OBJ_MARKER, shapeId: "obj-home-blue", cx: 26.5, cy: 48.25 },
+      { ...OBJ_MARKER, shapeId: "obj-expansion", cx: 37.5, cy: 18.75 },
+      { ...OBJ_MARKER, shapeId: "obj-expansion", cx: 6.5, cy: 41.25 },
+      { ...OBJ_MARKER, shapeId: "obj-center", cx: 22, cy: 30 },
     ],
   },
 ];
@@ -4493,7 +4565,7 @@ function PieceSwatch({ shape }) {
         {(shape.parts || []).map((pt, i) => (
           <span
             key={i}
-            style={{ position: "absolute", left: `${pt.leftPct}%`, top: `${pt.topPct}%`, width: `${pt.widthPct}%`, height: `${pt.heightPct}%`, background: pt.bg }}
+            style={{ position: "absolute", left: `${pt.leftPct}%`, top: `${pt.topPct}%`, width: `${pt.widthPct}%`, height: `${pt.heightPct}%`, background: pt.bg, borderRadius: pt.radius || 0, transform: pt.rotationDeg ? `rotate(${pt.rotationDeg}deg)` : undefined }}
           />
         ))}
       </span>
@@ -5730,7 +5802,7 @@ function ManualView({ onBack }) {
             <><b>Zóna čísly (v palcích)</b> — pod tlačítkem pro kreslení je box Moje zóna se dvěma obdélníky (Obdélník 1 a 2) — zadej jim Od X/Y a Do X/Y podle čísel na okraji desky a klikni na tlačítko Nastavit. Oba obdélníky se spojí do jedné zóny, takže jde postavit i L-tvar nebo schod, ne jen jeden obdélník. „Zóna protihráče“ se vždy dopočítá automaticky jako diagonální (o 180° otočený) protějšek — nezadává se ručně.</>,
             <><b>Trojúhelník a kruhová výseč čísly</b> — pod obdélníky jsou další dva boxy: Trojúhelník (tři rohy, každý svým X/Y) a Kruhová výseč (střed X/Y, poloměr od/do, úhel od/do ve stupních — 0° doprava, 90° dolů; poloměr „od“ 0 = bez otvoru uprostřed; zaškrtnutím „Opačně“ se z výseče stane celý výsek od středu ven s vykrojeným kruhem, tlačítko „Čtvrtina bez kruhu 9″“ to nastaví jedním klikem). Každý má vlastní tlačítko Nastavit a nahradí celou „Moji zónu“ (nekombinuje se s obdélníky). „Zóna protihráče“ se i tady vždy dopočítá jako diagonální protějšek.</>,
             <><b>Rychlý souboj</b> — klikni na svůj token, pak na token protihráče. Appka spočítá zabité modely/damage jen z vestavěných schopností obou jednotek (žádné bonusy). „Otevřít v kalkulačce“ tě přenese do plné kalkulačky s modifikátory.</>,
-            <><b>Terén (stavebnice)</b> — klikni na Ruina/Short line full/Short line full 1/Short line full 2/Short line full 3/Short line full 4/Short line full 5/Short line full 6/Short line full kombi/Short line full combi 2/Short line full combi 3/Short line full combi 4/Short line full combi 5/Short line full combi 6/Short line full combi 7/Short line full combi 8/Short line full combi 9/Short line full combi 10/Short line full combi 11/Short line/Short line 1/Short line 2/Short line 3/Short line 4/Short line 5/Short line 6/Short line 7/Short line 8/Ruin diag A/Ruin diag B/Triangle/Triangle 1/Triangle 2/Triangle 3/Triangle 4/Triangle 5/Triangle 6/Triangle 7/Triangle 8/Triangle 9/Triangle 10/Triangle 11/Triangle 12/Triangle 13/Triangle 14/Triangle 15/Triangle 16/Triangle 17/Medium rectangle full/Medium rectangle full 1/Medium rectangle full 2/Medium rectangle full 3/Medium rectangle full 4/Medium rectangle full 5/Medium rectangle full 6/Medium rectangle full 7/Medium rectangle full 8/Medium rectangle full 9/Medium rectangle full 10/Medium rectangle full 11/Medium rectangle open 1/Medium rectangle open 2/Medium rectangle open 3/Medium rectangle open 4/Medium rectangle open 5/Medium rectangle open 6/Medium rectangle open 7/Medium rectangle open 8/Medium rectangle open 9/Medium rectangle open 10/Medium rectangle open 11/Medium rectangle open 12/Medium rectangle 1/Large rectangle/Large rectangle 1/Large rectangle 2/Large rectangle 3/Large rectangle 4/Large rectangle 5/Large rectangle 6/Large rectangle 7/Large rectangle 8/Large rectangle 9/Large rectangle 10/Large rectangle 15–37/Zeď/Kráter/Les/Kontejner pro přidání kusu doprostřed desky, pak ho přetáhni na místo. „Large rectangle", „Large rectangle 1–10, 15–37", „Medium rectangle 1" i „Short line full kombi" jsou jeden pevný modul — podložka se zídkami, táhne/otáčí/škáluje se najednou. Klik na terén otevře dole šířku/výšku/otočení; odebereš ho dvojklikem, tlačítkem Odebrat, nebo klávesou Delete / Backspace, když je vybraný. Kus, který nechceš mít v paletě, smažeš popelnicí vedle něj; „Obnovit smazané“ je vrátí. Úplně nahoře v Desce je „Mapa“ — jedním klikem načte celou mapu (zónu i terén), teď pro Take and Hold vs Take and Hold A. Vybraný kus zkopíruješ tlačítkem „Kopírovat kus“ nebo klávesou Ctrl+D (případně Ctrl+C a Ctrl+V). Pod rozměry je „Umístit bod“: vyber roh (nebo střed) kusu a zadej jeho X/Y v palcích — měří se vždy od odpovídajících okrajů desky (pravý roh od pravého okraje, dolní roh od dolního okraje atd., střed od levého a horního), počítá se i s otočením.</>,
+            <><b>Terén (stavebnice)</b> — klikni na Ruina/Objektiv domácí červený/Objektiv domácí modrý/Objektiv střed/Objektiv expanze/Short line full/Short line full 1/Short line full 2/Short line full 3/Short line full 4/Short line full 5/Short line full 6/Short line full kombi/Short line full combi 2/Short line full combi 3/Short line full combi 4/Short line full combi 5/Short line full combi 6/Short line full combi 7/Short line full combi 8/Short line full combi 9/Short line full combi 10/Short line full combi 11/Short line/Short line 1/Short line 2/Short line 3/Short line 4/Short line 5/Short line 6/Short line 7/Short line 8/Ruin diag A/Ruin diag B/Triangle/Triangle 1/Triangle 2/Triangle 3/Triangle 4/Triangle 5/Triangle 6/Triangle 7/Triangle 8/Triangle 9/Triangle 10/Triangle 11/Triangle 12/Triangle 13/Triangle 14/Triangle 15/Triangle 16/Triangle 17/Medium rectangle full/Medium rectangle full 1/Medium rectangle full 2/Medium rectangle full 3/Medium rectangle full 4/Medium rectangle full 5/Medium rectangle full 6/Medium rectangle full 7/Medium rectangle full 8/Medium rectangle full 9/Medium rectangle full 10/Medium rectangle full 11/Medium rectangle open 1/Medium rectangle open 2/Medium rectangle open 3/Medium rectangle open 4/Medium rectangle open 5/Medium rectangle open 6/Medium rectangle open 7/Medium rectangle open 8/Medium rectangle open 9/Medium rectangle open 10/Medium rectangle open 11/Medium rectangle open 12/Medium rectangle 1/Large rectangle/Large rectangle 1/Large rectangle 2/Large rectangle 3/Large rectangle 4/Large rectangle 5/Large rectangle 6/Large rectangle 7/Large rectangle 8/Large rectangle 9/Large rectangle 10/Large rectangle 15–37/Zeď/Kráter/Les/Kontejner pro přidání kusu doprostřed desky, pak ho přetáhni na místo. „Large rectangle", „Large rectangle 1–10, 15–37", „Medium rectangle 1" i „Short line full kombi" jsou jeden pevný modul — podložka se zídkami, táhne/otáčí/škáluje se najednou. Klik na terén otevře dole šířku/výšku/otočení; odebereš ho dvojklikem, tlačítkem Odebrat, nebo klávesou Delete / Backspace, když je vybraný. Kus, který nechceš mít v paletě, smažeš popelnicí vedle něj; „Obnovit smazané“ je vrátí. Úplně nahoře v Desce jsou „Mapa A“ a „Mapa B“ — jedním klikem načtou celou mapu (zónu i terén) pro Take and Hold vs Take and Hold A a B; B má navíc značky objektivů (vlastní: čtverec = domácí, kroužek = střed, kosočtverec = expanze). Vybraný kus zkopíruješ tlačítkem „Kopírovat kus“ nebo klávesou Ctrl+D (případně Ctrl+C a Ctrl+V). Pod rozměry je „Umístit bod“: vyber roh (nebo střed) kusu a zadej jeho X/Y v palcích — měří se vždy od odpovídajících okrajů desky (pravý roh od pravého okraje, dolní roh od dolního okraje atd., střed od levého a horního), počítá se i s otočením.</>,
             <><b>Uložit jako skupinu</b> — když máš na desce rozestavěno víc kusů (třeba ruinu se zdí a zelení), objeví se pole „Uložit N kusů jako skupinu". Pojmenuj a ulož → skupina se přidá do palety jako jeden kus. Klik na ni pak vysype celé to rozestavění zpět na desku (kusy zůstávají samostatně přetažitelné). „Smazat" u skupiny funguje jako u ostatních vlastních typů.</>,
             <><b>Mřížka po 1 palci</b> — přepínač u rozměrů desky, čtvercová síť odpovídající skutečným palcům na stole.</>,
             <><b>Terén čísly (obdélník / zeď)</b> — pod paletou je rozklikávací box. Obdélník zadáš dvěma protilehlými rohy (X/Y v palcích podle okraje desky), zeď dvěma konci úsečky + tloušťkou (kus se sám natočí do směru úsečky). „Přidat na desku" vytvoří normální terénní kus, který jde pak přetáhnout, zvětšit, otočit i uložit do skupiny.</>,
@@ -6259,11 +6331,15 @@ export default function Wh40kCalculator({ session }) {
       const toClip = (r) =>
         `polygon(${[[r.x1, r.y1], [r.x2, r.y1], [r.x2, r.y2], [r.x1, r.y2]].map(([x, y]) => `${n3((x / w) * 100)}% ${n3((y / h) * 100)}%`).join(", ")})`;
       const mine = tpl.zoneMine.map(toClip);
+      // Objective markers go last so they draw on top of the ruins, and are
+      // listed explicitly on both sides, so they're never mirrored.
       const listed = tpl.pieces.map((p) => ({ ...p, rot: p.rot || 0 }));
+      const ruins = listed.filter((p) => !p.marker);
+      const markers = listed.filter((p) => p.marker);
       const mirrored = tpl.mirror
-        ? listed.filter((p) => !p.center).map((p) => ({ ...p, cx: w - p.cx, cy: h - p.cy, rot: (p.rot + 180) % 360 }))
+        ? ruins.filter((p) => !p.center).map((p) => ({ ...p, cx: w - p.cx, cy: h - p.cy, rot: (p.rot + 180) % 360 }))
         : [];
-      const terrain = [...listed, ...mirrored].map((p) => ({
+      const terrain = [...ruins, ...mirrored, ...markers].map((p) => ({
         id: crypto.randomUUID(),
         shapeId: p.shapeId,
         xPct: n3((p.cx / w) * 100),
