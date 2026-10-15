@@ -6787,6 +6787,8 @@ function TerrainPieceView({ piece, shape, containerRef, sizePctW, sizePctH, sele
   return (
     <div
       data-board-piece="terrain"
+      data-bare={shape.bare ? "1" : undefined}
+      data-obj={String(shape.id || "").startsWith("obj-") ? "1" : undefined}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
@@ -6924,6 +6926,7 @@ function BoardTokenView({ token, unit, containerRef, sizePctW, sizePctH, selecte
     <div
       data-board-piece="token"
       data-token-id={token.id}
+      data-sel={selected || multiSelected ? "1" : undefined}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
@@ -7346,6 +7349,25 @@ function computeSurvivalStats(res, defenderUnit, defenderModelsCount) {
     chanceDestroyUnit: Math.max(0, Math.min(1, 1 - survivalChance)),
   };
 }
+
+// Second visual set ("Taktický"): same layout, a different skin - saturated
+// blue HUD colours, glowing panel edges, textured plates, hex tokens, compass
+// and scale on the board. The classic look stays the default.
+const TACTICAL_VARS = {
+  "--bg": "#040b17",
+  "--panel": "#0a1a2f",
+  "--field-bg": "#071424",
+  "--field-border": "#1d4f8f",
+  "--text": "#eef6ff",
+  "--muted": "#7fa3c9",
+  "--label": "#a8c6e8",
+  "--accent": "#2d8cff",
+  "--accent-dim": "#0b2f5c",
+  "--accent-text": "#8fd0ff",
+  "--blue": "#2d8cff",
+  "--blue-dim": "#0b2f5c",
+  "--amber": "#ffb02e",
+};
 
 function SkullLogo({ size = 28 }) {
   return (
@@ -7923,7 +7945,7 @@ function ManualView({ onBack }) {
 
       <ManualSection num="08" title="Deska">
         <ManualP>
-          <ManualPath>Deska</ManualPath> — vizuální bojiště na míru. Zaškrtni jednotky z knihovny do <b>Moje jednotky</b> nebo <b>Jednotky protihráče</b> — objeví se jako tokeny (jeden na každý model), přetáhni je na místo. Nad seznamem vybereš uloženou armádu (třeba z New Recruit) — seznam se zúží na její jednotky a „Dát celou armádu na desku“ je rozmístí najednou; „Nahrát z New Recruit (JSON)“ nahraje nový export rovnou na tuhle stranu i s base sizy ze sloupce Base. Tažením modelu hýbeš celou jednotkou (tlačítko v liště přepne na jeden model, Alt při tažení přepne na opak; Shift při tažení vezme vždy jen jeden model — třeba když ho chceš nacpat za zeď). Víc modelů označíš tažením myší po prázdné desce (Shift přidává, Shift+klik na model ho přidá/odebere) — pak se všechny označené hýbou spolu. Kolečkem myši nad modelem otočíš celou jednotku (nebo označené modely, nebo jeden model — stejná pravidla jako při tažení); kolečko dolů otáčí po směru hodin, Shift = jemné kroky po 5°. Podložky jsou standardně zamčené (tlačítko „Terén zamčený“ v liště nad deskou) — táhneš jen modely, terén se nehne; odemknutím ho zase přesouváš a upravuješ. Velikost tokenu vychází z base size jednotky — přímo u jednotky v knihovně je malý rozklikávací seznam se standardními velikostmi (25 až 160mm kulaté, plus běžné oválné jako 90×52mm), není potřeba kvůli tomu otvírat celou editaci.
+          <ManualPath>Deska</ManualPath> — vizuální bojiště na míru. Zaškrtni jednotky z knihovny do <b>Moje jednotky</b> nebo <b>Jednotky protihráče</b> — objeví se jako tokeny (jeden na každý model), přetáhni je na místo. Nad seznamem vybereš uloženou armádu (třeba z New Recruit) — seznam se zúží na její jednotky a „Dát celou armádu na desku“ je rozmístí najednou; „Nahrát z New Recruit (JSON)“ nahraje nový export rovnou na tuhle stranu i s base sizy ze sloupce Base. Tažením modelu hýbeš celou jednotkou (tlačítko v liště přepne na jeden model, Alt při tažení přepne na opak; Shift při tažení vezme vždy jen jeden model — třeba když ho chceš nacpat za zeď). Víc modelů označíš tažením myší po prázdné desce (Shift přidává, Shift+klik na model ho přidá/odebere) — pak se všechny označené hýbou spolu. Kolečkem myši nad modelem otočíš celou jednotku (nebo označené modely, nebo jeden model — stejná pravidla jako při tažení); kolečko dolů otáčí po směru hodin, Shift = jemné kroky po 5°. Vzhled aplikace přepneš v Nastavení (ozubené kolečko → Vzhled): „Základní“ nebo „Taktický“ (sytě modrý HUD, hexagonové tokeny, texturované podložky, kompas a měřítko na desce). Podložky jsou standardně zamčené (tlačítko „Terén zamčený“ v liště nad deskou) — táhneš jen modely, terén se nehne; odemknutím ho zase přesouváš a upravuješ. Velikost tokenu vychází z base size jednotky — přímo u jednotky v knihovně je malý rozklikávací seznam se standardními velikostmi (25 až 160mm kulaté, plus běžné oválné jako 90×52mm), není potřeba kvůli tomu otvírat celou editaci.
         </ManualP>
         <ManualUl
           items={[
@@ -8105,6 +8127,21 @@ export default function Wh40kCalculator({ session }) {
   // Width is responsive by default (see .wh40k-shell media queries below) —
   // forceCompact pins it back to the narrow phone-card width regardless of
   // screen size, for anyone who prefers that even on a big display.
+  const [uiTheme, setUiTheme] = useState(() => {
+    try {
+      return localStorage.getItem("ui_theme_v1") === "tactical" ? "tactical" : "classic";
+    } catch (e) {
+      return "classic";
+    }
+  });
+  const chooseUiTheme = (t) => {
+    setUiTheme(t);
+    try {
+      localStorage.setItem("ui_theme_v1", t);
+    } catch (e) {
+      /* storage blocked - the theme still applies for this session */
+    }
+  };
   const [forceCompact, setForceCompact] = useState(() => {
     try {
       return localStorage.getItem("battlecalc:forceCompact") === "1";
@@ -9766,7 +9803,7 @@ export default function Wh40kCalculator({ session }) {
 
   return (
     <div
-      className={`wh40k-shell${forceCompact ? " wh40k-compact" : ""}`}
+      className={`wh40k-shell${forceCompact ? " wh40k-compact" : ""}${uiTheme === "tactical" ? " wh40k-theme-tactical" : ""}`}
       style={{
         "--bg": "#070c14",
         "--panel": "#0f1826",
@@ -9783,8 +9820,12 @@ export default function Wh40kCalculator({ session }) {
         "--blue-dim": "#0f2842",
         "--amber": "#e8a72f",
         "--mono": "'JetBrains Mono', 'Courier New', monospace",
+        ...(uiTheme === "tactical" ? TACTICAL_VARS : {}),
         fontFamily: "'Inter', -apple-system, sans-serif",
-        background: "radial-gradient(ellipse 120% 60% at 50% -10%, #102338 0%, #070c14 55%)",
+        background:
+          uiTheme === "tactical"
+            ? "radial-gradient(ellipse 120% 60% at 50% -10%, #0c2c58 0%, #040b17 58%)"
+            : "radial-gradient(ellipse 120% 60% at 50% -10%, #102338 0%, #070c14 55%)",
         color: "var(--text)",
         borderRadius: 18,
         width: 460,
@@ -9885,6 +9926,58 @@ export default function Wh40kCalculator({ session }) {
           .wh40k-shell:not(.wh40k-compact) .wh40k-board-sidebar { max-height: 88vh; overflow-y: auto; padding-right: 4px; }
         }
         * { box-sizing: border-box; }
+
+        /* ---- "Taktický" look ------------------------------------------- */
+        .wh40k-theme-tactical { font-family: 'Rajdhani', 'Inter', -apple-system, sans-serif !important; letter-spacing: 0.3px; }
+        .wh40k-theme-tactical button, .wh40k-theme-tactical select, .wh40k-theme-tactical input, .wh40k-theme-tactical textarea { font-family: inherit; }
+        .wh40k-theme-tactical [style*="background: var(--panel)"] {
+          background-image: linear-gradient(180deg, rgba(45,140,255,0.10), rgba(45,140,255,0) 42%) !important;
+          box-shadow: 0 0 0 1px rgba(45,140,255,0.26), 0 0 18px rgba(30,110,230,0.14), inset 0 0 22px rgba(20,80,170,0.12) !important;
+        }
+        .wh40k-theme-tactical .wh40k-btn { box-shadow: inset 0 0 0 1px rgba(110,190,255,0.16); text-shadow: 0 0 8px rgba(80,170,255,0.30); font-weight: 700; }
+        .wh40k-theme-tactical button[style*="var(--accent)"] { box-shadow: 0 0 12px rgba(45,140,255,0.32), inset 0 0 10px rgba(45,140,255,0.16) !important; }
+        .wh40k-theme-tactical .wh40k-board {
+          background-color: #08233c !important;
+          border: 2px solid #2a7be0 !important;
+          box-shadow: 0 0 0 1px #0b3b73, 0 0 36px rgba(30,120,255,0.30), inset 0 0 60px rgba(0,30,70,0.55) !important;
+        }
+        .wh40k-theme-tactical .wh40k-board[data-grid="1"] {
+          background-image:
+            repeating-linear-gradient(to right, rgba(110,200,255,0.20) 0, rgba(110,200,255,0.20) 1px, transparent 1px, transparent 100%),
+            repeating-linear-gradient(to bottom, rgba(110,200,255,0.20) 0, rgba(110,200,255,0.20) 1px, transparent 1px, transparent 100%) !important;
+        }
+        /* a stronger line every 5 inches */
+        .wh40k-theme-tactical .wh40k-board[data-grid="1"]::after {
+          content: "";
+          position: absolute;
+          inset: 0;
+          pointer-events: none;
+          background-image:
+            linear-gradient(to right, rgba(140,220,255,0.40) 1px, transparent 1px),
+            linear-gradient(to bottom, rgba(140,220,255,0.40) 1px, transparent 1px);
+          background-size: calc(500% / var(--bw)) calc(500% / var(--bh));
+        }
+        .wh40k-theme-tactical [data-board-piece="terrain"]:not([data-bare]):not([data-obj]) {
+          background-color: #565e66 !important;
+          background-image:
+            radial-gradient(circle at 20% 30%, rgba(255,255,255,0.08) 0 2px, transparent 3px),
+            radial-gradient(circle at 72% 62%, rgba(0,0,0,0.20) 0 3px, transparent 4px),
+            linear-gradient(135deg, rgba(255,255,255,0.10), rgba(0,0,0,0.28)) !important;
+          background-size: 13px 13px, 19px 19px, 100% 100% !important;
+          border: 1px solid #8c959e !important;
+          box-shadow: 0 0 0 1px rgba(0,0,0,0.65), 0 4px 10px rgba(0,0,0,0.6) !important;
+        }
+        .wh40k-theme-tactical [data-board-piece="token"]:not([data-sel]) {
+          clip-path: polygon(25% 4%, 75% 4%, 100% 50%, 75% 96%, 25% 96%, 0% 50%);
+          border-radius: 0 !important;
+          border: none !important;
+          box-shadow: none !important;
+          background-image:
+            linear-gradient(160deg, rgba(255,255,255,0.34), rgba(255,255,255,0) 48%),
+            radial-gradient(circle at 50% 125%, rgba(0,0,0,0.40), transparent 62%) !important;
+          font-weight: 800;
+        }
+        .wh40k-theme-tactical [data-board-piece="token"][data-sel] { box-shadow: 0 0 12px 3px rgba(255,255,255,0.6) !important; }
       `}</style>
 
       {/* TOP BAR */}
@@ -9955,6 +10048,33 @@ export default function Wh40kCalculator({ session }) {
                 {session.user.email}
               </div>
             )}
+            <div style={{ padding: "6px 10px 8px", borderBottom: "1px solid var(--field-border)", marginBottom: 4 }}>
+              <div style={{ fontSize: 10.5, color: "var(--muted)", marginBottom: 5, textTransform: "uppercase", letterSpacing: 0.5, fontWeight: 700 }}>Vzhled</div>
+              <div style={{ display: "flex", gap: 6 }}>
+                {[
+                  ["classic", "Základní"],
+                  ["tactical", "Taktický"],
+                ].map(([id, label]) => (
+                  <button
+                    key={id}
+                    onClick={() => chooseUiTheme(id)}
+                    style={{
+                      flex: 1,
+                      border: `1px solid ${uiTheme === id ? "var(--accent)" : "var(--field-border)"}`,
+                      background: uiTheme === id ? "var(--accent)" : "transparent",
+                      color: uiTheme === id ? "#fff" : "var(--text)",
+                      borderRadius: 6,
+                      padding: "5px 8px",
+                      fontSize: 12,
+                      fontWeight: 700,
+                      cursor: "pointer",
+                    }}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
             <button
               onClick={() => {
                 setSettingsOpen(false);
@@ -11198,6 +11318,15 @@ export default function Wh40kCalculator({ session }) {
 
           <div className="wh40k-board-layout">
             <div className="wh40k-board-sidebar">
+          {uiTheme === "tactical" && (
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+              <SkullLogo size={34} />
+              <div>
+                <div style={{ fontSize: 22, fontWeight: 800, letterSpacing: 1.5, color: "var(--text)", lineHeight: 1 }}>MAPA</div>
+                <div style={{ fontSize: 11.5, color: "var(--accent-text)" }}>Vytvoř si vlastní herní pole</div>
+              </div>
+            </div>
+          )}
           <div style={{ marginBottom: 10, background: "var(--field-bg)", border: "1px solid var(--accent)", borderRadius: 8, padding: 8 }}>
             <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--label)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>Mapa</div>
             <div style={{ fontSize: 10.5, color: "var(--muted)", marginBottom: 6 }}>
@@ -12126,6 +12255,8 @@ export default function Wh40kCalculator({ session }) {
           )}
           <div
             ref={boardContainerRef}
+            className="wh40k-board"
+            data-grid={showBoardGrid ? "1" : undefined}
             onPointerDown={(e) => {
               if (!drawMode) {
                 // Empty board space: start a marquee (Shift adds to the selection).
@@ -12194,6 +12325,8 @@ export default function Wh40kCalculator({ session }) {
               // displays while still using most of it; the aspect-ratio then
               // also caps the width so it never overflows the column either.
               maxWidth: `calc(88vh * ${board.widthIn} / ${board.heightIn})`,
+              "--bw": board.widthIn,
+              "--bh": board.heightIn,
               aspectRatio: `${board.widthIn} / ${board.heightIn}`,
               margin: "0 auto",
               background: "#2b3a2e",
@@ -12358,6 +12491,24 @@ export default function Wh40kCalculator({ session }) {
                 />
               );
             })}
+            {uiTheme === "tactical" && (
+              <>
+                {/* compass (top-right) and a 6" scale bar (bottom-right) */}
+                <svg viewBox="0 0 60 60" width="54" height="54" style={{ position: "absolute", right: 8, top: 8, pointerEvents: "none", zIndex: 4, opacity: 0.85 }}>
+                  <circle cx="30" cy="30" r="22" fill="rgba(4,16,34,0.55)" stroke="#5fb0ff" strokeWidth="1" />
+                  <path d="M30 6 L35 30 L30 54 L25 30 Z" fill="rgba(95,176,255,0.35)" stroke="#8fd0ff" strokeWidth="0.8" />
+                  <path d="M6 30 L30 25 L54 30 L30 35 Z" fill="rgba(95,176,255,0.18)" stroke="#8fd0ff" strokeWidth="0.8" />
+                  <text x="30" y="5" textAnchor="middle" fontSize="7" fontWeight="700" fill="#fff">N</text>
+                  <text x="30" y="59" textAnchor="middle" fontSize="6" fill="#8fd0ff">S</text>
+                  <text x="3" y="32" textAnchor="middle" fontSize="6" fill="#8fd0ff">W</text>
+                  <text x="57" y="32" textAnchor="middle" fontSize="6" fill="#8fd0ff">E</text>
+                </svg>
+                <div style={{ position: "absolute", right: 10, bottom: 8, pointerEvents: "none", zIndex: 4, width: `${(6 / board.widthIn) * 100}%`, minWidth: 40, textAlign: "center", color: "#cfe8ff", fontSize: 10, fontWeight: 700, textShadow: "0 0 6px #000" }}>
+                  6″
+                  <div style={{ height: 5, borderLeft: "2px solid #8fd0ff", borderRight: "2px solid #8fd0ff", borderBottom: "2px solid #8fd0ff" }} />
+                </div>
+              </>
+            )}
             {marquee && (
               <div
                 style={{
