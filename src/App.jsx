@@ -4230,7 +4230,7 @@ function totalModels(unit) {
 // generated ids and fields that can legitimately differ between imports of the
 // same unit without it being a different unit (points cost, favorite flag) — so
 // re-importing the same unit from a different list doesn't create a duplicate.
-const SIGNATURE_IGNORE_KEYS = new Set(["id", "points", "isFavorite", "baseSize"]);
+const SIGNATURE_IGNORE_KEYS = new Set(["id", "points", "isFavorite", "baseSize", "modelCount"]);
 function stripIds(value) {
   if (Array.isArray(value)) return value.map(stripIds);
   if (value && typeof value === "object") {
@@ -5248,6 +5248,18 @@ function parseBattleScribeJSON(text) {
       (node.selections || []).forEach((child) => collectMembers(child, members));
     };
 
+    // Real number of models in a unit: the sum of every "model" selection's
+    // own number (a Strike Squad = Justicar 1 + Grey Knight 4 = 5). Exports
+    // differ - the Unit profile sits on the unit node in some and on each
+    // model in others - so the member counts above can't be trusted for this.
+    const countModels = (node) => {
+      let n = node.type === "model" ? node.number || 1 : 0;
+      (node.selections || []).forEach((child) => {
+        n += countModels(child);
+      });
+      return n;
+    };
+
     for (const topSel of force.selections || []) {
       const members = [];
       collectMembers(topSel, members);
@@ -5288,6 +5300,7 @@ function parseBattleScribeJSON(text) {
         name: topSel.name,
         points,
         members, // still carrying .chars per member at this point — stripped after merge below
+        modelCount: countModels(topSel),
         needsStats,
         isLeader,
         keywords,
@@ -5310,6 +5323,7 @@ function parseBattleScribeJSON(text) {
           target.members = [...target.members, ...u.members];
           target.name = `${target.name} (vede ${u.name})`;
           target.needsStats = target.needsStats || u.needsStats;
+          target.modelCount = (target.modelCount || 0) + (u.modelCount || 0);
           const p1 = parseInt(target.points, 10);
           const p2 = parseInt(u.points, 10);
           if (Number.isFinite(p1) && Number.isFinite(p2)) target.points = String(p1 + p2);
@@ -5374,6 +5388,7 @@ function parseBattleScribeJSON(text) {
         damageReduction: u.damageReduction || 0,
         keywords: u.keywords || { monster: false, vehicle: false, character: false },
         members: u.members.map((m) => ({ id: m.id, name: m.name, count: m.count, weapons: m.weapons })),
+        ...(u.modelCount > 0 ? { modelCount: u.modelCount } : {}),
         needsStats: u.needsStats,
         isLeader: u.isLeader,
         isFavorite: false,
@@ -8354,14 +8369,17 @@ export default function Wh40kCalculator({ session }) {
 
   // How many models a unit has (sum of its member counts), at least 1.
   const unitModelCount = (u) =>
-    Math.min(100, Math.max(1, (u.members || []).reduce((sum, m) => sum + (Number(m.count) || 0), 0)));
+    Math.min(
+      100,
+      Math.max(1, u.modelCount > 0 ? u.modelCount : (u.members || []).reduce((sum, m) => sum + (Number(m.count) || 0), 0))
+    );
 
   // One token per MODEL: a 10-model unit gets 10 tokens, laid out as a compact
   // block (rows sized by the unit's base, 0.1" apart). Blocks are packed along
   // that side's baseline left to right and wrap inward when the row is full;
   // anything already staged there is skipped over so new blocks don't pile
   // on top of old ones.
-  const layoutUnitTokens = (units, side, existing) => {
+  const layoutUnitTokens = (entries, side, existing) => {
     const W = board.widthIn;
     const H = board.heightIn;
     const margin = 1.5;
@@ -8376,7 +8394,7 @@ export default function Wh40kCalculator({ session }) {
     let rowOffset = 0;
     let rowH = 0;
     const out = [];
-    units.forEach((u) => {
+    entries.forEach(({ unit: u, inst }) => {
       const n = unitModelCount(u);
       const base = parseBaseSizeMm(u.baseSize);
       const dx = base.w / 25.4 + gap;
@@ -8397,6 +8415,7 @@ export default function Wh40kCalculator({ session }) {
         out.push({
           id: crypto.randomUUID(),
           unitId: u.id,
+          inst,
           side,
           xPct: Math.min(98, Math.max(2, (cx / W) * 100)),
           yPct: Math.min(98, Math.max(2, (cy / H) * 100)),
@@ -8418,20 +8437,26 @@ export default function Wh40kCalculator({ session }) {
     }
     const unit = library.find((u) => u.id === unitId);
     if (!unit) return;
-    persistBoard({ ...board, tokens: [...board.tokens, ...layoutUnitTokens([unit], side, board.tokens)] });
+    persistBoard({ ...board, tokens: [...board.tokens, ...layoutUnitTokens([{ unit, inst: 0 }], side, board.tokens)] });
   };
 
   // Puts every given unit on a side's baseline in one go (units already there
   // are left alone) - used by "celou armadu na desku" and the New Recruit
   // import on the board.
   const addUnitsToBoardSide = (unitIds, side, extraUnits = []) => {
-    const have = new Set(board.tokens.filter((t) => t.side === side).map((t) => t.unitId));
-    const fresh = unitIds
-      .filter((id) => !have.has(id))
-      .map((id) => extraUnits.find((u) => u.id === id) || library.find((u) => u.id === id))
-      .filter(Boolean);
-    if (fresh.length === 0) return;
-    persistBoard({ ...board, tokens: [...board.tokens, ...layoutUnitTokens(fresh, side, board.tokens)] });
+    // The same unit can be listed several times (3x the same Dreadknight, 2x
+    // Interceptor Squad) - each listing is its own instance on the board.
+    const wanted = new Map();
+    unitIds.forEach((id) => wanted.set(id, (wanted.get(id) || 0) + 1));
+    const entries = [];
+    wanted.forEach((times, id) => {
+      const unit = extraUnits.find((u) => u.id === id) || library.find((u) => u.id === id);
+      if (!unit) return;
+      const present = new Set(board.tokens.filter((t) => t.side === side && t.unitId === id).map((t) => t.inst || 0)).size;
+      for (let k = present; k < times; k++) entries.push({ unit, inst: k });
+    });
+    if (entries.length === 0) return;
+    persistBoard({ ...board, tokens: [...board.tokens, ...layoutUnitTokens(entries, side, board.tokens)] });
   };
   const clearSideTokens = (side) => persistBoard({ ...board, tokens: board.tokens.filter((t) => t.side !== side) });
 
@@ -8914,6 +8939,7 @@ export default function Wh40kCalculator({ session }) {
     const toAdd = [];
     const allIds = [];
     const baseFromImport = new Map();
+    const modelsFromImport = new Map();
     let skipped = 0;
     units.forEach((u) => {
       const sig = unitSignature(u);
@@ -8921,6 +8947,7 @@ export default function Wh40kCalculator({ session }) {
         skipped += 1;
         allIds.push(existingSigToId.get(sig));
         if (u.baseSize && String(u.baseSize) !== "32") baseFromImport.set(existingSigToId.get(sig), String(u.baseSize));
+        if (u.modelCount > 0) modelsFromImport.set(existingSigToId.get(sig), u.modelCount);
       } else {
         existingSigToId.set(sig, u.id);
         toAdd.push(u);
@@ -8932,12 +8959,18 @@ export default function Wh40kCalculator({ session }) {
     // one the person already set to something else is left alone.
     let baseUpdated = 0;
     const baseUpdatedLibrary = library.map((x) => {
+      let next = x;
       const b = baseFromImport.get(x.id);
       if (b && String(x.baseSize || "32") === "32") {
         baseUpdated += 1;
-        return { ...x, baseSize: b };
+        next = { ...next, baseSize: b };
       }
-      return x;
+      const mc = modelsFromImport.get(x.id);
+      if (mc && !(x.modelCount > 0)) {
+        baseUpdated += 1;
+        next = { ...next, modelCount: mc };
+      }
+      return next;
     });
     if (toAdd.length > 0 || baseUpdated > 0) persistLibrary([...baseUpdatedLibrary, ...toAdd]);
     setLibraryOpen(true);
@@ -8948,7 +8981,19 @@ export default function Wh40kCalculator({ session }) {
       const existingArmy = armies.find((a) => a.name === name);
       if (existingArmy) {
         armyId = existingArmy.id;
-        const mergedIds = Array.from(new Set([...existingArmy.unitIds, ...allIds]));
+        // Keep duplicates (3x the same unit): per unit, the larger of the
+        // old and the new listing count.
+        const tally = (arr) => {
+          const m = new Map();
+          arr.forEach((id) => m.set(id, (m.get(id) || 0) + 1));
+          return m;
+        };
+        const oldCnt = tally(existingArmy.unitIds);
+        const newCnt = tally(allIds);
+        const mergedIds = [];
+        new Set([...oldCnt.keys(), ...newCnt.keys()]).forEach((id) => {
+          for (let k = 0; k < Math.max(oldCnt.get(id) || 0, newCnt.get(id) || 0); k++) mergedIds.push(id);
+        });
         persistArmies(armies.map((a) => (a.id === existingArmy.id ? { ...a, unitIds: mergedIds } : a)));
       } else {
         armyId = crypto.randomUUID();
