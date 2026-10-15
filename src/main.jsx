@@ -22,3 +22,11 @@ ReactDOM.createRoot(document.getElementById("root")).render(
     </div>
   </React.StrictMode>
 );
+
+// Offline support: the service worker (public/sw.js) caches the app shell.
+// Production only, so it never interferes with the dev server's hot reload.
+if ("serviceWorker" in navigator && import.meta.env.PROD) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch((e) => console.error("Service worker se nezaregistroval", e));
+  });
+}

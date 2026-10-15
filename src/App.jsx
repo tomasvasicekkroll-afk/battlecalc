@@ -8528,6 +8528,9 @@ export default function Wh40kCalculator({ session }) {
       /* storage blocked - the edition still applies for this session */
     }
   };
+  // Offline / unsynced-changes indicator (see lib/storage.js).
+  const [syncStatus, setSyncStatus] = useState(() => storage.getStatus());
+  useEffect(() => storage.subscribe(setSyncStatus), []);
   const [forceCompact, setForceCompact] = useState(() => {
     try {
       return localStorage.getItem("battlecalc:forceCompact") === "1";
@@ -10371,6 +10374,17 @@ export default function Wh40kCalculator({ session }) {
         }
         .wh40k-theme-tactical [data-board-piece="token"][data-sel] { box-shadow: 0 0 12px 3px rgba(255,255,255,0.6) !important; }
       `}</style>
+
+      {(syncStatus.offline || syncStatus.pending > 0) && (
+        <div
+          role="status"
+          className="no-print"
+          style={{ background: syncStatus.offline ? "#3a2a10" : "#10283a", color: syncStatus.offline ? "#f0c27a" : "var(--accent-text)", fontSize: 11.5, padding: "6px 14px", textAlign: "center", borderBottom: "1px solid var(--field-border)" }}
+        >
+          {syncStatus.offline ? "Jsi offline" : "Odesílám změny…"}
+          {syncStatus.pending > 0 && ` — ${syncStatus.pending} ${syncStatus.pending === 1 ? "změna čeká" : "změn čeká"} na odeslání, uloží se po připojení.`}
+        </div>
+      )}
 
       {/* TOP BAR */}
       <div className="no-print" style={{ padding: "16px 14px 10px", display: "flex", alignItems: "center", justifyContent: "space-between", position: "relative" }}>
