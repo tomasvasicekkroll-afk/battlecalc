@@ -36,6 +36,7 @@ import {
 } from "lucide-react";
 import { storage } from "./lib/storage";
 import { runMonteCarlo } from "./lib/montecarlo";
+import { rosterBytesToText } from "./lib/roster";
 import { RULESETS, DEFAULT_EDITION, normalizeEdition, RulesContext, useRules } from "./lib/rules";
 import { supabase } from "./lib/supabaseClient";
 
@@ -5266,7 +5267,7 @@ function extractUnitChars(up) {
   };
 }
 
-function parseBattleScribeJSON(text) {
+export function parseBattleScribeJSON(text) {
   let data;
   try {
     data = JSON.parse(text);
@@ -5959,21 +5960,81 @@ function UnitForm({ initial, onSave, onCancel }) {
 }
 
 // ---------------------------------------------------------------------------
+// Demo army for the "try it" button: invented archetypes (not Games Workshop
+// datasheets), so a first-time visitor can see a result without owning an
+// export, and without this app shipping anybody's rules data.
+// ---------------------------------------------------------------------------
+function buildDemoArmy() {
+  const weapon = (o) => ({ ...emptyWeapon(), ...o });
+  const unit = (o, members) => ({
+    ...emptyUnit(),
+    faction: "Ukázková armáda",
+    needsStats: false,
+    ...o,
+    members: members.map((m) => ({ id: crypto.randomUUID(), name: m.name, count: m.count, weapons: m.weapons })),
+    modelCount: members.reduce((n, m) => n + m.count, 0),
+  });
+  return [
+    unit({ name: "Demo: Elitní pěchota", points: "110", toughness: 4, save: 3, wounds: 2, keywords: { monster: false, vehicle: false, character: false, infantry: true } }, [
+      {
+        name: "Veterán",
+        count: 5,
+        weapons: [
+          weapon({ name: "Bolterová puška", type: "ranged", attacks: 2, attacksDice: "2", hitX: 3, strength: 4, ap: -1, damage: 1, rapidFire: 1 }),
+          weapon({ name: "Bojový meč", type: "melee", attacks: 3, attacksDice: "3", hitX: 3, strength: 4, ap: -1, damage: 1 }),
+        ],
+      },
+    ]),
+    unit({ name: "Demo: Těžký tank", points: "230", toughness: 10, save: 2, wounds: 12, keywords: { monster: false, vehicle: true, character: false, infantry: false } }, [
+      {
+        name: "Tank",
+        count: 1,
+        weapons: [
+          weapon({ name: "Těžké dělo", type: "ranged", attacks: 3.5, attacksDice: "D6", hitX: 3, strength: 12, ap: -3, damage: 3.5, damageDice: "D6", devastatingWounds: true }),
+          weapon({ name: "Kulomet", type: "ranged", attacks: 3, attacksDice: "3", hitX: 3, strength: 5, ap: 0, damage: 1, sustained: 1 }),
+        ],
+      },
+    ]),
+    unit({ name: "Demo: Rojící se bojovníci", points: "90", toughness: 3, save: 5, wounds: 1, keywords: { monster: false, vehicle: false, character: false, infantry: true } }, [
+      {
+        name: "Bojovník",
+        count: 20,
+        weapons: [
+          weapon({ name: "Drápy", type: "melee", attacks: 2, attacksDice: "2", hitX: 4, strength: 3, ap: 0, damage: 1 }),
+          weapon({ name: "Ostřelovač", type: "ranged", attacks: 1, attacksDice: "1", hitX: 4, strength: 4, ap: 0, damage: 1 }),
+        ],
+      },
+    ]),
+  ];
+}
+
+// ---------------------------------------------------------------------------
 // Import box
 // ---------------------------------------------------------------------------
-function ImportBox({ onImport }) {
+// onQuickResult(units): opens the calculator on a first matchup of the freshly
+// imported units. autoShowResult does that right away (used on an empty
+// library, so a first import ends with a number on screen); otherwise the
+// summary offers it as a button.
+function ImportBox({ onImport, onQuickResult, autoShowResult }) {
   const [text, setText] = useState("");
   const [summary, setSummary] = useState(null);
   const [fileName, setFileName] = useState("");
 
-  const handleFile = (e) => {
-    const file = e.target.files && e.target.files[0];
+  // .json, .rosz (zipped BattleScribe roster), .ros (roster XML) or plain text.
+  const handleFile = async (e) => {
+    const input = e.target;
+    const file = input.files && input.files[0];
     if (!file) return;
     setFileName(file.name);
-    const reader = new FileReader();
-    reader.onload = (ev) => setText(String(ev.target.result || ""));
-    reader.onerror = () => setSummary({ error: true, message: "Soubor se nepodařilo přečíst." });
-    reader.readAsText(file);
+    setSummary(null);
+    try {
+      const buf = await file.arrayBuffer();
+      setText(rosterBytesToText(buf));
+    } catch (err) {
+      console.error("Čtení souboru selhalo", err);
+      setSummary({ error: true, message: err && err.message ? err.message : "Soubor se nepodařilo přečíst." });
+    }
+    input.value = ""; // lets the same file be picked again
   };
 
   const handleImport = () => {
@@ -6005,10 +6066,13 @@ function ImportBox({ onImport }) {
         rosterName = `${units[0]?.faction || "Import"} ${new Date().toLocaleDateString("cs-CZ")}`;
       }
       const flagged = units.filter((u) => u.needsStats).length;
-      const { added, skipped } = onImport(units, rosterName);
-      setSummary({ error: false, count: added, skipped, faction: units[0]?.faction, flagged, full: true, rosterName });
+      const imported = onImport(units, rosterName);
+      const { added, skipped } = imported;
+      const quickUnits = (imported && imported.units) || units;
+      setSummary({ error: false, count: added, skipped, faction: units[0]?.faction, flagged, full: true, rosterName, quickUnits });
       setText("");
       setFileName("");
+      if (autoShowResult && onQuickResult) onQuickResult(quickUnits);
       return;
     }
 
@@ -6026,7 +6090,7 @@ function ImportBox({ onImport }) {
   return (
     <div style={{ background: "var(--field-bg)", border: "1px dashed var(--field-border)", borderRadius: 8, padding: 12, marginTop: 10 }}>
       <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 8 }}>
-        Nahraj JSON export z New Recruit (soubor, nebo vlož obsah níže) — vytáhnou se z něj i skutečné bojové staty
+        Nahraj export z New Recruit nebo BattleScribe — <b>.rosz</b>, .ros, nebo JSON (soubor, nebo vlož obsah níže) — vytáhnou se z něj i skutečné bojové staty
         pro každý model i zbraň v jednotce a velikost podstavce (sloupec „Base“, pokud ho export má — u starších exportů
         chybí, pak zůstane 32 mm). Jde to i s obyčejným textovým exportem, ale ten staty neobsahuje a doplní
         se placeholder, který si pak upravíš ručně.
@@ -6045,8 +6109,8 @@ function ImportBox({ onImport }) {
             color: "var(--text)",
           }}
         >
-          <Upload size={13} /> Nahrát soubor (.json)
-          <input type="file" accept=".json,application/json" onChange={handleFile} style={{ display: "none" }} />
+          <Upload size={13} /> Nahrát soubor (.rosz / .ros / .json)
+          <input type="file" accept=".rosz,.ros,.json,.txt,application/json,application/zip" onChange={handleFile} style={{ display: "none" }} />
         </label>
         {fileName && <span style={{ fontSize: 12, color: "var(--muted)" }}>{fileName}</span>}
       </div>
@@ -6088,6 +6152,16 @@ function ImportBox({ onImport }) {
               </>
             )}
           </span>
+        )}
+        {summary && !summary.error && summary.full && onQuickResult && summary.quickUnits && summary.quickUnits.length > 0 && (
+          <button
+            type="button"
+            onClick={() => onQuickResult(summary.quickUnits)}
+            className="wh40k-btn"
+            style={{ border: "1px solid var(--accent)", background: "transparent", color: "var(--accent-text)", borderRadius: 6, padding: "6px 12px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}
+          >
+            Spočítat první souboj →
+          </button>
         )}
         {summary && !summary.error && !summary.full && (
           <span style={{ fontSize: 12, color: "var(--muted)" }}>
@@ -7567,7 +7641,7 @@ function MonteCarloPanel({ plan, exactKilled, exactDamage }) {
             <b>{pctText(d.pWipe)}</b>
           </div>
           <div style={rowStyle}>
-            <span style={{ color: "var(--muted)" }}>Poškození (průměr, 90 % her)</span>
+            <span style={{ color: "var(--muted)" }}>Odebrané wounds (průměr, 90 % her)</span>
             <b>
               {num(d.damage.mean, 1)} <span style={{ color: "var(--muted)", fontWeight: 500 }}>({d.damage.p5}–{d.damage.p95})</span>
             </b>
@@ -9436,6 +9510,29 @@ export default function Wh40kCalculator({ session }) {
     return { added: toAdd.length, skipped, baseUpdated, armyId, unitIds: allIds, units: units_ };
   };
 
+  // Opens the calculator on a first matchup of `units` (just imported or the
+  // demo army): the unit that hits hardest against a generic target attacks,
+  // the toughest other unit defends (the unit itself if it is the only one).
+  const showQuickResult = (units) => {
+    const list = (units || []).filter(Boolean);
+    if (list.length === 0) return;
+    const generic = defenderProfile({ toughness: 4, save: 3, invul: 0, wounds: 2, fnp: 0, keywords: {} }, { models: 10 });
+    const power = (u) => computeUnitVsUnit(u, { ranged: generic, melee: generic }, emptyBonus(), rules).totalDamage;
+    const attacker = list.reduce((best, u) => (power(u) > power(best) ? u : best), list[0]);
+    const others = list.filter((u) => u.id !== attacker.id);
+    const toughness = (u) => clampNum(u.wounds, 1) * Math.max(1, totalModels(u));
+    const defender = others.length > 0 ? others.reduce((best, u) => (toughness(u) > toughness(best) ? u : best), others[0]) : attacker;
+    setAttackerUnitId(attacker.id);
+    setDefenderUnitId(defender.id);
+    setCalcStep("result");
+    setView("calculator");
+  };
+
+  const loadDemoArmy = () => {
+    const r = importFromNewRecruit(buildDemoArmy(), "Ukázková armáda");
+    showQuickResult(r.units);
+  };
+
   const attackerUnit = useMemo(() => library.find((u) => u.id === attackerUnitId) || null, [library, attackerUnitId]);
   const defenderUnit = useMemo(() => library.find((u) => u.id === defenderUnitId) || null, [library, defenderUnitId]);
   const attachedLeader = useMemo(() => library.find((u) => u.id === attachedLeaderId) || null, [library, attachedLeaderId]);
@@ -10432,6 +10529,23 @@ export default function Wh40kCalculator({ session }) {
       {/* HOME */}
       {view === "home" && (
         <div className="no-print" style={{ padding: "4px 14px 16px" }}>
+          {loaded && library.length === 0 && (
+            <div style={{ background: "var(--panel)", border: "1px solid var(--accent)", borderRadius: 14, padding: 14, marginBottom: 14 }}>
+              <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: 0.7, textTransform: "uppercase", color: "var(--accent-text)" }}>Začni za 10 sekund</div>
+              <div style={{ fontSize: 12.5, color: "var(--muted)", margin: "4px 0 10px", lineHeight: 1.5 }}>
+                Nahraj export listu z New Recruit nebo BattleScribe (.rosz / JSON) a hned uvidíš první souboj. Nebo si appku nejdřív vyzkoušej na ukázkové armádě.
+              </div>
+              <button
+                type="button"
+                onClick={loadDemoArmy}
+                className="wh40k-btn"
+                style={{ width: "100%", border: "none", background: "var(--accent)", color: "var(--accent-on, #fff)", borderRadius: 8, padding: "10px 14px", fontSize: 13.5, fontWeight: 700, cursor: "pointer" }}
+              >
+                Vyzkoušet na ukázkové armádě
+              </button>
+              <ImportBox onImport={importFromNewRecruit} onQuickResult={showQuickResult} autoShowResult />
+            </div>
+          )}
           <button onClick={startNewCalculation} className="wh40k-card wh40k-hero-card wh40k-btn" style={{ width: "100%", textAlign: "left", background: "var(--panel)", border: "1px solid var(--field-border)", borderRadius: 14, padding: 16, cursor: "pointer", marginBottom: 14 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", position: "relative" }}>
               <div>
@@ -11192,7 +11306,7 @@ export default function Wh40kCalculator({ session }) {
               >
                 <Upload size={15} /> Nahrát novou armádu z New Recruit
               </button>
-              {importOpen && <ImportBox onImport={importFromNewRecruit} />}
+              {importOpen && <ImportBox onImport={importFromNewRecruit} onQuickResult={showQuickResult} autoShowResult={library.length === 0} />}
 
               <button onClick={() => setShareOpen((o) => !o)} style={{ ...dashedBtnStyle, width: "100%", justifyContent: "center", marginBottom: 10 }}>
                 <Save size={14} /> Sdílet s kamarádem
