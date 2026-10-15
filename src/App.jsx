@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef, useId } from "react";
 import {
+  Lock,
+  Unlock,
   Swords,
   Shield,
   Plus,
@@ -6722,7 +6724,7 @@ function PieceSwatch({ shape }) {
   return <span style={{ display: "inline-block", width: 16, height: 12, background: shape.bg, border: shape.border, borderRadius: shape.radius, clipPath: shape.clipPath, flexShrink: 0 }} />;
 }
 
-function TerrainPieceView({ piece, shape, containerRef, sizePctW, sizePctH, selected, onMove, onCommit, onRemove, onSelect }) {
+function TerrainPieceView({ piece, shape, containerRef, sizePctW, sizePctH, selected, locked, onMove, onCommit, onRemove, onSelect }) {
   const draggingRef = useRef(false);
   const movedRef = useRef(false);
   const startRef = useRef({ x: 0, y: 0 });
@@ -6777,13 +6779,14 @@ function TerrainPieceView({ piece, shape, containerRef, sizePctW, sizePctH, sele
         e.stopPropagation();
         onRemove(piece.id);
       }}
-      title={`${shape.label} — táhni pro přesun, klik pro úpravy, dvojklik pro odebrání`}
+      title={locked ? undefined : `${shape.label} — táhni pro přesun, klik pro úpravy, dvojklik pro odebrání`}
       style={{
         position: "absolute",
         left: `${piece.xPct}%`,
         top: `${piece.yPct}%`,
         width: `${sizePctW}%`,
         height: `${sizePctH}%`,
+        pointerEvents: locked ? "none" : "auto",
         transform: `translate(-50%, -50%) rotate(${piece.rotationDeg || 0}deg)`,
         minWidth: 10,
         minHeight: 10,
@@ -6792,7 +6795,7 @@ function TerrainPieceView({ piece, shape, containerRef, sizePctW, sizePctH, sele
         background: shape.bg,
         border: shape.border,
         boxShadow: selected ? "0 0 0 2px #fff, 0 2px 6px rgba(0,0,0,0.4)" : shape.bare ? "none" : "0 2px 6px rgba(0,0,0,0.4)",
-        cursor: "grab",
+        cursor: locked ? "default" : "grab",
         userSelect: "none",
         touchAction: "none",
         zIndex: selected ? 2 : 1,
@@ -7909,7 +7912,7 @@ function ManualView({ onBack }) {
 
       <ManualSection num="08" title="Deska">
         <ManualP>
-          <ManualPath>Deska</ManualPath> — vizuální bojiště na míru. Zaškrtni jednotky z knihovny do <b>Moje jednotky</b> nebo <b>Jednotky protihráče</b> — objeví se jako token, přetáhni ho na místo. Nad seznamem vybereš uloženou armádu (třeba z New Recruit) — seznam se zúží na její jednotky a „Dát celou armádu na desku“ je rozmístí najednou; „Nahrát z New Recruit (JSON)“ nahraje nový export rovnou na tuhle stranu i s base sizy ze sloupce Base. Velikost tokenu vychází z base size jednotky — přímo u jednotky v knihovně je malý rozklikávací seznam se standardními velikostmi (25 až 160mm kulaté, plus běžné oválné jako 90×52mm), není potřeba kvůli tomu otvírat celou editaci.
+          <ManualPath>Deska</ManualPath> — vizuální bojiště na míru. Zaškrtni jednotky z knihovny do <b>Moje jednotky</b> nebo <b>Jednotky protihráče</b> — objeví se jako tokeny (jeden na každý model), přetáhni je na místo. Nad seznamem vybereš uloženou armádu (třeba z New Recruit) — seznam se zúží na její jednotky a „Dát celou armádu na desku“ je rozmístí najednou; „Nahrát z New Recruit (JSON)“ nahraje nový export rovnou na tuhle stranu i s base sizy ze sloupce Base. Podložky jsou standardně zamčené (tlačítko „Terén zamčený“ v liště nad deskou) — táhneš jen modely, terén se nehne; odemknutím ho zase přesouváš a upravuješ. Velikost tokenu vychází z base size jednotky — přímo u jednotky v knihovně je malý rozklikávací seznam se standardními velikostmi (25 až 160mm kulaté, plus běžné oválné jako 90×52mm), není potřeba kvůli tomu otvírat celou editaci.
         </ManualP>
         <ManualUl
           items={[
@@ -8349,48 +8352,86 @@ export default function Wh40kCalculator({ session }) {
       ? { label: p.label || "Kreslený terén", layer: "terrain", clipPath: p.clipPath, bg: p.bg, border: p.border, radius: 0, widthIn: p.widthIn, heightIn: p.heightIn }
       : findShapeDef(p.shapeId);
 
-  // Toggling a unit on/off the board's roster places/removes a single token
-  // for the whole unit (not one per model) — simplest way to get an army onto
-  // the table; drag it into position afterward.
+  // How many models a unit has (sum of its member counts), at least 1.
+  const unitModelCount = (u) =>
+    Math.min(100, Math.max(1, (u.members || []).reduce((sum, m) => sum + (Number(m.count) || 0), 0)));
+
+  // One token per MODEL: a 10-model unit gets 10 tokens, laid out as a compact
+  // block (rows sized by the unit's base, 0.1" apart). Blocks are packed along
+  // that side's baseline left to right and wrap inward when the row is full;
+  // anything already staged there is skipped over so new blocks don't pile
+  // on top of old ones.
+  const layoutUnitTokens = (units, side, existing) => {
+    const W = board.widthIn;
+    const H = board.heightIn;
+    const margin = 1.5;
+    const gap = 0.1;
+    const bandTokens = existing.filter((t) => t.side === side);
+    let startX = margin;
+    bandTokens.forEach((t) => {
+      const inBand = side === "mine" ? t.yPct > 100 - (14 / H) * 100 : t.yPct < (14 / H) * 100;
+      if (inBand) startX = Math.max(startX, (t.xPct / 100) * W + 2);
+    });
+    let x = startX;
+    let rowOffset = 0;
+    let rowH = 0;
+    const out = [];
+    units.forEach((u) => {
+      const n = unitModelCount(u);
+      const base = parseBaseSizeMm(u.baseSize);
+      const dx = base.w / 25.4 + gap;
+      const dy = base.h / 25.4 + gap;
+      const cols = n <= 6 ? n : Math.ceil(Math.sqrt(n * 2));
+      const rows = Math.ceil(n / cols);
+      const blockW = cols * dx;
+      const blockH = rows * dy;
+      if (x + blockW > W - margin && x > margin) {
+        x = margin;
+        rowOffset += rowH + 1;
+        rowH = 0;
+      }
+      const y0 = side === "mine" ? H - margin - blockH - rowOffset : margin + rowOffset;
+      for (let i = 0; i < n; i++) {
+        const cx = x + ((i % cols) + 0.5) * dx;
+        const cy = y0 + (Math.floor(i / cols) + 0.5) * dy;
+        out.push({
+          id: crypto.randomUUID(),
+          unitId: u.id,
+          side,
+          xPct: Math.min(98, Math.max(2, (cx / W) * 100)),
+          yPct: Math.min(98, Math.max(2, (cy / H) * 100)),
+        });
+      }
+      x += blockW + 1;
+      rowH = Math.max(rowH, blockH);
+    });
+    return out;
+  };
+
+  // Toggling a unit on/off the board's roster places every one of its models
+  // (one token each) or removes them all; drag them into position afterward.
   const toggleUnitOnBoard = (unitId, side) => {
     const exists = board.tokens.some((t) => t.unitId === unitId && t.side === side);
     if (exists) {
       persistBoard({ ...board, tokens: board.tokens.filter((t) => !(t.unitId === unitId && t.side === side)) });
       return;
     }
-    // Stage new tokens along that side's baseline, spaced out a bit so they
-    // don't all land in an identical pile — nudged by how many are already
-    // staged on that side.
-    const sideCount = board.tokens.filter((t) => t.side === side).length;
-    const xPct = 8 + (sideCount % 8) * 11;
-    const yPct = side === "mine" ? 90 : 10;
-    persistBoard({
-      ...board,
-      tokens: [...board.tokens, { id: crypto.randomUUID(), unitId, side, xPct, yPct }],
-    });
+    const unit = library.find((u) => u.id === unitId);
+    if (!unit) return;
+    persistBoard({ ...board, tokens: [...board.tokens, ...layoutUnitTokens([unit], side, board.tokens)] });
   };
 
   // Puts every given unit on a side's baseline in one go (units already there
   // are left alone) - used by "celou armadu na desku" and the New Recruit
-  // import on the board. Rows of 8 tokens, the next row stacked inward.
-  const addUnitsToBoardSide = (unitIds, side) => {
+  // import on the board.
+  const addUnitsToBoardSide = (unitIds, side, extraUnits = []) => {
     const have = new Set(board.tokens.filter((t) => t.side === side).map((t) => t.unitId));
-    const fresh = unitIds.filter((id) => !have.has(id));
+    const fresh = unitIds
+      .filter((id) => !have.has(id))
+      .map((id) => extraUnits.find((u) => u.id === id) || library.find((u) => u.id === id))
+      .filter(Boolean);
     if (fresh.length === 0) return;
-    let sideCount = board.tokens.filter((t) => t.side === side).length;
-    const tokens = [...board.tokens];
-    fresh.forEach((unitId) => {
-      const row = Math.floor(sideCount / 8);
-      tokens.push({
-        id: crypto.randomUUID(),
-        unitId,
-        side,
-        xPct: 8 + (sideCount % 8) * 11,
-        yPct: side === "mine" ? 90 - row * 9 : 10 + row * 9,
-      });
-      sideCount += 1;
-    });
-    persistBoard({ ...board, tokens });
+    persistBoard({ ...board, tokens: [...board.tokens, ...layoutUnitTokens(fresh, side, board.tokens)] });
   };
   const clearSideTokens = (side) => persistBoard({ ...board, tokens: board.tokens.filter((t) => t.side !== side) });
 
@@ -8417,6 +8458,7 @@ export default function Wh40kCalculator({ session }) {
   // persistence since that just writes whatever boardRef.current holds,
   // regardless of whether a token or a terrain piece moved.
   const addTerrainPiece = (shapeId) => {
+    setTerrainLocked(false);
     const shape = findShapeDef(shapeId);
     if (!shape) return;
     // A saved group expands into its member pieces (each a normal, separately
@@ -8914,7 +8956,11 @@ export default function Wh40kCalculator({ session }) {
       }
     }
 
-    return { added: toAdd.length, skipped, baseUpdated, armyId, unitIds: allIds };
+    // The final unit objects (new ones plus library ones with the freshly
+    // read base size), so the board can lay them out before the library state
+    // has caught up with this import.
+    const units_ = allIds.map((id) => baseUpdatedLibrary.find((x) => x.id === id) || toAdd.find((x) => x.id === id)).filter(Boolean);
+    return { added: toAdd.length, skipped, baseUpdated, armyId, unitIds: allIds, units: units_ };
   };
 
   const attackerUnit = useMemo(() => library.find((u) => u.id === attackerUnitId) || null, [library, attackerUnitId]);
@@ -9032,6 +9078,26 @@ export default function Wh40kCalculator({ session }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [selectedTerrainId, persistBoard]);
   const [showBoardGrid, setShowBoardGrid] = useState(true);
+  // Terrain (podložky) is locked by default so dragging models around never
+  // shoves a plate by accident; the toolbar lock unlocks it for editing. The
+  // choice is remembered per browser; adding a piece unlocks for this session.
+  const [terrainLocked, setTerrainLocked] = useState(() => {
+    try {
+      return localStorage.getItem("board_terrain_locked_v1") !== "0";
+    } catch (e) {
+      return true;
+    }
+  });
+  const toggleTerrainLocked = () => {
+    const next = !terrainLocked;
+    setTerrainLocked(next);
+    if (next) setSelectedTerrainId(null);
+    try {
+      localStorage.setItem("board_terrain_locked_v1", next ? "1" : "0");
+    } catch (e) {
+      /* storage blocked - the lock still works for this session */
+    }
+  };
   // Freehand deployment-zone drawing: click points on the board to build a
   // polygon for "mine" or "theirs", overriding that side's swatch shape.
   const [drawMode, setDrawMode] = useState(null); // null | "mine" (only "mine" is ever drawn — "theirs" is always derived)
@@ -10902,7 +10968,7 @@ export default function Wh40kCalculator({ session }) {
         <div className="no-print" style={{ padding: "4px 14px 16px" }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: "var(--label)", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 10 }}>Deska</div>
           <div style={{ fontSize: 11.5, color: "var(--muted)", marginBottom: 10, lineHeight: 1.5 }}>
-            Zaškrtni jednotky z knihovny do své strany nebo strany protihráče — objeví se jako token na desce, který přetáhneš na místo. Dvojklik na token ho odebere.
+            Zaškrtni jednotky z knihovny do své strany nebo strany protihráče — objeví se jako tokeny na desce (jeden na každý model), které přetáhneš na místo. Dvojklik na token ho odebere.
           </div>
 
           <div className="wh40k-board-layout">
@@ -11667,7 +11733,7 @@ export default function Wh40kCalculator({ session }) {
                         onImport={(units, rosterName) => {
                           const r = importFromNewRecruit(units, rosterName);
                           if (r.armyId) setBoardArmySel((st) => ({ ...st, [side]: r.armyId }));
-                          addUnitsToBoardSide(r.unitIds, side);
+                          addUnitsToBoardSide(r.unitIds, side, r.units);
                           return r;
                         }}
                       />
@@ -11775,6 +11841,25 @@ export default function Wh40kCalculator({ session }) {
               }}
             >
               <Trash2 size={13} /> Vyčistit
+            </button>
+            <button
+              onClick={toggleTerrainLocked}
+              title={terrainLocked ? "Terén je zamčený - klikni pro odemknutí (úpravy, přesun podložek)" : "Terén je odemčený - klikni pro zamknutí"}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 5,
+                border: `1px solid ${terrainLocked ? "var(--accent)" : "var(--field-border)"}`,
+                background: terrainLocked ? "var(--accent-dim)" : "transparent",
+                color: terrainLocked ? "var(--accent-text)" : "var(--muted)",
+                borderRadius: 6,
+                padding: "5px 8px",
+                fontSize: 11,
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+            >
+              {terrainLocked ? <Lock size={13} /> : <Unlock size={13} />} {terrainLocked ? "Terén zamčený" : "Terén odemčený"}
             </button>
             <div style={{ flex: 1 }} />
             <span style={{ fontSize: 11, color: "var(--muted)", fontFamily: "var(--mono)" }}>
@@ -11962,6 +12047,7 @@ export default function Wh40kCalculator({ session }) {
                   sizePctW={sizePctW}
                   sizePctH={sizePctH}
                   selected={p.id === selectedTerrainId}
+                  locked={terrainLocked}
                   onMove={moveTerrainPiece}
                   onCommit={commitBoardTokenMove}
                   onRemove={removeTerrainPiece}
