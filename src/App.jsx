@@ -6923,6 +6923,7 @@ function BoardTokenView({ token, unit, containerRef, sizePctW, sizePctH, selecte
   return (
     <div
       data-board-piece="token"
+      data-token-id={token.id}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
@@ -6938,7 +6939,7 @@ function BoardTokenView({ token, unit, containerRef, sizePctW, sizePctH, selecte
         top: `${token.yPct}%`,
         width: `${sizePctW}%`,
         height: `${sizePctH}%`,
-        transform: "translate(-50%, -50%)",
+        transform: `translate(-50%, -50%) rotate(${token.rot || 0}deg)`,
         minWidth: 14,
         minHeight: 14,
         borderRadius: "50%",
@@ -6962,7 +6963,12 @@ function BoardTokenView({ token, unit, containerRef, sizePctW, sizePctH, selecte
         zIndex: multiSelected || selected ? 3 : 2,
       }}
     >
-      {label}
+      {/* Facing tick (only once a model has been turned) - the label is
+          counter-rotated so it always reads upright. */}
+      {token.rot ? (
+        <span style={{ position: "absolute", top: 1, left: "50%", width: 3, height: 3, marginLeft: -1.5, borderRadius: "50%", background: "#fff" }} />
+      ) : null}
+      <span style={{ display: "inline-block", transform: `rotate(${-(token.rot || 0)}deg)` }}>{label}</span>
     </div>
   );
 }
@@ -7917,7 +7923,7 @@ function ManualView({ onBack }) {
 
       <ManualSection num="08" title="Deska">
         <ManualP>
-          <ManualPath>Deska</ManualPath> — vizuální bojiště na míru. Zaškrtni jednotky z knihovny do <b>Moje jednotky</b> nebo <b>Jednotky protihráče</b> — objeví se jako tokeny (jeden na každý model), přetáhni je na místo. Nad seznamem vybereš uloženou armádu (třeba z New Recruit) — seznam se zúží na její jednotky a „Dát celou armádu na desku“ je rozmístí najednou; „Nahrát z New Recruit (JSON)“ nahraje nový export rovnou na tuhle stranu i s base sizy ze sloupce Base. Tažením modelu hýbeš celou jednotkou (tlačítko v liště přepne na jeden model, Alt při tažení přepne na opak). Víc modelů označíš tažením myší po prázdné desce (Shift přidává, Shift+klik na model ho přidá/odebere) — pak se všechny označené hýbou spolu. Podložky jsou standardně zamčené (tlačítko „Terén zamčený“ v liště nad deskou) — táhneš jen modely, terén se nehne; odemknutím ho zase přesouváš a upravuješ. Velikost tokenu vychází z base size jednotky — přímo u jednotky v knihovně je malý rozklikávací seznam se standardními velikostmi (25 až 160mm kulaté, plus běžné oválné jako 90×52mm), není potřeba kvůli tomu otvírat celou editaci.
+          <ManualPath>Deska</ManualPath> — vizuální bojiště na míru. Zaškrtni jednotky z knihovny do <b>Moje jednotky</b> nebo <b>Jednotky protihráče</b> — objeví se jako tokeny (jeden na každý model), přetáhni je na místo. Nad seznamem vybereš uloženou armádu (třeba z New Recruit) — seznam se zúží na její jednotky a „Dát celou armádu na desku“ je rozmístí najednou; „Nahrát z New Recruit (JSON)“ nahraje nový export rovnou na tuhle stranu i s base sizy ze sloupce Base. Tažením modelu hýbeš celou jednotkou (tlačítko v liště přepne na jeden model, Alt při tažení přepne na opak). Víc modelů označíš tažením myší po prázdné desce (Shift přidává, Shift+klik na model ho přidá/odebere) — pak se všechny označené hýbou spolu. Kolečkem myši nad modelem otočíš celou jednotku (nebo označené modely, nebo jeden model — stejná pravidla jako při tažení); kolečko dolů otáčí po směru hodin, Shift = jemné kroky po 5°. Podložky jsou standardně zamčené (tlačítko „Terén zamčený“ v liště nad deskou) — táhneš jen modely, terén se nehne; odemknutím ho zase přesouváš a upravuješ. Velikost tokenu vychází z base size jednotky — přímo u jednotky v knihovně je malý rozklikávací seznam se standardními velikostmi (25 až 160mm kulaté, plus běžné oválné jako 90×52mm), není potřeba kvůli tomu otvírat celou editaci.
         </ManualP>
         <ManualUl
           items={[
@@ -8484,6 +8490,56 @@ export default function Wh40kCalculator({ session }) {
       const ids = new Set(group);
       return { ...s, tokens: s.tokens.map((t) => (ids.has(t.id) ? { ...t, xPct: t.xPct + dx, yPct: t.yPct + dy } : t)) };
     });
+  };
+  // Mouse wheel over a model turns its unit (or the marquee selection, or one
+  // model - same grouping as dragging, Alt flips): the models' positions are
+  // rotated around the group's centre, and each model's own facing turns with
+  // them (matters for oval bases). Wheel down = clockwise, Shift = fine 5deg
+  // steps instead of 15.
+  const rotateTokensAt = (tokenId, deltaY, altKey, shiftKey) => {
+    const angle = (shiftKey ? 5 : 15) * (deltaY > 0 ? 1 : -1);
+    setBoard((s) => {
+      const tok = s.tokens.find((t) => t.id === tokenId);
+      if (!tok) return s;
+      let ids;
+      if (selectedTokenIds.length > 1 && selectedTokenIds.includes(tokenId)) {
+        ids = selectedTokenIds;
+      } else if (moveWholeUnit !== altKey) {
+        ids = s.tokens
+          .filter((t) => t.side === tok.side && t.unitId === tok.unitId && (t.inst || 0) === (tok.inst || 0))
+          .map((t) => t.id);
+      } else {
+        ids = [tokenId];
+      }
+      const set = new Set(ids);
+      const grp = s.tokens.filter((t) => set.has(t.id));
+      const W = s.widthIn;
+      const H = s.heightIn;
+      const cx = grp.reduce((sum, t) => sum + (t.xPct / 100) * W, 0) / grp.length;
+      const cy = grp.reduce((sum, t) => sum + (t.yPct / 100) * H, 0) / grp.length;
+      const rad = (angle * Math.PI) / 180;
+      const cos = Math.cos(rad);
+      const sin = Math.sin(rad);
+      return {
+        ...s,
+        tokens: s.tokens.map((t) => {
+          if (!set.has(t.id)) return t;
+          const dx = (t.xPct / 100) * W - cx;
+          const dy = (t.yPct / 100) * H - cy;
+          const nx = cx + dx * cos - dy * sin;
+          const ny = cy + dx * sin + dy * cos;
+          return {
+            ...t,
+            xPct: Math.min(100, Math.max(0, (nx / W) * 100)),
+            yPct: Math.min(100, Math.max(0, (ny / H) * 100)),
+            rot: (((t.rot || 0) + angle) % 360 + 360) % 360,
+          };
+        }),
+      };
+    });
+    // Save once the wheel pauses, not on every notch.
+    clearTimeout(wheelSaveTimerRef.current);
+    wheelSaveTimerRef.current = setTimeout(() => commitBoardTokenMove(), 400);
   };
   const removeSelectedTokens = () => {
     const ids = new Set(selectedTokenIds);
@@ -9203,6 +9259,8 @@ export default function Wh40kCalculator({ session }) {
   const [marquee, setMarquee] = useState(null);
   const marqueeStartRef = useRef(null);
   const dragGroupRef = useRef([]);
+  const wheelSaveTimerRef = useRef(null);
+  const rotateTokensRef = useRef(null);
   const toggleTerrainLocked = () => {
     const next = !terrainLocked;
     setTerrainLocked(next);
@@ -9304,6 +9362,32 @@ export default function Wh40kCalculator({ session }) {
   // If the selected attacker's token gets removed from the board (double
   // click, clear, etc.) drop the dangling selection instead of pointing at
   // nothing.
+  rotateTokensRef.current = rotateTokensAt;
+  useEffect(() => {
+    const el = boardContainerRef.current;
+    if (!el) return undefined;
+    let acc = 0;
+    let accTimer = null;
+    const onWheel = (e) => {
+      const tokEl = e.target.closest ? e.target.closest("[data-token-id]") : null;
+      if (!tokEl) return; // empty board / terrain: let the page scroll as usual
+      e.preventDefault();
+      // A trackpad fires many tiny wheel events: collect them so one notch's
+      // worth (~50) turns the unit one step instead of every event doing so.
+      acc += e.deltaY;
+      clearTimeout(accTimer);
+      accTimer = setTimeout(() => {
+        acc = 0;
+      }, 250);
+      if (Math.abs(acc) < 50) return;
+      const dir = acc;
+      acc = 0;
+      rotateTokensRef.current(tokEl.getAttribute("data-token-id"), dir, e.altKey, e.shiftKey);
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [view]);
+
   useEffect(() => {
     setSelectedTokenIds((cur) => {
       const alive = cur.filter((id) => board.tokens.some((t) => t.id === id));
@@ -11990,7 +12074,7 @@ export default function Wh40kCalculator({ session }) {
             </button>
             <button
               onClick={toggleMoveWholeUnit}
-              title="Při tažení se hýbe celá jednotka, nebo jen jeden model. Držení Alt přepne na opak. Označit víc modelů: táhni myší po prázdné desce (Shift přidává)."
+              title="Při tažení se hýbe celá jednotka, nebo jen jeden model. Držení Alt přepne na opak. Označit víc modelů: táhni myší po prázdné desce (Shift přidává). Kolečko myši nad modelem otáčí jednotku (Shift = jemně)."
               style={{
                 display: "flex",
                 alignItems: "center",
