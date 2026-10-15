@@ -6354,8 +6354,8 @@ export default function Wh40kCalculator({ session }) {
     setSelectedTerrainId(null);
   };
   // Replaces the board's deployment zone and terrain with a ready-made layout
-  // from LAYOUT_TEMPLATES (sets the board to the layout's size too), asking
-  // first when there's already terrain on the board.
+  // from LAYOUT_TEMPLATES (sets the board to the layout's size too) straight
+  // away, no confirmation.
   const loadLayoutTemplate = (tpl) => {
     const apply = () => {
       const w = tpl.widthIn;
@@ -6393,11 +6393,7 @@ export default function Wh40kCalculator({ session }) {
       });
       setSelectedTerrainId(null);
     };
-    if ((board.terrain || []).length > 0) {
-      askConfirm(`Načíst rozložení „${tpl.name}“? Nahradí současnou zónu a všechen terén na desce.`, apply);
-    } else {
-      apply();
-    }
+    apply();
   };
   // Save the whole current terrain arrangement (e.g. a ruin with a wall and
   // some vegetation on it) as one named palette entry — a "group". Each
