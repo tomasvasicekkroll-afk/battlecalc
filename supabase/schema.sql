@@ -32,5 +32,5 @@ create policy "user_data_delete_own"
   using (auth.uid() = user_id);
 
 -- ---------------------------------------------------------------------------
--- Goal 3 (community library): see community.sql (run it after this file).
+-- Sharing between users by private link: see shares.sql (run it after this file).
 -- ---------------------------------------------------------------------------

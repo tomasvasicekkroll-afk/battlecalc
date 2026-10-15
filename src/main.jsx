@@ -3,6 +3,10 @@ import ReactDOM from "react-dom/client";
 import Wh40kCalculator from "./App.jsx";
 import AuthGate from "./AuthGate.jsx";
 import ErrorBoundary from "./ErrorBoundary.jsx";
+import { captureShareFromUrl } from "./lib/shares";
+
+// A share link opened before signing in must survive the login redirect.
+captureShareFromUrl();
 
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>

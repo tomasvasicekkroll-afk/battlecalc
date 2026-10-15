@@ -38,11 +38,8 @@ import {
 import { storage } from "./lib/storage";
 import { runMonteCarlo } from "./lib/montecarlo";
 import { rosterBytesToText } from "./lib/roster";
-import CommunityLibrary from "./CommunityLibrary";
-
-// The shared community library stays hidden unless explicitly switched on
-// (VITE_ENABLE_COMMUNITY=1 at build time), see supabase/community.sql.
-const COMMUNITY_ENABLED = import.meta.env.VITE_ENABLE_COMMUNITY === "1";
+import { planImport } from "./lib/importPlan";
+import { createShare, listMyShares, deleteShare, fetchShare, shareUrl, pendingShareToken, clearPendingShare } from "./lib/shares";
 import { buildBlockers, blocksByDefault, tokenGeometry, computeLineOfSight } from "./lib/los";
 import { RULESETS, DEFAULT_EDITION, normalizeEdition, RulesContext, useRules } from "./lib/rules";
 import { supabase } from "./lib/supabaseClient";
@@ -6245,8 +6242,211 @@ function ArmyTextMatchBox({ onMatch }) {
   );
 }
 
+// Czech plural: 1 jednotka, 2-4 jednotky, 0 and 5+ jednotek.
+const csPlural = (n, one, few, many) => (n === 1 ? one : n >= 2 && n <= 4 ? few : many);
+
+// Share by private link: pick armies (or everything), get a link that works for
+// 30 days for whoever you send it to. See lib/shares.js.
+function ShareLinkPanel({ library, armies }) {
+  const [selected, setSelected] = useState(() => new Set()); // army ids, or "all"
+  const [busy, setBusy] = useState(false);
+  const [link, setLink] = useState("");
+  const [error, setError] = useState("");
+  const [copied, setCopied] = useState(false);
+  const [mine, setMine] = useState(null); // null = loading
+
+  const loadMine = useCallback(async () => {
+    try {
+      setMine(await listMyShares());
+    } catch (e) {
+      setMine([]);
+    }
+  }, []);
+  useEffect(() => {
+    loadMine();
+  }, [loadMine]);
+
+  const toggle = (id) =>
+    setSelected((cur) => {
+      const next = new Set(cur);
+      if (id === "all") return next.has("all") ? new Set() : new Set(["all"]);
+      next.delete("all");
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  const chosenArmies = selected.has("all") ? armies : armies.filter((a) => selected.has(a.id));
+  const chosenUnits = (() => {
+    if (selected.has("all")) return library;
+    const ids = new Set(chosenArmies.flatMap((a) => a.unitIds || []));
+    return library.filter((u) => ids.has(u.id));
+  })();
+
+  const create = async () => {
+    setBusy(true);
+    setError("");
+    setLink("");
+    try {
+      const title = selected.has("all") ? "Celá knihovna" : chosenArmies.map((a) => a.name).join(", ");
+      const token = await createShare({ title, units: chosenUnits, armies: chosenArmies });
+      setLink(shareUrl(token));
+      loadMine();
+    } catch (e) {
+      console.error("Vytvoření odkazu selhalo", e);
+      setError("Odkaz se nepodařilo vytvořit (" + ((e && e.message) || "chyba") + "). Máš připojení? Je v Supabase spuštěné supabase/shares.sql?");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const copy = async (text) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (e) {
+      setCopied(false);
+    }
+  };
+
+  const row = { display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, padding: "3px 0" };
+  const btn = { border: "1px solid var(--field-border)", background: "transparent", color: "var(--accent-text)", borderRadius: 6, padding: "5px 10px", fontSize: 12, fontWeight: 700, cursor: "pointer" };
+
+  return (
+    <div>
+      <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 8, lineHeight: 1.5 }}>
+        Vyber, co chceš sdílet, a pošli odkaz komukoli. Odkaz platí 30 dní, najde ho jen ten, kdo ho dostal, a můžeš ho kdykoli zrušit. Příjemce si jednotky přidá do své knihovny.
+      </div>
+      <label style={row}>
+        <input type="checkbox" checked={selected.has("all")} onChange={() => toggle("all")} /> Celá moje knihovna ({library.length})
+      </label>
+      {armies.map((a) => (
+        <label key={a.id} style={row}>
+          <input type="checkbox" checked={selected.has("all") || selected.has(a.id)} disabled={selected.has("all")} onChange={() => toggle(a.id)} /> {a.name}{" "}
+          <span style={{ color: "var(--muted)" }}>({(a.unitIds || []).length})</span>
+        </label>
+      ))}
+      {armies.length === 0 && <div style={{ fontSize: 12, color: "var(--muted)" }}>Nemáš uložené armády; můžeš sdílet celou knihovnu.</div>}
+      <button
+        type="button"
+        onClick={create}
+        disabled={busy || chosenUnits.length === 0}
+        className="wh40k-btn"
+        style={{ marginTop: 8, border: "none", background: "var(--accent)", color: "#fff", borderRadius: 6, padding: "7px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer", opacity: busy || chosenUnits.length === 0 ? 0.6 : 1 }}
+      >
+        {busy ? "Vytvářím…" : `Vytvořit odkaz (${chosenUnits.length} ${csPlural(chosenUnits.length, "jednotka", "jednotky", "jednotek")})`}
+      </button>
+      {error && <div style={{ fontSize: 12, color: "#e0857c", marginTop: 6 }}>{error}</div>}
+      {link && (
+        <div style={{ marginTop: 8 }}>
+          <input readOnly value={link} onFocus={(e) => e.target.select()} aria-label="Odkaz ke sdílení" style={{ width: "100%", boxSizing: "border-box", background: "var(--panel)", border: "1px solid var(--field-border)", borderRadius: 6, color: "var(--text)", padding: "7px 9px", fontSize: 11.5, fontFamily: "var(--mono)" }} />
+          <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+            <button type="button" onClick={() => copy(link)} style={btn}>
+              {copied ? "Zkopírováno ✓" : "Kopírovat"}
+            </button>
+            {typeof navigator !== "undefined" && navigator.share && (
+              <button type="button" onClick={() => navigator.share({ title: "Battlecalc", url: link }).catch(() => {})} style={btn}>
+                Poslat…
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {mine && mine.length > 0 && (
+        <div style={{ marginTop: 12, borderTop: "1px solid var(--field-border)", paddingTop: 8 }}>
+          <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--label)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>Moje aktivní odkazy</div>
+          {mine.map((m) => (
+            <div key={m.token} style={{ ...row, justifyContent: "space-between" }}>
+              <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {m.title || "Bez názvu"} <span style={{ color: "var(--muted)" }}>· {m.unit_count} j. · do {new Date(m.expires_at).toLocaleDateString("cs-CZ")}</span>
+              </span>
+              <span style={{ display: "flex", gap: 4 }}>
+                <button type="button" onClick={() => copy(shareUrl(m.token))} style={btn}>
+                  Kopírovat
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      await deleteShare(m.token);
+                      loadMine();
+                    } catch (e) {
+                      setError("Odkaz se nepodařilo zrušit.");
+                    }
+                  }}
+                  style={{ ...btn, color: "#e0857c" }}
+                >
+                  Zrušit
+                </button>
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Shown when the app was opened from somebody's share link: preview, then add to the library.
+function IncomingShareCard({ share, onAdd, onDismiss }) {
+  const [busy, setBusy] = useState(false);
+  if (share.status === "loading") {
+    return <div style={{ margin: "8px 14px", fontSize: 12, color: "var(--muted)" }}>Otevírám sdílený odkaz…</div>;
+  }
+  const box = { margin: "8px 14px", background: "var(--panel)", border: "1px solid var(--accent)", borderRadius: 12, padding: 12, fontSize: 12.5 };
+  if (share.status !== "ready") {
+    return (
+      <div style={box} role="status">
+        {share.status === "gone" ? "Tenhle odkaz už neplatí, nebo byl zrušen." : "Odkaz se nepodařilo otevřít. Zkontroluj připojení a zkus to znovu."}
+        <div style={{ marginTop: 8 }}>
+          <button type="button" onClick={onDismiss} style={{ border: "1px solid var(--field-border)", background: "transparent", color: "var(--text)", borderRadius: 6, padding: "5px 12px", fontSize: 12, cursor: "pointer" }}>
+            Zavřít
+          </button>
+        </div>
+      </div>
+    );
+  }
+  const d = share.data;
+  const names = d.units.slice(0, 6).map((u) => u.name).join(", ");
+  return (
+    <div style={box} role="status">
+      <div style={{ fontWeight: 700, marginBottom: 4 }}>
+        Někdo ti sdílí {d.units.length} {csPlural(d.units.length, "jednotku", "jednotky", "jednotek")}
+        {d.title ? ` (${d.title})` : ""}
+      </div>
+      <div style={{ color: "var(--muted)", marginBottom: 8, lineHeight: 1.45 }}>
+        {names}
+        {d.units.length > 6 ? ` … a ${d.units.length - 6} dalších` : ""}
+      </div>
+      <div style={{ display: "flex", gap: 8 }}>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={async () => {
+            setBusy(true);
+            try {
+              await onAdd(d);
+            } finally {
+              setBusy(false);
+            }
+          }}
+          className="wh40k-btn"
+          style={{ border: "none", background: "var(--accent)", color: "#fff", borderRadius: 6, padding: "7px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}
+        >
+          Přidat do knihovny
+        </button>
+        <button type="button" onClick={onDismiss} style={{ border: "1px solid var(--field-border)", background: "transparent", color: "var(--text)", borderRadius: 6, padding: "7px 14px", fontSize: 13, cursor: "pointer" }}>
+          Zahodit
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function ExportImportBox({ library, armies, onImport }) {
-  const [mode, setMode] = useState("export"); // export | import
+  const [mode, setMode] = useState("export"); // export | import | link
   const [importText, setImportText] = useState("");
   const [importSummary, setImportSummary] = useState(null);
   const [importFileName, setImportFileName] = useState("");
@@ -6300,8 +6500,8 @@ function ExportImportBox({ library, armies, onImport }) {
       return;
     }
     const armiesIn = data && Array.isArray(data.armies) ? sanitizeImportedArmies(data.armies) : [];
-    const { added, skipped } = onImport(units, armiesIn);
-    setImportSummary({ error: false, added, skipped, armiesAdded: armiesIn.length });
+    const { added, skipped, armiesAdded } = onImport(units, armiesIn);
+    setImportSummary({ error: false, added, skipped, armiesAdded: armiesAdded !== undefined ? armiesAdded : armiesIn.length });
     setImportText("");
     setImportFileName("");
   };
@@ -6353,9 +6553,27 @@ function ExportImportBox({ library, armies, onImport }) {
         >
           Import (od kamaráda)
         </button>
+        <button
+          onClick={() => setMode("link")}
+          style={{
+            flex: 1,
+            border: "1px solid " + (mode === "link" ? "var(--accent)" : "var(--field-border)"),
+            background: mode === "link" ? "var(--accent-dim)" : "transparent",
+            color: mode === "link" ? "var(--accent-text)" : "var(--text)",
+            borderRadius: 6,
+            padding: "6px 0",
+            fontSize: 12,
+            fontWeight: 700,
+            cursor: "pointer",
+          }}
+        >
+          Odkaz
+        </button>
       </div>
 
-      {mode === "export" ? (
+      {mode === "link" ? (
+        <ShareLinkPanel library={library} armies={armies} />
+      ) : mode === "export" ? (
         <>
           <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 8 }}>
             Stáhni soubor a pošli ho kamarádovi (mail, Discord, cokoliv). On si ho pak v téhle appce nahraje přes záložku "Import".
@@ -8495,7 +8713,7 @@ export default function Wh40kCalculator({ session }) {
   const [attackerFilter, setAttackerFilter] = useState(null); // { type: 'faction'|'army', key, label } | null
   const [defenderFilter, setDefenderFilter] = useState(null);
   const [librarySearch, setLibrarySearch] = useState("");
-  const [libraryTab, setLibraryTab] = useState("units"); // units | weapons | community
+  const [libraryTab, setLibraryTab] = useState("units"); // units | weapons
   const [menuOpen, setMenuOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [defenderModifiersOpen, setDefenderModifiersOpen] = useState(false);
@@ -8536,6 +8754,35 @@ export default function Wh40kCalculator({ session }) {
       /* storage blocked - the edition still applies for this session */
     }
   };
+  // A share link (?share=TOKEN) opened by this user: fetched once the library
+  // has loaded (adding earlier could overwrite data that is still loading).
+  const [incomingShare, setIncomingShare] = useState(null); // null | {status, data}
+  const incomingCheckedRef = useRef(false);
+  useEffect(() => {
+    if (incomingCheckedRef.current || !loaded || !armiesLoaded) return;
+    incomingCheckedRef.current = true;
+    const token = pendingShareToken();
+    if (!token) return;
+    setIncomingShare({ status: "loading" });
+    fetchShare(token)
+      .then((data) => setIncomingShare(data ? { status: "ready", data } : { status: "gone" }))
+      .catch((e) => {
+        console.error("Otevření sdíleného odkazu selhalo", e);
+        setIncomingShare({ status: "error" });
+      });
+  }, [loaded, armiesLoaded]);
+  const addIncomingShare = async (data) => {
+    if (storage.isBlocked("library_v2") || storage.isBlocked("armies_v1")) {
+      setAlertMessage("Knihovnu se nepodařilo načíst, přidávání je pozastavené. Obnov stránku.");
+      return;
+    }
+    const units = sanitizeImportedUnits(data.units);
+    const r = importUnitsAndArmies(units, sanitizeImportedArmies(data.armies));
+    clearPendingShare();
+    setIncomingShare(null);
+    setAlertMessage(`Přidáno ${r.added} ${csPlural(r.added, "jednotka", "jednotky", "jednotek")}${r.skipped > 0 ? ` (${r.skipped}× už jsi měl, přeskočeno)` : ""}${r.armiesAdded > 0 ? `, ${r.armiesAdded} ${csPlural(r.armiesAdded, "armáda", "armády", "armád")}` : ""}.`);
+  };
+
   // Offline / unsynced-changes indicator (see lib/storage.js).
   const [syncStatus, setSyncStatus] = useState(() => storage.getStatus());
   useEffect(() => storage.subscribe(setSyncStatus), []);
@@ -9436,11 +9683,11 @@ export default function Wh40kCalculator({ session }) {
   };
 
   const importUnitsAndArmies = (units, armiesIn) => {
-    const result = importUnits(units);
-    const existingArmyNames = new Set(armies.map((a) => a.name));
-    const newArmies = (armiesIn || []).filter((a) => a && a.name && !existingArmyNames.has(a.name)).map((a) => ({ ...a, id: crypto.randomUUID() }));
-    if (newArmies.length > 0) persistArmies([...armies, ...newArmies]);
-    return result;
+    const plan = planImport({ library, armies }, { units, armies: armiesIn || [] }, unitSignature);
+    if (plan.units.length > 0) persistLibrary([...library, ...plan.units]);
+    if (plan.armies.length > 0) persistArmies([...armies, ...plan.armies]);
+    setLibraryOpen(true);
+    return { added: plan.units.length, skipped: plan.skipped, armiesAdded: plan.armies.length };
   };
 
   // New Recruit JSON import: adds the units to the library (deduped as usual),
@@ -10432,6 +10679,17 @@ export default function Wh40kCalculator({ session }) {
         </div>
       )}
 
+      {incomingShare && (
+        <IncomingShareCard
+          share={incomingShare}
+          onAdd={addIncomingShare}
+          onDismiss={() => {
+            clearPendingShare();
+            setIncomingShare(null);
+          }}
+        />
+      )}
+
       {/* TOP BAR */}
       <div className="no-print" style={{ padding: "16px 14px 10px", display: "flex", alignItems: "center", justifyContent: "space-between", position: "relative" }}>
         <button onClick={() => setMenuOpen((o) => !o)} aria-label="Menu" style={{ background: "transparent", border: "none", color: "var(--text)", cursor: "pointer", padding: 6, display: "flex" }}>
@@ -11340,25 +11598,8 @@ export default function Wh40kCalculator({ session }) {
             <button onClick={() => setLibraryTab("weapons")} style={tabBtnStyle(libraryTab === "weapons")}>
               Zbraně
             </button>
-            {COMMUNITY_ENABLED && (
-              <button onClick={() => setLibraryTab("community")} style={tabBtnStyle(libraryTab === "community")}>
-                Komunita
-              </button>
-            )}
           </div>
 
-          {COMMUNITY_ENABLED && libraryTab === "community" && (
-            <CommunityLibrary
-              library={library}
-              askConfirm={askConfirm}
-              signatureOf={unitSignature}
-              onAdd={(units) => {
-                const clean = sanitizeImportedUnits(units);
-                const result = importUnits(clean);
-                return { added: result.added, skipped: result.skipped + (units.length - clean.length) };
-              }}
-            />
-          )}
 
           {libraryTab === "units" && (
             <>

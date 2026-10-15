@@ -28,7 +28,13 @@ Environment Variables projektu.
   shrnutí — ověř je v oficiální příručce, položky označené `verify` jsou nejméně jisté.
 - Import z New Recruit / BattleScribe: `.rosz`, `.ros`, JSON (`src/lib/roster.js`), ukázková armáda pro první start.
 - Deska s terénem, tokeny a **line of sight** (`src/lib/los.js`).
+- **Sdílení mezi lidmi** (`supabase/shares.sql`): soukromý odkaz na vybrané armády nebo celou knihovnu (platí 30 dní, jde zrušit,
+  nikdo nemůže procházet cizí sdílení), nebo soubor. Žádná veřejná knihovna.
 - **PWA**: instalovatelná, funguje offline (`public/sw.js`, data se cachují a zápisy se odešlou po připojení).
+
+## Nastavení Supabase
+
+V SQL editoru spusť postupně `supabase/schema.sql` a `supabase/shares.sql` (sdílení odkazem).
 
 ## Testy
 
