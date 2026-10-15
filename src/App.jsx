@@ -35,6 +35,7 @@ import {
   Copy,
 } from "lucide-react";
 import { storage } from "./lib/storage";
+import { runMonteCarlo } from "./lib/montecarlo";
 import { supabase } from "./lib/supabaseClient";
 
 const REROLL_OPTIONS = [
@@ -4087,7 +4088,7 @@ const ANTI_KEYWORD_OPTIONS = [
   { value: "infantry", label: "INFANTRY" },
 ];
 
-const emptyWeapon = () => ({
+export const emptyWeapon = () => ({
   id: crypto.randomUUID(),
   name: "Zbraň",
   type: "ranged",
@@ -4112,6 +4113,9 @@ const emptyWeapon = () => ({
   rerollOneHit: false,
   rerollOneWound: false,
   damageDice: "",
+  // Raw dice notation of Attacks (e.g. "D6+1"), kept for the Monte Carlo
+  // simulation; empty on weapons imported before it was stored.
+  attacksDice: "",
   rerollOneDamage: false,
   // +1 to this weapon's Attacks whenever an attached leader (Character) is
   // leading the unit in the calculator — e.g. Castellan Crowe leading
@@ -4289,7 +4293,7 @@ function betterReroll(a, b) {
 
 // Looks at what a unit's weapons already have built in, so the quick attack-bonus
 // panel starts pre-checked to match reality rather than always defaulting to off.
-function emptyBonus() {
+export function emptyBonus() {
   return {
     lethalHits: false,
     sustained: 0,
@@ -4308,7 +4312,7 @@ function emptyBonus() {
 // Cheat sheet only: a "slot" (Útočníci or Cíle) can hold BOTH offensive and
 // defensive modifiers, since after "Prohodit útočníky a cíle" the same army
 // may sit in either role — see emptySlotModifiers below.
-function emptyFullModifier() {
+export function emptyFullModifier() {
   return {
     ...emptyBonus(),
     fnp: 0,
@@ -4340,7 +4344,7 @@ function autoDetectBonus(unit) {
 // ---------------------------------------------------------------------------
 // Core probability math for a single weapon profile vs a defender profile
 // ---------------------------------------------------------------------------
-function computeWeapon(weapon, modelCount, def, bonus) {
+export function computeWeapon(weapon, modelCount, def, bonus) {
   const b = bonus || emptyBonus();
   // Some units (e.g. GMNDK) can re-roll all hit and wound rolls specifically
   // against a keyword like MONSTER/VEHICLE — distinct from Anti-X, which
@@ -4444,8 +4448,10 @@ function computeWeapon(weapon, modelCount, def, bonus) {
   woundNeed = Math.max(2, Math.min(6, woundNeed - (b.woundMod || 0)));
   // Anti-X Y+: against a defender with keyword X, a wound roll of Y+ always
   // counts as a Critical Wound — take whichever threshold is easier to hit.
+  let antiActive = false;
   if (att.antiKeyword !== "none" && att.antiValue > 0 && def.keywords && def.keywords[att.antiKeyword]) {
     woundNeed = Math.min(woundNeed, att.antiValue);
+    antiActive = true;
   }
 
   const pWoundBase = (7 - woundNeed) / 6;
@@ -4537,9 +4543,40 @@ function computeWeapon(weapon, modelCount, def, bonus) {
   const damageFromRerollHit = hitsFromRerollHit * pWoundAdj * damageConvFactor;
   const damageFromLethalHits = woundsFromLethalHits * damageConvFactor;
 
+  // Everything the Monte Carlo simulator (lib/montecarlo.js) needs, already
+  // resolved by the exact calculation above so both always agree on modifiers.
+  // A critical wound also happens on the Anti-X threshold, per the rules.
+  const attacksDist = weapon.attacksDice ? parseDiceDistribution(weapon.attacksDice) : null;
+  const damageDist = weapon.damageDice ? parseDiceDistribution(weapon.damageDice) : null;
+  const sim = {
+    instances: att.models,
+    attacksMean: att.attacks,
+    attacksDist: attacksDist ? Array.from(attacksDist.entries()) : null,
+    autoHit: att.hitX <= 1,
+    hitX: effectiveHitX,
+    critHitsOn: att.critHitsOn,
+    rerollHit: att.rerollHit,
+    rerollOneHit: !!weapon.rerollOneHit,
+    lethalHits: !!att.lethalHits,
+    sustained: att.sustained,
+    woundNeed,
+    critWoundOn: antiActive ? Math.min(att.critWoundOn, att.antiValue) : att.critWoundOn,
+    rerollWound: att.rerollWound,
+    rerollOneWound: !!weapon.rerollOneWound,
+    devastatingWounds: att.devastatingWounds,
+    effSave,
+    saveReroll: def.saveReroll || "none",
+    damageMean: weapon.damage,
+    damageDist: damageDist ? Array.from(damageDist.entries()) : null,
+    rerollOneDamage: !!weapon.rerollOneDamage && !!damageDist,
+    damageReduction: def.damageReduction || 0,
+    fnp: effectiveFnp,
+  };
+
   return {
     totalDamage,
     killedModels,
+    sim,
     detail: {
       attacks,
       hitX: effectiveHitX,
@@ -4578,11 +4615,13 @@ function pickByType(value, type) {
   return value;
 }
 
-function computeUnitVsUnit(attackerUnit, def, bonus) {
+export function computeUnitVsUnit(attackerUnit, def, bonus) {
   let rangedDamage = 0;
   let meleeDamage = 0;
   let killedModels = 0;
   const breakdown = [];
+  const simWeapons = [];
+  const simMortals = [];
 
   (attackerUnit.members || []).forEach((member) => {
     (member.weapons || []).forEach((weapon) => {
@@ -4592,6 +4631,7 @@ function computeUnitVsUnit(attackerUnit, def, bonus) {
       if (weapon.type === "melee") meleeDamage += r.totalDamage;
       else rangedDamage += r.totalDamage;
       killedModels += r.killedModels;
+      simWeapons.push({ type: weapon.type === "melee" ? "melee" : "ranged", sim: r.sim });
       breakdown.push({
         member: member.name,
         weapon: weapon.name,
@@ -4615,6 +4655,7 @@ function computeUnitVsUnit(attackerUnit, def, bonus) {
     const d = pickByType(def, type);
     const fnpProb = d.fnp > 0 ? (7 - d.fnp) / 6 : 0;
     const dmg = raw * (1 - fnpProb);
+    simMortals.push({ type, amount: raw, fnp: d.fnp || 0 });
     const effWoundsPerKill = Math.max(1, d.wounds);
     const killed = dmg / effWoundsPerKill;
     if (type === "melee") meleeDamage += dmg;
@@ -4655,10 +4696,11 @@ function computeUnitVsUnit(attackerUnit, def, bonus) {
   const consumed = killedModels * refDef.wounds;
   const remainingPct = unitPool > 0 ? Math.max(0, (unitPool - consumed) / unitPool) : 0;
 
-  return { rangedDamage, meleeDamage, totalDamage, killedModels, remainingPct, breakdown };
+  const simPlan = { weapons: simWeapons, mortals: simMortals, defender: { models: refDef.models, wounds: refDef.wounds } };
+  return { rangedDamage, meleeDamage, totalDamage, killedModels, remainingPct, breakdown, simPlan };
 }
 
-function defenderProfile(unit, overrides) {
+export function defenderProfile(unit, overrides) {
   const o = overrides || {};
   // Save/invul are always a die-roll target of 2–6 (0 = "none"); clamp defensively
   // so a bad import or stray value can never produce a nonsensical save like "40+".
@@ -5066,6 +5108,7 @@ function parseWeaponCharacteristics(wc) {
     // `damage` above so a "re-roll one damage roll" ability can be modeled
     // exactly instead of just off the average.
     damageDice: wc && wc.D ? String(wc.D).trim() : "",
+    attacksDice: wc && wc.A ? String(wc.A).trim() : "",
     lethalHits,
     sustained,
     melta,
@@ -7349,6 +7392,184 @@ function binomialCDF(k, n, p) {
     cdf += pmf;
   }
   return Math.max(0, Math.min(1, cdf));
+}
+
+// ---------------------------------------------------------------------------
+// Monte Carlo panel: rolls the whole attack thousands of times (see
+// lib/montecarlo.js) and shows the distribution - not just the average the
+// exact calculation gives, but how bad and how good a real game can go.
+// ---------------------------------------------------------------------------
+const MC_ITERATION_CHOICES = [1000, 10000, 100000];
+
+function MonteCarloPanel({ plan, exactKilled, exactDamage }) {
+  const [iterations, setIterations] = useState(10000);
+  const [rerun, setRerun] = useState(0);
+  const [state, setState] = useState({ status: "idle", progress: 0, data: null });
+
+  // Re-simulates (debounced) whenever the inputs behind `plan` change, and
+  // cancels a run that is still going when they do.
+  useEffect(() => {
+    if (!plan) return undefined;
+    const ctrl = new AbortController();
+    setState((s) => ({ ...s, status: "running", progress: 0 }));
+    const timer = setTimeout(() => {
+      runMonteCarlo(plan, {
+        iterations,
+        signal: ctrl.signal,
+        onProgress: (p) => {
+          if (!ctrl.signal.aborted) setState((s) => (s.status === "running" ? { ...s, progress: p } : s));
+        },
+      })
+        .then((data) => {
+          if (data && !ctrl.signal.aborted) setState({ status: "done", progress: 1, data });
+        })
+        .catch((e) => {
+          console.error("Monte Carlo selhalo", e);
+          if (!ctrl.signal.aborted) setState({ status: "error", progress: 0, data: null });
+        });
+    }, 350);
+    return () => {
+      clearTimeout(timer);
+      ctrl.abort();
+    };
+  }, [plan, iterations, rerun]);
+
+  const d = state.data;
+  const pctText = (n) => {
+    if (!Number.isFinite(n) || n <= 0) return "0 %";
+    const v = n * 100;
+    if (v >= 99.95 && v < 100) return ">99,9 %";
+    return v < 0.1 ? "<0,1 %" : `${v.toFixed(v < 10 ? 1 : 0).replace(".", ",")} %`;
+  };
+  const num = (n, digits = 1) => (Number.isInteger(n) ? String(n) : n.toFixed(digits).replace(".", ","));
+
+  // Bucket the kill-count histogram so a 100-model horde still fits in ~14 bars.
+  let bars = [];
+  if (d) {
+    const total = d.hist.length;
+    const size = Math.max(1, Math.ceil(total / 14));
+    for (let i = 0; i < total; i += size) {
+      const hi = Math.min(total - 1, i + size - 1);
+      let p = 0;
+      for (let k = i; k <= hi; k++) p += d.hist[k];
+      bars.push({ label: size === 1 ? String(i) : i === hi ? String(i) : `${i}–${hi}`, p });
+    }
+  }
+  // Drop the empty tail (kill counts that never happened) so the bars use the width.
+  let lastUsed = bars.length - 1;
+  while (lastUsed > 0 && bars[lastUsed].p === 0) lastUsed--;
+  bars = bars.slice(0, lastUsed + 1);
+  const maxBar = bars.reduce((m, b) => Math.max(m, b.p), 0) || 1;
+  const rowStyle = { display: "flex", justifyContent: "space-between", padding: "6px 0", borderTop: "1px solid var(--field-border)", fontSize: 11.5 };
+
+  return (
+    <div style={{ background: "var(--panel)", border: "1px solid var(--field-border)", borderRadius: 12, padding: 14, marginTop: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
+        <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--label)", textTransform: "uppercase", letterSpacing: 0.6 }}>Monte Carlo simulace</div>
+        <div style={{ display: "flex", gap: 4 }}>
+          {MC_ITERATION_CHOICES.map((n) => (
+            <button
+              key={n}
+              type="button"
+              onClick={() => setIterations(n)}
+              aria-pressed={iterations === n}
+              style={{
+                border: "1px solid " + (iterations === n ? "var(--accent)" : "var(--field-border)"),
+                background: iterations === n ? "var(--accent-dim)" : "transparent",
+                color: iterations === n ? "var(--accent-text)" : "var(--muted)",
+                borderRadius: 6,
+                padding: "3px 8px",
+                fontSize: 10.5,
+                fontWeight: 700,
+                cursor: "pointer",
+              }}
+            >
+              {n >= 1000 ? `${n / 1000} tis.` : n}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {state.status === "error" && <div style={{ fontSize: 12, color: "#e0857c" }}>Simulace selhala. Zkus ji spustit znovu.</div>}
+      {!d && state.status !== "error" && (
+        <div style={{ fontSize: 12, color: "var(--muted)" }}>Simuluji… {Math.round(state.progress * 100)} %</div>
+      )}
+
+      {d && (
+        <div style={{ opacity: state.status === "running" ? 0.55 : 1, transition: "opacity .15s" }}>
+          <div style={{ fontSize: 11, color: "var(--muted)", marginBottom: 8 }}>
+            {d.iterations.toLocaleString("cs-CZ")} odehraných útoků. Každý hod kostkou zvlášť, zranění se přiděluje po modelech (přebytečné zranění nad zbývající wounds modelu propadá).
+          </div>
+
+          <div className="wh40k-row wh40k-row-2" style={{ marginBottom: 8 }}>
+            <div style={{ background: "var(--field-bg)", borderRadius: 10, padding: "10px 12px" }}>
+              <div style={{ fontSize: 9.5, color: "var(--muted)", marginBottom: 3, textTransform: "uppercase" }}>Zabité modely (průměr)</div>
+              <div style={{ fontSize: 17, fontWeight: 700, fontFamily: "var(--mono)" }}>
+                {num(d.kills.mean, 2)} <span style={{ fontSize: 11, color: "var(--muted)", fontWeight: 500 }}>± {num(d.kills.sd, 1)}</span>
+              </div>
+            </div>
+            <div style={{ background: "var(--field-bg)", borderRadius: 10, padding: "10px 12px" }}>
+              <div style={{ fontSize: 9.5, color: "var(--muted)", marginBottom: 3, textTransform: "uppercase" }}>Typicky (90 % her)</div>
+              <div style={{ fontSize: 17, fontWeight: 700, fontFamily: "var(--mono)" }}>
+                {d.kills.p5}–{d.kills.p95} <span style={{ fontSize: 11, color: "var(--muted)", fontWeight: 500 }}>medián {d.kills.p50}</span>
+              </div>
+            </div>
+          </div>
+
+          {bars.length > 1 && (
+            <div role="img" aria-label="Rozdělení počtu zabitých modelů" style={{ margin: "10px 0 6px" }}>
+              <div style={{ display: "flex", alignItems: "flex-end", gap: 3, height: 64 }}>
+                {bars.map((b, i) => (
+                  <div key={i} title={`${b.label} zabitých: ${pctText(b.p)}`} style={{ flex: 1, display: "flex", alignItems: "flex-end", height: "100%" }}>
+                    <div style={{ width: "100%", height: `${Math.max(b.p > 0 ? 3 : 0, (b.p / maxBar) * 100)}%`, background: "var(--accent)", borderRadius: "3px 3px 0 0", opacity: 0.85 }} />
+                  </div>
+                ))}
+              </div>
+              <div style={{ display: "flex", gap: 3, marginTop: 2 }}>
+                {bars.map((b, i) => (
+                  <div key={i} style={{ flex: 1, textAlign: "center", fontSize: 9, color: "var(--muted)", fontFamily: "var(--mono)", overflow: "hidden" }}>
+                    {b.label}
+                  </div>
+                ))}
+              </div>
+              <div style={{ fontSize: 10, color: "var(--muted)", textAlign: "center", marginTop: 2 }}>počet zabitých modelů</div>
+            </div>
+          )}
+
+          <div style={rowStyle}>
+            <span style={{ color: "var(--muted)" }}>Šance zabít alespoň 1 model</span>
+            <b>{pctText(d.pAtLeast1)}</b>
+          </div>
+          {d.defenderModels > 1 && (
+            <div style={rowStyle}>
+              <span style={{ color: "var(--muted)" }}>Šance zabít aspoň polovinu ({d.halfNeeded}+ modelů)</span>
+              <b>{pctText(d.pHalf)}</b>
+            </div>
+          )}
+          <div style={rowStyle}>
+            <span style={{ color: "var(--muted)" }}>Šance zničit celou jednotku</span>
+            <b>{pctText(d.pWipe)}</b>
+          </div>
+          <div style={rowStyle}>
+            <span style={{ color: "var(--muted)" }}>Poškození (průměr, 90 % her)</span>
+            <b>
+              {num(d.damage.mean, 1)} <span style={{ color: "var(--muted)", fontWeight: 500 }}>({d.damage.p5}–{d.damage.p95})</span>
+            </b>
+          </div>
+          <div style={{ ...rowStyle, color: "var(--muted)", fontSize: 10.5 }}>
+            <span>Přesný výpočet (bez propadání zranění): {num(exactKilled, 2)} modelů, {num(exactDamage, 1)} dmg</span>
+            <button
+              type="button"
+              onClick={() => setRerun((n) => n + 1)}
+              style={{ border: "none", background: "transparent", color: "var(--accent-text)", cursor: "pointer", fontSize: 10.5, fontWeight: 700, padding: 0 }}
+            >
+              Znovu
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 // Sums the killedModels contributed by just one weapon type (ranged or melee)
@@ -10646,6 +10867,8 @@ export default function Wh40kCalculator({ session }) {
                   </div>
                 </div>
               </div>
+
+              <MonteCarloPanel plan={result.simPlan} exactKilled={result.killedModels} exactDamage={result.totalDamage} />
 
               {resultAgg &&
                 (defenderFnp.ranged > 0 ||
