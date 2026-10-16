@@ -6960,7 +6960,28 @@ function TerrainPieceView({ piece, shape, containerRef, sizePctW, sizePctH, sele
   );
 }
 
-function BoardTokenView({ token, unit, containerRef, sizePctW, sizePctH, rectBase, viewRot, selected, multiSelected, onDragStart, onMove, onCommit, onRemove, onSelect }) {
+const BIG_TOKEN_PX = 38;
+// Does the base have room for the unit name inside it? Rectangles (hulls) hold
+// text lengthwise, so they only need to be long enough and not razor thin.
+function isBigToken(px, rect) {
+  if (!px) return false;
+  if (rect) return px.w >= 60 && px.h >= 22;
+  return Math.min(px.w, px.h) >= BIG_TOKEN_PX;
+}
+// Font size that keeps the longest word inside the base (and no bigger than the base suggests).
+function tokenLabelFont(label, px, rect) {
+  if (!px) return 9;
+  const longest = Math.max(...String(label).split(/\s+/).map((w) => w.length), 1);
+  const avail = (rect ? px.w : Math.min(px.w, px.h)) * 0.82;
+  const byBase = rect ? px.h * 0.4 : Math.min(px.w, px.h) * 0.22;
+  return Math.max(7, Math.min(20, byBase, avail / (longest * 0.62)));
+}
+// "Purifier Squad (vede Castellan Crowe)" -> "Purifier Squad"
+function unitShortName(name) {
+  return String(name || "?").replace(/\s*\(.*$/, "").trim();
+}
+
+function BoardTokenView({ token, unit, containerRef, sizePctW, sizePctH, tokenPx, rectBase, viewRot, selected, multiSelected, onDragStart, onMove, onCommit, onRemove, onSelect }) {
   const draggingRef = useRef(false);
   // Distinguishes a drag from a plain click/tap: if the pointer never moves
   // more than a few px between down and up, treat it as a click (used to
@@ -7009,7 +7030,11 @@ function BoardTokenView({ token, unit, containerRef, sizePctW, sizePctH, rectBas
     }
   };
 
-  const label = unit ? unit.name.slice(0, 3).toUpperCase() : "?";
+  // Big bases carry the unit name inside, scaled to the base so it stays readable;
+  // small ones leave the text to the unit tag drawn next to the group.
+  const bigToken = isBigToken(tokenPx, rectBase);
+  const label = unit ? unitShortName(unit.name) : "?";
+  const labelFont = tokenLabelFont(label, tokenPx, rectBase);
   const color = token.side === "mine" ? "var(--accent)" : "#c0392b";
 
   return (
@@ -7057,7 +7082,24 @@ function BoardTokenView({ token, unit, containerRef, sizePctW, sizePctH, rectBas
       {token.rot ? (
         <span style={{ position: "absolute", top: 1, left: "50%", width: 3, height: 3, marginLeft: -1.5, borderRadius: "50%", background: "#fff" }} />
       ) : null}
-      <span style={{ display: "inline-block", transform: `rotate(${-(token.rot || 0) - (viewRot || 0)}deg)` }}>{label}</span>
+      {bigToken && (
+        <span
+          style={{
+            display: "-webkit-box",
+            WebkitLineClamp: 3,
+            WebkitBoxOrient: "vertical",
+            overflow: "hidden",
+            maxWidth: "88%",
+            textAlign: "center",
+            fontSize: labelFont,
+            lineHeight: 1.08,
+            textShadow: "0 1px 2px rgba(0,0,0,0.9)",
+            transform: `rotate(${-(token.rot || 0) - (viewRot || 0)}deg)`,
+          }}
+        >
+          {label}
+        </span>
+      )}
     </div>
   );
 }
@@ -9655,6 +9697,9 @@ export default function Wh40kCalculator({ session }) {
     }
   };
   const [dragIds, setDragIds] = useState([]);
+  // Board pixels per inch (layout size, so it follows the zoom) - lets tokens
+  // decide whether their name fits inside or has to go on a tag beside the group.
+  const [boardPxPerIn, setBoardPxPerIn] = useState(12);
   const [boardZoom, setBoardZoom] = useState(1);
   const boardScrollRef = useRef(null);
   const boardSizedRef = useRef(null);
@@ -10195,6 +10240,75 @@ export default function Wh40kCalculator({ session }) {
     const time = d.toLocaleTimeString("cs-CZ", { hour: "2-digit", minute: "2-digit" });
     return isToday ? `Dnes, ${time}` : `${d.toLocaleDateString("cs-CZ")}, ${time}`;
   };
+
+  useEffect(() => {
+    if (view !== "board") return;
+    const el = boardContainerRef.current;
+    if (!el) return;
+    const measure = () => {
+      if (el.offsetWidth && board.widthIn) setBoardPxPerIn(el.offsetWidth / board.widthIn);
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [view, board.widthIn, board.tokens.length === 0]);
+
+  // Unit tags for groups whose bases are too small to hold their name: one tag per
+  // unit, placed just beyond the group on the "up" side of the screen.
+  const unitTags = useMemo(() => {
+    if (view !== "board") return [];
+    const th = (viewRot * Math.PI) / 180;
+    const vx = -Math.sin(th);
+    const vy = -Math.cos(th);
+    const groups = new Map();
+    board.tokens.forEach((t) => {
+      const u = library.find((x) => x.id === t.unitId);
+      if (!u) return;
+      const bm = parseBaseSizeMm(u.baseSize);
+      if (isBigToken({ w: (bm.w / 25.4) * boardPxPerIn, h: (bm.h / 25.4) * boardPxPerIn }, bm.rect)) return;
+      const k = `${t.side}|${t.unitId}|${t.inst || 0}`;
+      if (!groups.has(k)) groups.set(k, { key: k, side: t.side, name: unitShortName(u.name), pts: [], count: 0 });
+      const g = groups.get(k);
+      g.count += 1;
+      g.pts.push({ x: (t.xPct / 100) * board.widthIn, y: (t.yPct / 100) * board.heightIn, r: Math.max(bm.w, bm.h) / 25.4 / 2 });
+    });
+    const swap = viewRot % 180 !== 0;
+    const placed = [];
+    const out = [];
+    [...groups.values()].forEach((g) => {
+      const cx = g.pts.reduce((a, p) => a + p.x, 0) / g.pts.length;
+      const cy = g.pts.reduce((a, p) => a + p.y, 0) / g.pts.length;
+      const ext = Math.max(...g.pts.map((p) => (p.x - cx) * vx + (p.y - cy) * vy + p.r));
+      const tw = ((g.name.length + 4) * 6.8 + 14) / boardPxPerIn;
+      const thh = 20 / boardPxPerIn;
+      const bw = swap ? thh : tw;
+      const bh = swap ? tw : thh;
+      const gap = 13 / boardPxPerIn + 0.15;
+      const ux = -vy;
+      const uy = vx;
+      const clampX = (x) => Math.max(bw / 2, Math.min(board.widthIn - bw / 2, x));
+      const clampY = (y) => Math.max(bh / 2, Math.min(board.heightIn - bh / 2, y));
+      const hits = (x, y) => placed.some((q) => Math.abs(q.x - x) < (q.w + bw) / 2 && Math.abs(q.y - y) < (q.h + bh) / 2);
+      let best = null;
+      for (let k = 0; k < 5 && !best; k++) {
+        for (const sd of [0, 1, -1, 2, -2]) {
+          const off = ext + gap + k * thh * 1.05;
+          const x = clampX(cx + vx * off + ux * sd * tw * 0.52);
+          const y = clampY(cy + vy * off + uy * sd * tw * 0.52);
+          if (!hits(x, y)) {
+            best = { x, y };
+            break;
+          }
+        }
+      }
+      if (!best) best = { x: clampX(cx + vx * (ext + gap)), y: clampY(cy + vy * (ext + gap)) };
+      placed.push({ x: best.x, y: best.y, w: bw, h: bh });
+      out.push({ ...g, x: best.x, y: best.y });
+    });
+    return out;
+  }, [view, viewRot, board.tokens, board.widthIn, board.heightIn, library, boardPxPerIn]);
 
   const fireData = useMemo(() => {
     if (!fireLineOn || view !== "board") return null;
@@ -13282,6 +13396,7 @@ export default function Wh40kCalculator({ session }) {
                   containerRef={boardContainerRef}
                   sizePctW={sizePctW}
                   sizePctH={sizePctH}
+                  tokenPx={{ w: (baseMm.w / 25.4) * boardPxPerIn, h: (baseMm.h / 25.4) * boardPxPerIn }}
                   rectBase={baseMm.rect}
                   viewRot={viewRot}
                   selected={t.id === boardAttackerTokenId}
@@ -13294,6 +13409,31 @@ export default function Wh40kCalculator({ session }) {
                 />
               );
             })}
+            {unitTags.map((g) => (
+              <div
+                key={g.key}
+                style={{
+                  position: "absolute",
+                  left: `${(g.x / board.widthIn) * 100}%`,
+                  top: `${(g.y / board.heightIn) * 100}%`,
+                  transform: `translate(-50%, -50%) rotate(${-(viewRot || 0)}deg)`,
+                  zIndex: 5,
+                  pointerEvents: "none",
+                  whiteSpace: "nowrap",
+                  fontSize: 11,
+                  fontWeight: 700,
+                  lineHeight: 1.2,
+                  color: "#fff",
+                  padding: "2px 6px",
+                  borderRadius: 5,
+                  background: "rgba(6,12,22,0.88)",
+                  border: `1px solid ${g.side === "mine" ? "var(--accent)" : "#c0392b"}`,
+                  boxShadow: "0 1px 4px rgba(0,0,0,0.5)",
+                }}
+              >
+                {g.name} ×{g.count}
+              </div>
+            ))}
             {fireData && (
               <svg
                 viewBox={`0 0 ${board.widthIn} ${board.heightIn}`}
