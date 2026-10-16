@@ -7885,6 +7885,10 @@ function ManualView({ onBack }) {
         <ManualNote tone="warn" label="Vůdci jednotek">
           Pokud je v listu postava připojená k jednotce jako vůdce (Leader), appka je při importu spojí do jedné položky knihovny — jejich zbraně se pak počítají dohromady, jméno bude např. „Wolf Guard Terminators (vede Logan Grimnar)“ a body se sečtou.
         </ManualNote>
+        <ManualH>Armáda (přehled)</ManualH>
+        <ManualP>
+          <ManualPath>Domů → Armáda</ManualPath> — vyber uloženou armádu (třeba z New Recruit). Uvidíš její statistiky (body, modely, rány, průměrná odolnost, počet vozidel/monster/postav a očekávaný damage proti pěchotě, elitě a tanku), pod tím vybereš soupeře a jedním klikem otevřeš cheat sheet armáda proti armádě. Tlačítka „Herní deska“ ti armádu rovnou vyberou na desce, případně ji rozmístí (i obě najednou).
+        </ManualP>
         <ManualH>Ruční přidání / úprava</ManualH>
         <ManualP>
           <ManualPath>Knihovna → Přidat ručně</ManualPath> — vyplníš obranné staty a přidáš modely se zbraněmi. Stejný formulář se otevře i tužkou u existující jednotky.
@@ -7988,9 +7992,9 @@ function ManualView({ onBack }) {
         <ManualP muted>Tlačítko <b>Prohodit útočníky a cíle</b> prohodí obě zaškrtnutí najednou.</ManualP>
       </ManualSection>
 
-      <ManualSection num="08" title="Deska">
+      <ManualSection num="08" title="Herní deska">
         <ManualP>
-          <ManualPath>Deska</ManualPath> — vizuální bojiště na míru. Zaškrtni jednotky z knihovny do <b>Moje jednotky</b> nebo <b>Jednotky protihráče</b> — objeví se jako tokeny (jeden na každý model), přetáhni je na místo. Nad seznamem vybereš uloženou armádu (třeba z New Recruit) — seznam se zúží na její jednotky a „Dát celou armádu na desku“ je rozmístí najednou; „Nahrát z New Recruit (JSON)“ nahraje nový export rovnou na tuhle stranu i s base sizy ze sloupce Base. Tažením modelu hýbeš celou jednotkou (tlačítko v liště přepne na jeden model, Alt při tažení přepne na opak; Shift při tažení vezme vždy jen jeden model — třeba když ho chceš nacpat za zeď). Víc modelů označíš tažením myší po prázdné desce (Shift přidává, Shift+klik na model ho přidá/odebere) — pak se všechny označené hýbou spolu. Kolečkem myši nad modelem otočíš celou jednotku (nebo označené modely, nebo jeden model — stejná pravidla jako při tažení); kolečko dolů otáčí po směru hodin, Shift = jemné kroky po 5°. Vzhled aplikace přepneš v Nastavení (ozubené kolečko → Vzhled): „Základní“ nebo „Taktický“ (sytě modrý HUD, hexagonové tokeny, texturované podložky, kompas a měřítko na desce). Desku můžeš otočit o 90° tlačítkem „Otočit“ (jen pohled, data zůstávají) a přibližovat tlačítky lupy nebo Ctrl + kolečkem (na touchpadu štípnutím) kolem kurzoru; přiblíženou desku posouváš posuvníky. Podložky jsou standardně zamčené (tlačítko „Terén zamčený“ v liště nad deskou) — táhneš jen modely, terén se nehne; odemknutím ho zase přesouváš a upravuješ. Velikost tokenu vychází z base size jednotky — přímo u jednotky v knihovně je malý rozklikávací seznam se standardními velikostmi (25 až 160mm kulaté, plus běžné oválné jako 90×52mm), není potřeba kvůli tomu otvírat celou editaci.
+          <ManualPath>Herní deska</ManualPath> — vizuální bojiště na míru. Zaškrtni jednotky z knihovny do <b>Moje jednotky</b> nebo <b>Jednotky protihráče</b> — objeví se jako tokeny (jeden na každý model), přetáhni je na místo. Nad seznamem vybereš uloženou armádu (třeba z New Recruit) — seznam se zúží na její jednotky a „Dát celou armádu na desku“ je rozmístí najednou; „Nahrát z New Recruit (JSON)“ nahraje nový export rovnou na tuhle stranu i s base sizy ze sloupce Base. Tažením modelu hýbeš celou jednotkou (tlačítko v liště přepne na jeden model, Alt při tažení přepne na opak; Shift při tažení vezme vždy jen jeden model — třeba když ho chceš nacpat za zeď). Víc modelů označíš tažením myší po prázdné desce (Shift přidává, Shift+klik na model ho přidá/odebere) — pak se všechny označené hýbou spolu. Kolečkem myši nad modelem otočíš celou jednotku (nebo označené modely, nebo jeden model — stejná pravidla jako při tažení); kolečko dolů otáčí po směru hodin, Shift = jemné kroky po 5°. Vzhled aplikace přepneš v Nastavení (ozubené kolečko → Vzhled): „Základní“ nebo „Taktický“ (sytě modrý HUD, hexagonové tokeny, texturované podložky, kompas a měřítko na desce). Desku můžeš otočit o 90° tlačítkem „Otočit“ (jen pohled, data zůstávají) a přibližovat tlačítky lupy nebo Ctrl + kolečkem (na touchpadu štípnutím) kolem kurzoru; přiblíženou desku posouváš posuvníky. Podložky jsou standardně zamčené (tlačítko „Terén zamčený“ v liště nad deskou) — táhneš jen modely, terén se nehne; odemknutím ho zase přesouváš a upravuješ. Velikost tokenu vychází z base size jednotky — přímo u jednotky v knihovně je malý rozklikávací seznam se standardními velikostmi (25 až 160mm kulaté, plus běžné oválné jako 90×52mm), není potřeba kvůli tomu otvírat celou editaci.
         </ManualP>
         <ManualUl
           items={[
@@ -8521,9 +8525,9 @@ export default function Wh40kCalculator({ session }) {
   // Puts every given unit on a side's baseline in one go (units already there
   // are left alone) - used by "celou armadu na desku" and the New Recruit
   // import on the board.
-  const addUnitsToBoardSide = (unitIds, side, extraUnits = []) => {
-    // The same unit can be listed several times (3x the same Dreadknight, 2x
-    // Interceptor Squad) - each listing is its own instance on the board.
+  // One entry per listing of a unit (the same unit listed 3x = 3 instances),
+  // skipping instances that are already on that side of the board.
+  const boardEntriesFor = (unitIds, side, extraUnits = []) => {
     const wanted = new Map();
     unitIds.forEach((id) => wanted.set(id, (wanted.get(id) || 0) + 1));
     const entries = [];
@@ -8533,8 +8537,26 @@ export default function Wh40kCalculator({ session }) {
       const present = new Set(board.tokens.filter((t) => t.side === side && t.unitId === id).map((t) => t.inst || 0)).size;
       for (let k = present; k < times; k++) entries.push({ unit, inst: k });
     });
+    return entries;
+  };
+  const addUnitsToBoardSide = (unitIds, side, extraUnits = []) => {
+    const entries = boardEntriesFor(unitIds, side, extraUnits);
     if (entries.length === 0) return;
     persistBoard({ ...board, tokens: [...board.tokens, ...layoutUnitTokens(entries, side, board.tokens)] });
+  };
+  // Both armies in one save (two separate saves would overwrite each other).
+  const addTwoArmiesToBoard = (mineIds, theirIds) => {
+    const mine = boardEntriesFor(mineIds, "mine");
+    const theirs = boardEntriesFor(theirIds, "theirs");
+    if (mine.length + theirs.length === 0) return;
+    persistBoard({
+      ...board,
+      tokens: [
+        ...board.tokens,
+        ...(mine.length ? layoutUnitTokens(mine, "mine", board.tokens) : []),
+        ...(theirs.length ? layoutUnitTokens(theirs, "theirs", board.tokens) : []),
+      ],
+    });
   };
   const clearSideTokens = (side) => persistBoard({ ...board, tokens: board.tokens.filter((t) => t.side !== side) });
 
@@ -9465,6 +9487,10 @@ export default function Wh40kCalculator({ session }) {
   const [mapVariantLoaded, setMapVariantLoaded] = useState("");
   const [boardArmySel, setBoardArmySel] = useState({ mine: "", theirs: "" });
   const [boardImportSide, setBoardImportSide] = useState("");
+  // Army hub ("Armáda" on the home page): which army is open, and the opponent
+  // picked for the matchup / board shortcuts ("" none, "__all" every other army).
+  const [armyViewId, setArmyViewId] = useState("");
+  const [armyOppId, setArmyOppId] = useState("");
   // Everything below the "Mapa" box (map creation, terrain palette, numeric
   // terrain, custom pieces, saved plinths) sits behind one toggle, closed by default.
   const [boardEditOpen, setBoardEditOpen] = useState(false);
@@ -10132,6 +10158,7 @@ export default function Wh40kCalculator({ session }) {
             {[
               ["Nový výpočet", () => startNewCalculation()],
               ["Knihovna jednotek", () => setView("library")],
+              ["Armáda", () => setView("army")],
               ["Moje armády a cheat sheet", () => setView("lists")],
               ["Historie výpočtů", () => setView("history")],
               [isFullscreen ? "Ukončit celou obrazovku" : "Celá obrazovka", () => toggleFullscreen()],
@@ -10251,6 +10278,20 @@ export default function Wh40kCalculator({ session }) {
             </div>
           </button>
 
+          <button
+            onClick={() => setView("army")}
+            className="wh40k-card wh40k-btn"
+            style={{ width: "100%", textAlign: "left", background: "var(--panel)", border: "1px solid var(--accent)", borderRadius: 14, padding: "13px 16px", cursor: "pointer", marginBottom: 14, display: "flex", alignItems: "center", gap: 12 }}
+          >
+            <Shield size={26} color="var(--accent-text)" />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: 0.7, textTransform: "uppercase", color: "var(--text)" }}>Armáda</div>
+              <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 2 }}>Statistiky, souboj proti jiným armádám a herní deska</div>
+            </div>
+            <div style={{ fontSize: 11, color: "var(--accent-text)", fontFamily: "var(--mono)" }}>{armies.length}×</div>
+            <ChevronRight size={18} color="var(--accent-text)" />
+          </button>
+
           <div className="wh40k-grid-2" style={{ marginBottom: 16 }}>
             <TileButton icon={Folder} label="Moje výpočty" value={history.length + " uloženo"} onClick={() => setView("history")} />
             <TileButton
@@ -10323,6 +10364,238 @@ export default function Wh40kCalculator({ session }) {
           ))}
         </div>
       )}
+
+      {/* ARMY HUB */}
+      {view === "army" && (() => {
+        const army = armies.find((a) => a.id === armyViewId) || armies[0] || null;
+        const unitsOf = (a) => (a ? a.unitIds.map((id) => library.find((u) => u.id === id)).filter(Boolean) : []);
+        const myUnits = unitsOf(army);
+        const others = armies.filter((a) => !army || a.id !== army.id);
+        const opp = armyOppId === "__all" ? null : others.find((a) => a.id === armyOppId) || null;
+        const oppUnitIds =
+          armyOppId === "__all" ? others.flatMap((a) => a.unitIds) : opp ? opp.unitIds : [];
+        const modelsOf = (u) => (u.modelCount > 0 ? u.modelCount : Math.max(1, totalModels(u)));
+        const REF_TARGETS = [
+          { label: "Pěchota", sub: "T4 3+ 2W ×10", unit: { toughness: 4, save: 3, invul: 0, wounds: 2, fnp: 0 }, models: 10 },
+          { label: "Elita", sub: "T5 2+ 3W 4++ ×5", unit: { toughness: 5, save: 2, invul: 4, wounds: 3, fnp: 0 }, models: 5 },
+          { label: "Tank", sub: "T10 3+ 12W ×1", unit: { toughness: 10, save: 3, invul: 0, wounds: 12, fnp: 0 }, models: 1 },
+        ];
+        // group duplicates (3x the same unit listed -> one row, x3)
+        const rows = [];
+        const rowById = new Map();
+        myUnits.forEach((u) => {
+          if (rowById.has(u.id)) {
+            rowById.get(u.id).n += 1;
+            return;
+          }
+          const dmg = REF_TARGETS.map((t) => {
+            try {
+              return computeUnitVsUnit(u, defenderProfile(t.unit, { models: t.models }), emptyBonus()).totalDamage || 0;
+            } catch (e) {
+              return 0;
+            }
+          });
+          const row = { u, n: 1, models: modelsOf(u), pts: parseInt(u.points, 10) || 0, dmg };
+          rowById.set(u.id, row);
+          rows.push(row);
+        });
+        const tot = rows.reduce(
+          (acc, r) => {
+            acc.units += r.n;
+            acc.models += r.n * r.models;
+            acc.pts += r.n * r.pts;
+            acc.wounds += r.n * r.models * (Number(r.u.wounds) || 1);
+            acc.tw += r.n * r.models * (Number(r.u.toughness) || 0);
+            r.dmg.forEach((d, i) => {
+              acc.dmg[i] += r.n * d;
+            });
+            if (r.u.keywords?.vehicle) acc.vehicle += r.n;
+            if (r.u.keywords?.monster) acc.monster += r.n;
+            if (r.u.keywords?.character) acc.character += r.n;
+            return acc;
+          },
+          { units: 0, models: 0, pts: 0, wounds: 0, tw: 0, dmg: REF_TARGETS.map(() => 0), vehicle: 0, monster: 0, character: 0 }
+        );
+        const factions = Array.from(new Set(myUnits.map((u) => u.faction).filter(Boolean)));
+        const cardBtn = { display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left", background: "var(--panel)", border: "1px solid var(--accent)", borderRadius: 12, padding: "12px 14px", cursor: "pointer", color: "var(--text)", marginBottom: 8 };
+        const th = { textAlign: "right", fontSize: 9.5, color: "var(--muted)", fontWeight: 700, padding: "3px 5px", whiteSpace: "nowrap" };
+        const td = { textAlign: "right", fontSize: 11.5, padding: "3px 5px", fontFamily: "var(--mono)", whiteSpace: "nowrap" };
+        return (
+          <div className="no-print" style={{ padding: "4px 14px 16px" }}>
+            <button
+              onClick={() => setView("home")}
+              style={{ display: "flex", alignItems: "center", gap: 5, background: "transparent", border: "none", color: "var(--muted)", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, cursor: "pointer", padding: 0, marginBottom: 12 }}
+            >
+              <ArrowLeft size={13} /> Armáda
+            </button>
+
+            {armies.length === 0 && (
+              <div style={{ fontSize: 12.5, color: "var(--muted)", background: "var(--field-bg)", border: "1px dashed var(--field-border)", borderRadius: 8, padding: "12px 14px" }}>
+                Zatím nemáš žádnou uloženou armádu. Nahraj ji v Knihovně (Nahrát novou armádu z New Recruit), nebo ji ulož v „Moje armády“.
+                <div style={{ marginTop: 8 }}>
+                  <button onClick={() => setView("library")} style={{ border: "1px solid var(--accent)", background: "transparent", color: "var(--accent-text)", borderRadius: 6, padding: "5px 10px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                    Otevřít knihovnu
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {army && (
+              <>
+                <select
+                  value={army.id}
+                  onChange={(e) => {
+                    setArmyViewId(e.target.value);
+                    setArmyOppId("");
+                  }}
+                  className="wh40k-select"
+                  style={{ width: "100%", background: "var(--field-bg)", color: "var(--text)", border: "1px solid var(--field-border)", borderRadius: 8, padding: "9px 10px", fontSize: 14, fontWeight: 700, marginBottom: 6 }}
+                >
+                  {armies.map((a) => (
+                    <option key={a.id} value={a.id}>{a.name} ({a.unitIds.length})</option>
+                  ))}
+                </select>
+                <div style={{ fontSize: 11.5, color: "var(--muted)", marginBottom: 12 }}>
+                  {factions.join(", ") || "bez frakce"} · {tot.units} jednotek · {tot.models} modelů · {tot.pts} bodů
+                </div>
+
+                <div style={{ fontSize: 11, fontWeight: 700, color: "var(--label)", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 8 }}>Statistiky</div>
+                <div style={{ background: "var(--panel)", border: "1px solid var(--field-border)", borderRadius: 10, padding: 10, marginBottom: 14 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 8, marginBottom: 10 }}>
+                    {[
+                      ["Body", tot.pts],
+                      ["Modely", tot.models],
+                      ["Celkem ran", fmt(tot.wounds)],
+                      ["Prům. T", tot.models ? fmt(tot.tw / tot.models) : "-"],
+                      ["Vozidla / monstra", `${tot.vehicle} / ${tot.monster}`],
+                      ["Postavy", tot.character],
+                    ].map(([k, v]) => (
+                      <div key={k} style={{ background: "var(--field-bg)", borderRadius: 8, padding: "6px 8px" }}>
+                        <div style={{ fontSize: 9.5, color: "var(--muted)", fontWeight: 700, textTransform: "uppercase" }}>{k}</div>
+                        <div style={{ fontSize: 15, fontWeight: 700, fontFamily: "var(--mono)", color: "var(--accent-text)" }}>{v}</div>
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{ fontSize: 9.5, color: "var(--muted)", fontWeight: 700, textTransform: "uppercase", marginBottom: 4 }}>
+                    Očekávaný damage armády (základ, bez bonusů, vše střelba + souboj dohromady)
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 8, marginBottom: 10 }}>
+                    {REF_TARGETS.map((t, i) => (
+                      <div key={t.label} style={{ background: "var(--field-bg)", borderRadius: 8, padding: "6px 8px" }}>
+                        <div style={{ fontSize: 9.5, color: "var(--muted)", fontWeight: 700 }}>{t.label} <span style={{ fontWeight: 400 }}>{t.sub}</span></div>
+                        <div style={{ fontSize: 15, fontWeight: 700, fontFamily: "var(--mono)", color: "var(--text)" }}>{fmt(tot.dmg[i])}</div>
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{ overflowX: "auto" }}>
+                    <table style={{ borderCollapse: "collapse", width: "100%" }}>
+                      <thead>
+                        <tr>
+                          <th style={{ ...th, textAlign: "left" }}>Jednotka</th>
+                          <th style={th}>Mod.</th>
+                          <th style={th}>Body</th>
+                          <th style={th}>T</th>
+                          <th style={th}>Sv</th>
+                          <th style={th}>W</th>
+                          {REF_TARGETS.map((t) => (
+                            <th key={t.label} style={th}>{t.label}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rows.map((r) => (
+                          <tr key={r.u.id} style={{ borderTop: "1px solid var(--field-border)" }}>
+                            <td style={{ ...td, textAlign: "left", fontFamily: "inherit", whiteSpace: "normal" }}>
+                              {r.n > 1 ? `${r.n}× ` : ""}
+                              {r.u.name}
+                            </td>
+                            <td style={td}>{r.models}</td>
+                            <td style={td}>{r.pts || "-"}</td>
+                            <td style={td}>{r.u.toughness}</td>
+                            <td style={td}>{r.u.save}+</td>
+                            <td style={td}>{r.u.wounds}</td>
+                            {r.dmg.map((d, i) => (
+                              <td key={i} style={td}>{fmt(d)}</td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <div style={{ fontSize: 11, fontWeight: 700, color: "var(--label)", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 8 }}>Proti jiným armádám</div>
+                <select
+                  value={armyOppId}
+                  onChange={(e) => setArmyOppId(e.target.value)}
+                  className="wh40k-select"
+                  disabled={others.length === 0}
+                  style={{ width: "100%", background: "var(--field-bg)", color: "var(--text)", border: "1px solid var(--field-border)", borderRadius: 8, padding: "8px 10px", fontSize: 13, marginBottom: 8 }}
+                >
+                  <option value="">{others.length === 0 ? "Žádná další armáda zatím není" : "Vyber soupeře…"}</option>
+                  {others.length > 1 && <option value="__all">Všechny ostatní armády</option>}
+                  {others.map((a) => (
+                    <option key={a.id} value={a.id}>{a.name} ({a.unitIds.length})</option>
+                  ))}
+                </select>
+                <button
+                  className="wh40k-btn"
+                  onClick={() => {
+                    setCheatAttackerIds(new Set(army.unitIds));
+                    setCheatTargetIds(new Set(oppUnitIds));
+                    setView("lists");
+                  }}
+                  style={cardBtn}
+                >
+                  <Swords size={20} color="var(--accent-text)" />
+                  <span style={{ flex: 1 }}>
+                    <span style={{ display: "block", fontWeight: 800, fontSize: 13 }}>{oppUnitIds.length ? "Spočítat souboj (cheat sheet)" : "Otevřít cheat sheet s touto armádou"}</span>
+                    <span style={{ display: "block", fontSize: 11, color: "var(--muted)" }}>
+                      {oppUnitIds.length ? `${army.name} jako útočník proti ${armyOppId === "__all" ? "všem ostatním" : opp?.name}` : "Vybere ji jako útočníka, soupeře doplníš tam"}
+                    </span>
+                  </span>
+                  <ChevronRight size={16} color="var(--accent-text)" />
+                </button>
+
+                <div style={{ fontSize: 11, fontWeight: 700, color: "var(--label)", textTransform: "uppercase", letterSpacing: 0.6, margin: "14px 0 8px" }}>Herní deska</div>
+                <button
+                  className="wh40k-btn"
+                  onClick={() => {
+                    setBoardArmySel((st) => ({ ...st, mine: army.id, ...(opp ? { theirs: opp.id } : {}) }));
+                    setView("board");
+                  }}
+                  style={cardBtn}
+                >
+                  <MapIcon size={20} color="var(--accent-text)" />
+                  <span style={{ flex: 1 }}>
+                    <span style={{ display: "block", fontWeight: 800, fontSize: 13 }}>Otevřít herní desku</span>
+                    <span style={{ display: "block", fontSize: 11, color: "var(--muted)" }}>Armáda bude vybraná v „Moje jednotky“{opp ? ", soupeř u protihráče" : ""}</span>
+                  </span>
+                  <ChevronRight size={16} color="var(--accent-text)" />
+                </button>
+                <button
+                  className="wh40k-btn"
+                  onClick={() => {
+                    setBoardArmySel((st) => ({ ...st, mine: army.id, ...(opp ? { theirs: opp.id } : {}) }));
+                    addTwoArmiesToBoard(army.unitIds, opp ? opp.unitIds : []);
+                    setView("board");
+                  }}
+                  style={cardBtn}
+                >
+                  <Plus size={20} color="var(--accent-text)" />
+                  <span style={{ flex: 1 }}>
+                    <span style={{ display: "block", fontWeight: 800, fontSize: 13 }}>Rovnou rozmístit na desku</span>
+                    <span style={{ display: "block", fontSize: 11, color: "var(--muted)" }}>
+                      {opp ? "Obě armády se dají na své strany desky (po jednom tokenu na model)" : "Tvoje armáda se dá na desku (po jednom tokenu na model)"}
+                    </span>
+                  </span>
+                  <ChevronRight size={16} color="var(--accent-text)" />
+                </button>
+              </>
+            )}
+          </div>
+        );
+      })()}
 
       {/* CALCULATOR */}
       {view === "calculator" && (
@@ -11426,7 +11699,7 @@ export default function Wh40kCalculator({ session }) {
 
       {view === "board" && (
         <div className="no-print" style={{ padding: "4px 14px 16px" }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: "var(--label)", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 10 }}>Deska</div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "var(--label)", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 10 }}>Herní deska</div>
           <div style={{ fontSize: 11.5, color: "var(--muted)", marginBottom: 10, lineHeight: 1.5 }}>
             Zaškrtni jednotky z knihovny do své strany nebo strany protihráče — objeví se jako tokeny na desce (jeden na každý model), které přetáhneš na místo. Model odebereš označením (Shift+klik) a klávesou Delete.
           </div>
@@ -12865,7 +13138,7 @@ export default function Wh40kCalculator({ session }) {
         {[
           ["home", Home, "Domů"],
           ["calculator", Crosshair, "Kalkulačka"],
-          ["board", MapIcon, "Deska"],
+          ["board", MapIcon, "Herní deska"],
           ["library", SkullIcon, "Knihovna"],
           ["history", Clock, "Historie"],
           ["lists", List, "Cheat sheet"],
