@@ -2,31 +2,31 @@ import React, { useState, useEffect, useLayoutEffect, useMemo, useCallback, useR
 import {
   Lock,
   Unlock,
-  RotateCw,
+  RotateCw as LucideRotateCw,
   ZoomIn,
   ZoomOut,
-  Swords,
-  Shield,
+  Swords as LucideSwords,
+  Shield as LucideShield,
   Plus,
-  Trash2,
+  Trash2 as LucideTrash2,
   Pencil,
   ChevronDown,
   ChevronRight,
-  Save,
+  Save as LucideSave,
   Percent,
-  Upload,
-  AlertTriangle,
-  Crosshair,
-  Sword,
-  Star,
-  FolderPlus,
+  Upload as LucideUpload,
+  AlertTriangle as LucideAlertTriangle,
+  Crosshair as LucideCrosshair,
+  Sword as LucideSword,
+  Star as LucideStar,
+  FolderPlus as LucideFolderPlus,
   Menu,
-  Settings,
-  Home,
-  Search,
+  Settings as LucideSettings,
+  Home as LucideHome,
+  Search as LucideSearch,
   Folder,
-  Clock,
-  List,
+  Clock as LucideClock,
+  List as LucideList,
   ArrowLeft,
   Swords as SwordsAlt,
   Maximize2,
@@ -35,10 +35,59 @@ import {
   LayoutGrid,
   ArrowLeftRight,
   Map as MapIcon,
-  Copy,
+  Copy as LucideCopy,
 } from "lucide-react";
 import { storage } from "./lib/storage";
 import { supabase } from "./lib/supabaseClient";
+
+// Tactical look: the second design set swaps these icons for the custom icon
+// sheet (src/assets/icons); the classic look keeps the lucide line icons.
+const UiThemeContext = React.createContext("classic");
+const TACTICAL_ICON_URLS = (() => {
+  const files = import.meta.glob("./assets/icons/*.png", { eager: true, query: "?url", import: "default" });
+  const out = {};
+  Object.entries(files).forEach(([path, url]) => {
+    out[path.split("/").pop().replace(".png", "")] = url;
+  });
+  return out;
+})();
+function themedIcon(Base, key) {
+  const Themed = (props) => {
+    const theme = React.useContext(UiThemeContext);
+    const src = theme === "tactical" ? TACTICAL_ICON_URLS[key] : null;
+    if (!src) return <Base {...props} />;
+    const size = props.size || 24;
+    return (
+      <img
+        src={src}
+        alt=""
+        width={size}
+        height={size}
+        draggable={false}
+        className={props.className}
+        style={{ display: "inline-block", flexShrink: 0, objectFit: "contain", pointerEvents: "none", ...props.style }}
+      />
+    );
+  };
+  return Themed;
+}
+const Home = themedIcon(LucideHome, "home");
+const Crosshair = themedIcon(LucideCrosshair, "calculator");
+const Sword = themedIcon(LucideSword, "attacker");
+const Swords = themedIcon(LucideSwords, "compare");
+const Shield = themedIcon(LucideShield, "defender");
+const Star = themedIcon(LucideStar, "favorites");
+const List = themedIcon(LucideList, "lists");
+const Clock = themedIcon(LucideClock, "history");
+const Settings = themedIcon(LucideSettings, "settings");
+const Trash2 = themedIcon(LucideTrash2, "delete");
+const Search = themedIcon(LucideSearch, "search");
+const Save = themedIcon(LucideSave, "save");
+const AlertTriangle = themedIcon(LucideAlertTriangle, "warning");
+const Copy = themedIcon(LucideCopy, "copy");
+const FolderPlus = themedIcon(LucideFolderPlus, "saveas");
+const RotateCw = themedIcon(LucideRotateCw, "reroll");
+const Upload = themedIcon(LucideUpload, "sync");
 
 const REROLL_OPTIONS = [
   { value: "none", label: "Žádný" },
@@ -7195,6 +7244,8 @@ function SkullIcon({ size = 16, color = "currentColor", filled = false, style })
   );
 }
 
+const UnitsNavIcon = themedIcon(SkullIcon, "units");
+
 // Pure-SVG pie slice (not a CSS background) so it reliably shows up when
 // printed, regardless of the browser's "print background graphics" setting.
 function MiniPie({ frac, size = 34, color = "#1b5faa", trackColor = "#ddd" }) {
@@ -8003,7 +8054,7 @@ function ManualView({ onBack }) {
 
       <ManualSection num="08" title="Herní deska">
         <ManualP>
-          <ManualPath>Herní deska</ManualPath> — vizuální bojiště na míru. Zaškrtni jednotky z knihovny do <b>Moje jednotky</b> nebo <b>Jednotky protihráče</b> — objeví se jako tokeny (jeden na každý model), přetáhni je na místo. Nad seznamem vybereš uloženou armádu (třeba z New Recruit) — seznam se zúží na její jednotky a „Dát celou armádu na desku“ je rozmístí najednou; „Nahrát z New Recruit (JSON)“ nahraje nový export rovnou na tuhle stranu i s base sizy ze sloupce Base. Tažením modelu hýbeš celou jednotkou (tlačítko v liště přepne na jeden model, Alt při tažení přepne na opak; Shift při tažení vezme vždy jen jeden model — třeba když ho chceš nacpat za zeď). Víc modelů označíš tažením myší po prázdné desce (Shift přidává, Shift+klik na model ho přidá/odebere) — pak se všechny označené hýbou spolu. Kolečkem myši nad modelem otočíš celou jednotku (nebo označené modely, nebo jeden model — stejná pravidla jako při tažení); kolečko dolů otáčí po směru hodin, Shift = jemné kroky po 5°. Vzhled aplikace přepneš v Nastavení (ozubené kolečko → Vzhled): „Základní“ nebo „Taktický“ (sytě modrý HUD, hexagonové tokeny, texturované podložky, kompas a měřítko na desce). Desku můžeš otočit o 90° tlačítkem „Otočit“ (jen pohled, data zůstávají) a přibližovat tlačítky lupy nebo Ctrl + kolečkem (na touchpadu štípnutím) kolem kurzoru; přiblíženou desku posouváš posuvníky. Podložky jsou standardně zamčené (tlačítko „Terén zamčený“ v liště nad deskou) — táhneš jen modely, terén se nehne; odemknutím ho zase přesouváš a upravuješ. Velikost tokenu vychází z base size jednotky — přímo u jednotky v knihovně je malý rozklikávací seznam se standardními velikostmi (25 až 160mm kulaté, plus běžné oválné jako 90×52mm), není potřeba kvůli tomu otvírat celou editaci.
+          <ManualPath>Herní deska</ManualPath> — vizuální bojiště na míru. Zaškrtni jednotky z knihovny do <b>Moje jednotky</b> nebo <b>Jednotky protihráče</b> — objeví se jako tokeny (jeden na každý model), přetáhni je na místo. Nad seznamem vybereš uloženou armádu (třeba z New Recruit) — seznam se zúží na její jednotky a „Dát celou armádu na desku“ je rozmístí najednou; „Nahrát z New Recruit (JSON)“ nahraje nový export rovnou na tuhle stranu i s base sizy ze sloupce Base. Tažením modelu hýbeš celou jednotkou (tlačítko v liště přepne na jeden model, Alt při tažení přepne na opak; Shift při tažení vezme vždy jen jeden model — třeba když ho chceš nacpat za zeď). Víc modelů označíš tažením myší po prázdné desce (Shift přidává, Shift+klik na model ho přidá/odebere) — pak se všechny označené hýbou spolu. Kolečkem myši nad modelem otočíš celou jednotku (nebo označené modely, nebo jeden model — stejná pravidla jako při tažení); kolečko dolů otáčí po směru hodin, Shift = jemné kroky po 5°. Taktický vzhled má vlastní sadu ikon (domů, kalkulačka, knihovna, historie, nastavení, koš atd.). Vzhled aplikace přepneš v Nastavení (ozubené kolečko → Vzhled): „Základní“ nebo „Taktický“ (sytě modrý HUD, hexagonové tokeny, texturované podložky, kompas a měřítko na desce). Desku můžeš otočit o 90° tlačítkem „Otočit“ (jen pohled, data zůstávají) a přibližovat tlačítky lupy nebo Ctrl + kolečkem (na touchpadu štípnutím) kolem kurzoru; přiblíženou desku posouváš posuvníky. Podložky jsou standardně zamčené (tlačítko „Terén zamčený“ v liště nad deskou) — táhneš jen modely, terén se nehne; odemknutím ho zase přesouváš a upravuješ. Velikost tokenu vychází z base size jednotky — přímo u jednotky v knihovně je malý rozklikávací seznam se standardními velikostmi (25 až 160mm kulaté, plus běžné oválné jako 90×52mm), není potřeba kvůli tomu otvírat celou editaci.
         </ManualP>
         <ManualUl
           items={[
@@ -9961,6 +10012,7 @@ export default function Wh40kCalculator({ session }) {
   };
 
   return (
+    <UiThemeContext.Provider value={uiTheme}>
     <div
       className={`wh40k-shell${forceCompact ? " wh40k-compact" : ""}${uiTheme === "tactical" ? " wh40k-theme-tactical" : ""}`}
       style={{
@@ -10133,6 +10185,8 @@ export default function Wh40kCalculator({ session }) {
           box-shadow: 0 0 10px rgba(45,140,255,0.55), inset 0 0 0 1px rgba(255,255,255,0.35) !important;
           font-weight: 800;
         }
+        .wh40k-theme-tactical button[data-active="0"] > img { opacity: 0.55; }
+        .wh40k-theme-tactical button[data-active="1"] > img { filter: drop-shadow(0 0 6px rgba(80,170,255,0.8)); }
         .wh40k-theme-tactical [data-board-piece="token"][data-sel] { box-shadow: 0 0 12px 3px rgba(255,255,255,0.6) !important; }
       `}</style>
 
@@ -13154,13 +13208,14 @@ export default function Wh40kCalculator({ session }) {
           ["home", Home, "Domů"],
           ["calculator", Crosshair, "Kalkulačka"],
           ["board", MapIcon, "Herní deska"],
-          ["library", SkullIcon, "Knihovna"],
+          ["library", UnitsNavIcon, "Knihovna"],
           ["history", Clock, "Historie"],
           ["lists", List, "Cheat sheet"],
         ].map(([key, Icon, label]) => (
           <button
             key={key}
             onClick={() => setView(key)}
+            data-active={view === key ? "1" : "0"}
             style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, padding: "9px 0 10px", background: "transparent", border: "none", cursor: "pointer", color: view === key ? "var(--accent-text)" : "var(--muted)" }}
           >
             <Icon size={17} />
@@ -13212,5 +13267,6 @@ export default function Wh40kCalculator({ session }) {
         </div>
       )}
     </div>
+    </UiThemeContext.Provider>
   );
 }
