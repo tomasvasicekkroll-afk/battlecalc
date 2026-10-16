@@ -1,5 +1,9 @@
 import React, { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef, useId } from "react";
 import {
+  Users,
+  ClipboardList as LucideClipboardList,
+  BookOpen as LucideBookOpen,
+  Play,
   Lock,
   Unlock,
   RotateCw as LucideRotateCw,
@@ -88,6 +92,9 @@ const Copy = themedIcon(LucideCopy, "copy");
 const FolderPlus = themedIcon(LucideFolderPlus, "saveas");
 const RotateCw = themedIcon(LucideRotateCw, "reroll");
 const Upload = themedIcon(LucideUpload, "sync");
+const TrackIcon = themedIcon(LucideClipboardList, "track");
+const BookIcon = themedIcon(LucideBookOpen, "library");
+const AccurateIcon = themedIcon(LucideCrosshair, "accurate");
 
 const REROLL_OPTIONS = [
   { value: "none", label: "Žádný" },
@@ -7495,6 +7502,24 @@ function SkullLogo({ size = 28 }) {
   );
 }
 
+// Home page tile: icon on the left, title + subtitle, chevron on the right.
+function HomeTile({ icon: Icon, label, value, onClick }) {
+  return (
+    <button
+      onClick={onClick}
+      className="wh40k-card wh40k-btn"
+      style={{ textAlign: "left", background: "var(--panel)", border: "1px solid var(--field-border)", borderRadius: 12, padding: "14px 16px", cursor: "pointer", display: "flex", alignItems: "center", gap: 14, minWidth: 0 }}
+    >
+      <Icon size={30} color="var(--accent-text)" />
+      <span style={{ flex: 1, minWidth: 0 }}>
+        <span style={{ display: "block", fontSize: 13, fontWeight: 800, color: "var(--text)", textTransform: "uppercase", letterSpacing: 0.5 }}>{label}</span>
+        <span style={{ display: "block", fontSize: 12, color: "var(--muted)", marginTop: 2 }}>{value}</span>
+      </span>
+      <ChevronRight size={18} color="var(--accent-text)" />
+    </button>
+  );
+}
+
 function TileButton({ icon: Icon, label, value, onClick }) {
   return (
     <button onClick={onClick} className="wh40k-card wh40k-btn" style={{ textAlign: "left", background: "var(--panel)", border: "1px solid var(--field-border)", borderRadius: 12, padding: "13px 14px", cursor: "pointer", display: "flex", flexDirection: "column", gap: 8 }}>
@@ -10138,6 +10163,13 @@ export default function Wh40kCalculator({ session }) {
         }
         * { box-sizing: border-box; }
 
+        /* Home page: hero (text | 3 steps | start button) goes into one row on wide shells */
+        .wh40k-home-hero { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
+        .wh40k-home-steps { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 6px; }
+        @media (min-width: 900px) {
+          .wh40k-shell:not(.wh40k-compact) .wh40k-home-hero { grid-template-columns: minmax(0, 1.05fr) minmax(0, 2.2fr) auto; align-items: center; gap: 20px; }
+        }
+
         /* ---- "Taktický" look ------------------------------------------- */
         .wh40k-theme-tactical { font-family: 'Rajdhani', 'Inter', -apple-system, sans-serif !important; letter-spacing: 0.3px; }
         .wh40k-theme-tactical button, .wh40k-theme-tactical select, .wh40k-theme-tactical input, .wh40k-theme-tactical textarea { font-family: inherit; }
@@ -10320,50 +10352,74 @@ export default function Wh40kCalculator({ session }) {
       {/* HOME */}
       {view === "home" && (
         <div className="no-print" style={{ padding: "4px 14px 16px" }}>
-          <button onClick={startNewCalculation} className="wh40k-card wh40k-hero-card wh40k-btn" style={{ width: "100%", textAlign: "left", background: "var(--panel)", border: "1px solid var(--field-border)", borderRadius: 14, padding: 16, cursor: "pointer", marginBottom: 14 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", position: "relative" }}>
-              <div>
-                <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: 0.7, textTransform: "uppercase", color: "var(--text)" }}>Nový výpočet</div>
-                <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>Vyber útočníka a obránce</div>
+          <div
+            className="wh40k-card wh40k-hero-card"
+            style={{ background: "var(--panel)", border: "1px solid var(--accent)", borderRadius: 14, padding: 18, marginBottom: 14 }}
+          >
+            <div className="wh40k-home-hero">
+              <div style={{ position: "relative" }}>
+                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 2.2, textTransform: "uppercase", color: "var(--accent-text)" }}>Nový výpočet</div>
+                <div style={{ fontSize: 24, fontWeight: 800, color: "var(--text)", lineHeight: 1.15, margin: "8px 0 8px" }}>Vytvořte si vlastní výpočet</div>
+                <div style={{ fontSize: 12.5, color: "var(--muted)", lineHeight: 1.5 }}>
+                  Vyberte jednotky a zbraně, nastavte podmínky a zjistěte, kolik modelů protivníka zničíte.
+                </div>
               </div>
-              <ChevronRight size={18} color="var(--accent-text)" />
+              <div className="wh40k-home-steps" style={{ position: "relative" }}>
+                {[
+                  [1, Swords, "Útočník", "Vyberte svou jednotku a zbraň."],
+                  [2, AccurateIcon, "Cíl", "Vyberte jednotku, proti které útočíte."],
+                  [3, Shield, "Obránce", "Nastavte obranné parametry."],
+                ].map(([n, Icon, title, desc], i) => (
+                  <React.Fragment key={n}>
+                    {i > 0 && <ChevronRight size={16} color="var(--accent-text)" />}
+                    <button
+                      onClick={startNewCalculation}
+                      className="wh40k-btn"
+                      style={{ position: "relative", background: "var(--field-bg)", border: "1px solid var(--field-border)", borderRadius: 12, padding: "14px 8px 10px", cursor: "pointer", textAlign: "center", color: "var(--text)", minWidth: 0 }}
+                    >
+                      <span style={{ position: "absolute", left: 8, top: 8, width: 18, height: 18, borderRadius: "50%", border: "1px solid var(--accent)", background: "var(--accent-dim)", color: "var(--accent-text)", fontSize: 10, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center" }}>{n}</span>
+                      <span style={{ display: "flex", justifyContent: "center", marginBottom: 6 }}>
+                        <Icon size={34} color="var(--accent-text)" />
+                      </span>
+                      <span style={{ display: "block", fontSize: 12, fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.6 }}>{title}</span>
+                      <span style={{ display: "block", fontSize: 10.5, color: "var(--muted)", marginTop: 3, lineHeight: 1.35 }}>{desc}</span>
+                    </button>
+                  </React.Fragment>
+                ))}
+              </div>
+              <button
+                onClick={startNewCalculation}
+                className="wh40k-btn"
+                style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center", gap: 10, border: "none", background: "var(--accent)", color: "#fff", borderRadius: 10, padding: "14px 22px", fontSize: 13.5, fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.6, cursor: "pointer", boxShadow: "0 0 18px rgba(45,140,255,0.45)" }}
+              >
+                <Play size={16} fill="#fff" /> Spustit výpočet <ChevronRight size={16} />
+              </button>
             </div>
-            <div
-              style={{
-                marginTop: 14,
-                height: 88,
-                borderRadius: 10,
-                background: "radial-gradient(circle at 50% 50%, rgba(47,143,232,0.3), transparent 70%), linear-gradient(180deg, #0d1c2e, #0a141f)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-around",
-                position: "relative",
-                overflow: "hidden",
-              }}
-            >
-              <Sword size={32} color="var(--accent-text)" style={{ opacity: 0.5 }} />
-              <Crosshair size={38} color="var(--accent-text)" style={{ filter: "drop-shadow(0 0 8px rgba(47,143,232,0.7))" }} />
-              <Shield size={32} color="var(--accent-text)" style={{ opacity: 0.5 }} />
-            </div>
-          </button>
+          </div>
 
           <button
             onClick={() => setView("army")}
             className="wh40k-card wh40k-btn"
-            style={{ width: "100%", textAlign: "left", background: "var(--panel)", border: "1px solid var(--accent)", borderRadius: 14, padding: "13px 16px", cursor: "pointer", marginBottom: 14, display: "flex", alignItems: "center", gap: 12 }}
+            style={{ width: "100%", textAlign: "left", background: "var(--panel)", border: "1px solid var(--accent)", borderRadius: 14, padding: "14px 18px", cursor: "pointer", marginBottom: 14, display: "flex", alignItems: "center", gap: 16 }}
           >
-            <Shield size={26} color="var(--accent-text)" />
+            <Shield size={34} color="var(--accent-text)" />
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: 0.7, textTransform: "uppercase", color: "var(--text)" }}>Armáda</div>
-              <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 2 }}>Statistiky, souboj proti jiným armádám a herní deska</div>
+              <div style={{ fontSize: 15, fontWeight: 800, letterSpacing: 0.7, textTransform: "uppercase", color: "var(--text)" }}>Armáda</div>
+              <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>Statistiky, souboj proti jiným armádám a herní deska.</div>
             </div>
-            <div style={{ fontSize: 11, color: "var(--accent-text)", fontFamily: "var(--mono)" }}>{armies.length}×</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, border: "1px solid var(--field-border)", borderRadius: 8, padding: "7px 10px", background: "var(--field-bg)" }}>
+              <Users size={20} color="var(--accent-text)" />
+              <span style={{ textAlign: "left", lineHeight: 1.15 }}>
+                <span style={{ display: "block", fontSize: 15, fontWeight: 800, color: "var(--text)" }}>{armies.length}</span>
+                <span style={{ display: "block", fontSize: 10.5, color: "var(--muted)" }}>{armies.length === 1 ? "armáda" : armies.length >= 2 && armies.length <= 4 ? "armády" : "armád"}</span>
+              </span>
+            </div>
             <ChevronRight size={18} color="var(--accent-text)" />
           </button>
 
           <div className="wh40k-grid-2" style={{ marginBottom: 16 }}>
-            <TileButton icon={Folder} label="Moje výpočty" value={history.length + " uloženo"} onClick={() => setView("history")} />
-            <TileButton
+            <HomeTile icon={TrackIcon} label="Moje výpočty" value={history.length + " uloženo"} onClick={() => setView("history")} />
+            <HomeTile
               icon={Star}
               label="Oblíbené"
               value={favoriteUnits.length + " položek"}
@@ -10372,8 +10428,8 @@ export default function Wh40kCalculator({ session }) {
                 setLibraryTab("units");
               }}
             />
-            <TileButton
-              icon={SkullIcon}
+            <HomeTile
+              icon={BookIcon}
               label="Knihovna jednotek"
               value="Procházet jednotky"
               onClick={() => {
@@ -10381,8 +10437,8 @@ export default function Wh40kCalculator({ session }) {
                 setLibraryTab("units");
               }}
             />
-            <TileButton
-              icon={Crosshair}
+            <HomeTile
+              icon={Swords}
               label="Knihovna zbraní"
               value="Procházet zbraně"
               onClick={() => {
@@ -10392,45 +10448,50 @@ export default function Wh40kCalculator({ session }) {
             />
           </div>
 
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--label)", textTransform: "uppercase", letterSpacing: 0.6 }}>Poslední výpočty</div>
-            {history.length > 0 && (
-              <button onClick={() => setView("history")} style={{ background: "transparent", border: "none", color: "var(--accent-text)", fontSize: 11, cursor: "pointer" }}>
-                Zobrazit vše
-              </button>
+          <div style={{ background: "var(--panel)", border: "1px solid var(--field-border)", borderRadius: 12, padding: "12px 12px 8px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, padding: "0 4px" }}>
+              <Clock size={20} color="var(--accent-text)" />
+              <div style={{ flex: 1, fontSize: 14, fontWeight: 800, color: "var(--text)", textTransform: "uppercase", letterSpacing: 0.5 }}>Poslední výpočty</div>
+              {history.length > 0 && (
+                <button onClick={() => setView("history")} style={{ display: "flex", alignItems: "center", gap: 3, background: "transparent", border: "none", color: "var(--accent-text)", fontSize: 11.5, cursor: "pointer" }}>
+                  Zobrazit vše <ChevronRight size={13} />
+                </button>
+              )}
+            </div>
+            {!historyLoaded && <div style={{ fontSize: 12, color: "var(--muted)", padding: "0 4px 8px" }}>Načítám…</div>}
+            {historyLoaded && history.length === 0 && (
+              <div style={{ fontSize: 12, color: "var(--muted)", background: "var(--field-bg)", border: "1px dashed var(--field-border)", borderRadius: 8, padding: "10px 12px", marginBottom: 8 }}>
+                Zatím žádné výpočty. Klikni na „Spustit výpočet“ a vyzkoušej to.
+              </div>
             )}
-          </div>
-          {!historyLoaded && <div style={{ fontSize: 12, color: "var(--muted)" }}>Načítám…</div>}
-          {historyLoaded && history.length === 0 && (
-            <div style={{ fontSize: 12, color: "var(--muted)", background: "var(--field-bg)", border: "1px dashed var(--field-border)", borderRadius: 8, padding: "10px 12px" }}>
-              Zatím žádné výpočty. Klikni na "Nový výpočet" a vyzkoušej to.
-            </div>
-          )}
-          {history.slice(0, 3).map((h) => (
-            <div
-              key={h.id}
-              onClick={() => {
-                setExpandedHistoryId(h.id);
-                setView("history");
-              }}
-              role="button"
-              tabIndex={0}
-              className="wh40k-btn"
-              style={{ display: "flex", alignItems: "center", gap: 10, background: "var(--field-bg)", border: "1px solid var(--field-border)", borderRadius: 8, padding: "9px 10px", marginBottom: 6, cursor: "pointer" }}
-            >
-              <Swords size={15} color="var(--accent-text)" />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--text)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                  {h.attackerName} vs {h.defenderName}
+            {history.slice(0, 3).map((h) => (
+              <div
+                key={h.id}
+                onClick={() => {
+                  setExpandedHistoryId(h.id);
+                  setView("history");
+                }}
+                role="button"
+                tabIndex={0}
+                className="wh40k-btn"
+                style={{ display: "flex", alignItems: "center", gap: 12, background: "var(--field-bg)", border: "1px solid var(--field-border)", borderRadius: 8, padding: "9px 12px", marginBottom: 8, cursor: "pointer" }}
+              >
+                <Swords size={22} color="var(--accent-text)" />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    {h.attackerName} vs {h.defenderName}
+                  </div>
+                  <div style={{ fontSize: 11, color: "var(--muted)" }}>{fmtDate(h.date)}</div>
                 </div>
-                <div style={{ fontSize: 10.5, color: "var(--muted)" }}>{fmtDate(h.date)}</div>
+                <AccurateIcon size={22} color="var(--accent-text)" />
+                <div style={{ textAlign: "right", minWidth: 52 }}>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: "var(--accent-text)", fontFamily: "var(--mono)" }}>{fmt(h.killedModels)}</div>
+                  <div style={{ fontSize: 10, color: "var(--muted)" }}>modelů</div>
+                </div>
+                <ChevronRight size={16} color="var(--accent-text)" />
               </div>
-              <div style={{ textAlign: "right" }}>
-                <div style={{ fontSize: 14, fontWeight: 700, color: "var(--accent-text)", fontFamily: "var(--mono)" }}>{fmt(h.killedModels)}</div>
-                <div style={{ fontSize: 9, color: "var(--muted)" }}>modelů</div>
-              </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
       )}
 
