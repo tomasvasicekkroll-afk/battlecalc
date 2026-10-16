@@ -7463,40 +7463,41 @@ function boardPctFromPointer(el, e) {
 }
 
 // ---- Fire lines (line of sight on the board) ----------------------------------------------
-// Terrain that blocks sight, as oriented rectangles in board inches: the coloured
-// wall parts of the plates, the solid part of a combo piece, and plain ruin/wall
-// blocks. Plate backgrounds, objective markers, craters etc. don't block.
+// Terrain that blocks sight: every plate / ruin is solid across its whole
+// footprint (an oriented rectangle in board inches) - you can shoot through it
+// only when your model (or the target) stands on it. Objective markers, craters
+// and forests don't block.
 function sightBlockers(terrain, W, H, shapeOf) {
   const out = [];
   (terrain || []).forEach((p) => {
     const shape = shapeOf(p);
     if (!shape || p.freehand) return;
-    if (String(shape.id || "").startsWith("obj-")) return;
+    const id = String(shape.id || "");
+    if (id.startsWith("obj-")) return;
+    if (/crater|forest/i.test(id) || /kráter|les$/i.test(String(shape.label || ""))) return;
     const w = p.widthIn || shape.widthIn;
     const h = p.heightIn || shape.heightIn;
     if (!w || !h) return;
-    const cx = (p.xPct / 100) * W;
-    const cy = (p.yPct / 100) * H;
-    const ang = ((p.rotationDeg || 0) * Math.PI) / 180;
-    const cos = Math.cos(ang);
-    const sin = Math.sin(ang);
-    const add = (ox, oy, hw, hh, extra = 0) =>
-      out.push({ cx: cx + ox * cos - oy * sin, cy: cy + ox * sin + oy * cos, ang: ang + extra, hw, hh });
-    if (shape.multiCombo && shape.parts) {
-      shape.parts.forEach((pt) => {
-        const pw = (pt.widthPct / 100) * w;
-        const ph = (pt.heightPct / 100) * h;
-        const ox = (pt.leftPct / 100 - 0.5) * w + pw / 2;
-        const oy = (pt.topPct / 100 - 0.5) * h + ph / 2;
-        add(ox, oy, Math.max(pw, 0.3) / 2, Math.max(ph, 0.3) / 2, ((pt.rotationDeg || 0) * Math.PI) / 180);
-      });
-    } else if (shape.combo) {
-      add(0, 0, ((shape.terrainWidthIn / shape.widthIn) * w) / 2, ((shape.terrainHeightIn / shape.heightIn) * h) / 2);
-    } else if (/ruin|zed|wall|container|kontejner/i.test(String(shape.id || "")) || /ruina|zeď|kontejner/i.test(String(shape.label || ""))) {
-      add(0, 0, w / 2, h / 2);
-    }
+    out.push({
+      cx: (p.xPct / 100) * W,
+      cy: (p.yPct / 100) * H,
+      ang: ((p.rotationDeg || 0) * Math.PI) / 180,
+      hw: w / 2,
+      hh: h / 2,
+    });
   });
   return out;
+}
+
+// Is a point (a model's centre) standing on this plate?
+function pointOnBlocker(x, y, b) {
+  const cos = Math.cos(b.ang);
+  const sin = Math.sin(b.ang);
+  const dx = x - b.cx;
+  const dy = y - b.cy;
+  const lx = dx * cos + dy * sin;
+  const ly = -dx * sin + dy * cos;
+  return Math.abs(lx) <= b.hw && Math.abs(ly) <= b.hh;
 }
 
 // Does the segment (x1,y1)-(x2,y2) cross this rotated rectangle? (Liang-Barsky in its own frame.)
@@ -7532,7 +7533,8 @@ function segmentHitsBlocker(x1, y1, x2, y2, b) {
 
 // Can model a see model b? Any of 3x3 sample rays between the two bases that
 // no blocker cuts counts as a clear line of sight.
-function modelsSeeEachOther(a, b, blockers) {
+function modelsSeeEachOther(a, b, allBlockers) {
+  const blockers = allBlockers.filter((bk) => !pointOnBlocker(a.x, a.y, bk) && !pointOnBlocker(b.x, b.y, bk));
   const dx = b.x - a.x;
   const dy = b.y - a.y;
   const d = Math.hypot(dx, dy) || 1;
@@ -8235,7 +8237,7 @@ function ManualView({ onBack }) {
 
       <ManualSection num="08" title="Herní deska">
         <ManualP>
-          <ManualPath>Herní deska</ManualPath> — vizuální bojiště na míru. Zaškrtni jednotky z knihovny do <b>Moje jednotky</b> nebo <b>Jednotky protihráče</b> — objeví se jako tokeny (jeden na každý model), přetáhni je na místo. Nad seznamem vybereš uloženou armádu (třeba z New Recruit) — seznam se zúží na její jednotky a „Dát celou armádu na desku“ je rozmístí najednou; „Nahrát z New Recruit (JSON)“ nahraje nový export rovnou na tuhle stranu i s base sizy ze sloupce Base. Tažením modelu hýbeš celou jednotkou (tlačítko v liště přepne na jeden model, Alt při tažení přepne na opak; Shift při tažení vezme vždy jen jeden model — třeba když ho chceš nacpat za zeď). Víc modelů označíš tažením myší po prázdné desce (Shift přidává, Shift+klik na model ho přidá/odebere) — pak se všechny označené hýbou spolu. Kolečkem myši nad modelem otočíš celou jednotku (nebo označené modely, nebo jeden model — stejná pravidla jako při tažení); kolečko dolů otáčí po směru hodin, Shift = jemné kroky po 5°. Taktický vzhled má vlastní sadu ikon (domů, kalkulačka, knihovna, historie, nastavení, koš atd.). Vzhled aplikace přepneš v Nastavení (ozubené kolečko → Vzhled): „Základní“ nebo „Taktický“ (sytě modrý HUD, hexagonové tokeny, texturované podložky, kompas a měřítko na desce). Tlačítko „Linie palby“ ukazuje, na koho vidí jednotka, kterou táhneš (nebo kterou vybereš klikem jako útočníka): zelená čára = vidí a vzdálenost v palcích, červená přerušovaná = zakryto terénem; kroužky kolem nepřátelských modelů jsou zelené (vidím) nebo červené (nevidím). Zakrývají zdi podložek (barevné rohy) a plné ruiny, ne samotná podložka. Desku můžeš otočit o 90° tlačítkem „Otočit“ (jen pohled, data zůstávají) a přibližovat tlačítky lupy nebo Ctrl + kolečkem (na touchpadu štípnutím) kolem kurzoru; přiblíženou desku posouváš posuvníky. Podložky jsou standardně zamčené (tlačítko „Terén zamčený“ v liště nad deskou) — táhneš jen modely, terén se nehne; odemknutím ho zase přesouváš a upravuješ. Velikost tokenu vychází z base size jednotky — přímo u jednotky v knihovně je malý rozklikávací seznam se standardními velikostmi (25 až 160mm kulaté, plus běžné oválné jako 90×52mm), není potřeba kvůli tomu otvírat celou editaci.
+          <ManualPath>Herní deska</ManualPath> — vizuální bojiště na míru. Zaškrtni jednotky z knihovny do <b>Moje jednotky</b> nebo <b>Jednotky protihráče</b> — objeví se jako tokeny (jeden na každý model), přetáhni je na místo. Nad seznamem vybereš uloženou armádu (třeba z New Recruit) — seznam se zúží na její jednotky a „Dát celou armádu na desku“ je rozmístí najednou; „Nahrát z New Recruit (JSON)“ nahraje nový export rovnou na tuhle stranu i s base sizy ze sloupce Base. Tažením modelu hýbeš celou jednotkou (tlačítko v liště přepne na jeden model, Alt při tažení přepne na opak; Shift při tažení vezme vždy jen jeden model — třeba když ho chceš nacpat za zeď). Víc modelů označíš tažením myší po prázdné desce (Shift přidává, Shift+klik na model ho přidá/odebere) — pak se všechny označené hýbou spolu. Kolečkem myši nad modelem otočíš celou jednotku (nebo označené modely, nebo jeden model — stejná pravidla jako při tažení); kolečko dolů otáčí po směru hodin, Shift = jemné kroky po 5°. Taktický vzhled má vlastní sadu ikon (domů, kalkulačka, knihovna, historie, nastavení, koš atd.). Vzhled aplikace přepneš v Nastavení (ozubené kolečko → Vzhled): „Základní“ nebo „Taktický“ (sytě modrý HUD, hexagonové tokeny, texturované podložky, kompas a měřítko na desce). Tlačítko „Linie palby“ ukazuje, na koho vidí jednotka, kterou táhneš (nebo kterou vybereš klikem jako útočníka): zelená čára = vidí a vzdálenost v palcích, červená přerušovaná = zakryto; kroužky kolem nepřátelských modelů jsou zelené (vidím) nebo červené (nevidím). Každá podložka zakrývá celou svou plochou; skrz ni se dá střílet jen tehdy, když na ní stojí střelec (nebo cíl). Desku můžeš otočit o 90° tlačítkem „Otočit“ (jen pohled, data zůstávají) a přibližovat tlačítky lupy nebo Ctrl + kolečkem (na touchpadu štípnutím) kolem kurzoru; přiblíženou desku posouváš posuvníky. Podložky jsou standardně zamčené (tlačítko „Terén zamčený“ v liště nad deskou) — táhneš jen modely, terén se nehne; odemknutím ho zase přesouváš a upravuješ. Velikost tokenu vychází z base size jednotky — přímo u jednotky v knihovně je malý rozklikávací seznam se standardními velikostmi (25 až 160mm kulaté, plus běžné oválné jako 90×52mm), není potřeba kvůli tomu otvírat celou editaci.
         </ManualP>
         <ManualUl
           items={[
@@ -12952,7 +12954,7 @@ export default function Wh40kCalculator({ session }) {
             </button>
             <button
               onClick={toggleFireLine}
-              title="Linie palby: při tažení jednotky (nebo když ji vybereš klikem jako útočníka) ukáže, na koho vidí. Zelená = vidí, červená přerušovaná = zakryto terénem (zdi podložek). U čáry je vzdálenost v palcích."
+              title="Linie palby: při tažení jednotky (nebo když ji vybereš klikem jako útočníka) ukáže, na koho vidí. Zelená = vidí, červená přerušovaná = zakryto podložkou. Skrz podložku jde střílet jen tehdy, když na ní stojí střelec (nebo cíl). U čáry je vzdálenost v palcích."
               style={{
                 display: "flex",
                 alignItems: "center",
