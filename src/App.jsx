@@ -4175,6 +4175,15 @@ const HULL_FOOTPRINTS = [
   [/leman russ|basilisk|hellhound|manticore|deathstrike|chimera|taurox/i, "hull:130x90"],
   [/predator|whirlwind|vindicator|hunter|stalker/i, "hull:115x70"],
 ];
+// A vehicle still on the default 32 mm round base was imported before hulls
+// were understood (New Recruit says "Hull") - give it its hull footprint.
+// Vehicles with a real base (Dreadnoughts etc.) keep what the export said.
+function withHullBaseForVehicle(u) {
+  if (u && u.keywords && u.keywords.vehicle && String(u.baseSize || "32") === "32") {
+    return { ...u, baseSize: hullBaseFor(String(u.name || "").replace(/ \(vede.*$/, "")) };
+  }
+  return u;
+}
 function hullBaseFor(name) {
   const n = String(name || "");
   const hit = HULL_FOOTPRINTS.find(([re]) => re.test(n));
@@ -8249,7 +8258,7 @@ export default function Wh40kCalculator({ session }) {
     (async () => {
       try {
         const res = await withTimeout(storage.get("library_v2", false));
-        if (res && res.value) setLibrary(JSON.parse(res.value));
+        if (res && res.value) setLibrary(JSON.parse(res.value).map(withHullBaseForVehicle));
       } catch (e) {
         // nothing saved yet, or the request stalled — either way, don't
         // block the UI on it forever
@@ -9175,6 +9184,12 @@ export default function Wh40kCalculator({ session }) {
       if (b && String(x.baseSize || "32") === "32") {
         baseUpdated += 1;
         next = { ...next, baseSize: b };
+      } else if (!b) {
+        const fixed = withHullBaseForVehicle(next);
+        if (fixed !== next) {
+          baseUpdated += 1;
+          next = fixed;
+        }
       }
       const mc = modelsFromImport.get(x.id);
       if (mc && !(x.modelCount > 0)) {
