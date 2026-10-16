@@ -10274,7 +10274,7 @@ export default function Wh40kCalculator({ session }) {
         transition: "width 0.15s ease",
         border: "1px solid #16233a",
         overflow: "hidden",
-        paddingBottom: 68,
+        paddingBottom: 8,
         position: "relative",
       }}
     >
@@ -10550,6 +10550,28 @@ export default function Wh40kCalculator({ session }) {
             </button>
           </div>
         )}
+      </div>
+
+      {/* MAIN NAV (under the top bar) */}
+      <div className="no-print" style={{ display: "flex", borderTop: "1px solid var(--field-border)", borderBottom: "1px solid var(--field-border)", background: "rgba(8,14,23,0.97)", backdropFilter: "blur(8px)" }}>
+        {[
+          ["home", Home, "Domů"],
+          ["calculator", Crosshair, "Kalkulačka"],
+          ["board", MapIcon, "Herní deska"],
+          ["library", UnitsNavIcon, "Knihovna"],
+          ["history", Clock, "Historie"],
+          ["lists", List, "Cheat sheet"],
+        ].map(([key, Icon, label]) => (
+          <button
+            key={key}
+            onClick={() => setView(key)}
+            data-active={view === key ? "1" : "0"}
+            style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4, padding: "8px 0 8px", background: "transparent", border: "none", cursor: "pointer", color: view === key ? "var(--accent-text)" : "var(--muted)" }}
+          >
+            <Icon size={34} />
+            <span style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.3 }}>{label}</span>
+          </button>
+        ))}
       </div>
 
       {/* HOME */}
@@ -13534,28 +13556,6 @@ export default function Wh40kCalculator({ session }) {
           </div>
         </div>
       )}
-
-      {/* BOTTOM NAV */}
-      <div className="no-print" style={{ position: "absolute", bottom: 0, left: 0, right: 0, display: "flex", borderTop: "1px solid var(--field-border)", background: "rgba(8,14,23,0.97)", backdropFilter: "blur(8px)" }}>
-        {[
-          ["home", Home, "Domů"],
-          ["calculator", Crosshair, "Kalkulačka"],
-          ["board", MapIcon, "Herní deska"],
-          ["library", UnitsNavIcon, "Knihovna"],
-          ["history", Clock, "Historie"],
-          ["lists", List, "Cheat sheet"],
-        ].map(([key, Icon, label]) => (
-          <button
-            key={key}
-            onClick={() => setView(key)}
-            data-active={view === key ? "1" : "0"}
-            style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, padding: "9px 0 10px", background: "transparent", border: "none", cursor: "pointer", color: view === key ? "var(--accent-text)" : "var(--muted)" }}
-          >
-            <Icon size={17} />
-            <span style={{ fontSize: 8.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.3 }}>{label}</span>
-          </button>
-        ))}
-      </div>
 
       {/* Custom confirm/alert dialogs — replace window.confirm/alert, which can be
           unreliable inside a sandboxed artifact iframe. */}
