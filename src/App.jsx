@@ -7462,6 +7462,162 @@ function boardPctFromPointer(el, e) {
   return { x: x * 100, y: y * 100 };
 }
 
+// ---- Fire lines (line of sight on the board) ----------------------------------------------
+// Terrain that blocks sight, as oriented rectangles in board inches: the coloured
+// wall parts of the plates, the solid part of a combo piece, and plain ruin/wall
+// blocks. Plate backgrounds, objective markers, craters etc. don't block.
+function sightBlockers(terrain, W, H, shapeOf) {
+  const out = [];
+  (terrain || []).forEach((p) => {
+    const shape = shapeOf(p);
+    if (!shape || p.freehand) return;
+    if (String(shape.id || "").startsWith("obj-")) return;
+    const w = p.widthIn || shape.widthIn;
+    const h = p.heightIn || shape.heightIn;
+    if (!w || !h) return;
+    const cx = (p.xPct / 100) * W;
+    const cy = (p.yPct / 100) * H;
+    const ang = ((p.rotationDeg || 0) * Math.PI) / 180;
+    const cos = Math.cos(ang);
+    const sin = Math.sin(ang);
+    const add = (ox, oy, hw, hh, extra = 0) =>
+      out.push({ cx: cx + ox * cos - oy * sin, cy: cy + ox * sin + oy * cos, ang: ang + extra, hw, hh });
+    if (shape.multiCombo && shape.parts) {
+      shape.parts.forEach((pt) => {
+        const pw = (pt.widthPct / 100) * w;
+        const ph = (pt.heightPct / 100) * h;
+        const ox = (pt.leftPct / 100 - 0.5) * w + pw / 2;
+        const oy = (pt.topPct / 100 - 0.5) * h + ph / 2;
+        add(ox, oy, Math.max(pw, 0.3) / 2, Math.max(ph, 0.3) / 2, ((pt.rotationDeg || 0) * Math.PI) / 180);
+      });
+    } else if (shape.combo) {
+      add(0, 0, ((shape.terrainWidthIn / shape.widthIn) * w) / 2, ((shape.terrainHeightIn / shape.heightIn) * h) / 2);
+    } else if (/ruin|zed|wall|container|kontejner/i.test(String(shape.id || "")) || /ruina|zeď|kontejner/i.test(String(shape.label || ""))) {
+      add(0, 0, w / 2, h / 2);
+    }
+  });
+  return out;
+}
+
+// Does the segment (x1,y1)-(x2,y2) cross this rotated rectangle? (Liang-Barsky in its own frame.)
+function segmentHitsBlocker(x1, y1, x2, y2, b) {
+  const cos = Math.cos(b.ang);
+  const sin = Math.sin(b.ang);
+  const ax = x1 - b.cx;
+  const ay = y1 - b.cy;
+  const bx = x2 - b.cx;
+  const by = y2 - b.cy;
+  const lx1 = ax * cos + ay * sin;
+  const ly1 = -ax * sin + ay * cos;
+  const lx2 = bx * cos + by * sin;
+  const ly2 = -bx * sin + by * cos;
+  let t0 = 0;
+  let t1 = 1;
+  const dx = lx2 - lx1;
+  const dy = ly2 - ly1;
+  const clip = (pp, qq) => {
+    if (pp === 0) return qq >= 0;
+    const r = qq / pp;
+    if (pp < 0) {
+      if (r > t1) return false;
+      if (r > t0) t0 = r;
+    } else {
+      if (r < t0) return false;
+      if (r < t1) t1 = r;
+    }
+    return true;
+  };
+  return clip(-dx, lx1 + b.hw) && clip(dx, b.hw - lx1) && clip(-dy, ly1 + b.hh) && clip(dy, b.hh - ly1);
+}
+
+// Can model a see model b? Any of 3x3 sample rays between the two bases that
+// no blocker cuts counts as a clear line of sight.
+function modelsSeeEachOther(a, b, blockers) {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const d = Math.hypot(dx, dy) || 1;
+  const nx = -dy / d;
+  const ny = dx / d;
+  const offs = [0, 0.85, -0.85];
+  for (const oa of offs) {
+    for (const ob of offs) {
+      const x1 = a.x + nx * a.r * oa;
+      const y1 = a.y + ny * a.r * oa;
+      const x2 = b.x + nx * b.r * ob;
+      const y2 = b.y + ny * b.r * ob;
+      let blocked = false;
+      for (let i = 0; i < blockers.length; i++) {
+        if (segmentHitsBlocker(x1, y1, x2, y2, blockers[i])) {
+          blocked = true;
+          break;
+        }
+      }
+      if (!blocked) return true;
+    }
+  }
+  return false;
+}
+
+// Lines from the active group to every enemy unit (closest visible pair, or the
+// closest pair in red when nothing sees anything) + a ring on each enemy model.
+function computeFireLines({ tokens, terrain, W, H, groupIds, libById, shapeOf }) {
+  const group = tokens.filter((t) => groupIds.includes(t.id));
+  if (group.length === 0) return null;
+  const side = group[0].side;
+  const radiusOf = (t) => {
+    const u = libById.get(t.unitId);
+    const bm = parseBaseSizeMm(u ? u.baseSize : 32);
+    return (bm.w + bm.h) / 4 / 25.4;
+  };
+  const pos = (t) => ({ x: (t.xPct / 100) * W, y: (t.yPct / 100) * H, r: radiusOf(t) });
+  const blockers = sightBlockers(terrain, W, H, shapeOf);
+  const G = group.map(pos);
+  const units = new Map();
+  tokens
+    .filter((t) => t.side !== side)
+    .forEach((e) => {
+      const k = `${e.unitId}|${e.inst || 0}`;
+      if (!units.has(k)) units.set(k, []);
+      units.get(k).push(e);
+    });
+  const rings = [];
+  const lines = [];
+  units.forEach((members) => {
+    let bestVis = null;
+    let bestAny = null;
+    members.forEach((e) => {
+      const pe = pos(e);
+      const byDist = G.map((pg) => ({ pg, d: Math.max(0, Math.hypot(pe.x - pg.x, pe.y - pg.y) - pg.r - pe.r) })).sort((p1, p2) => p1.d - p2.d);
+      if (!bestAny || byDist[0].d < bestAny.d) bestAny = { a: byDist[0].pg, b: pe, d: byDist[0].d };
+      let visible = false;
+      for (const { pg, d } of byDist) {
+        if (modelsSeeEachOther(pg, pe, blockers)) {
+          visible = true;
+          if (!bestVis || d < bestVis.d) bestVis = { a: pg, b: pe, d };
+          break;
+        }
+      }
+      rings.push({ x: pe.x, y: pe.y, r: pe.r, visible });
+    });
+    const pick = bestVis || bestAny;
+    if (!pick) return;
+    const dx = pick.b.x - pick.a.x;
+    const dy = pick.b.y - pick.a.y;
+    const dist = Math.hypot(dx, dy) || 1;
+    const ux = dx / dist;
+    const uy = dy / dist;
+    lines.push({
+      x1: pick.a.x + ux * pick.a.r,
+      y1: pick.a.y + uy * pick.a.r,
+      x2: pick.b.x - ux * pick.b.r,
+      y2: pick.b.y - uy * pick.b.r,
+      d: pick.d,
+      visible: !!bestVis,
+    });
+  });
+  return { lines, rings };
+}
+
 // Second visual set ("Taktický"): same layout, a different skin - saturated
 // blue HUD colours, glowing panel edges, textured plates, hex tokens, compass
 // and scale on the board. The classic look stays the default.
@@ -8079,7 +8235,7 @@ function ManualView({ onBack }) {
 
       <ManualSection num="08" title="Herní deska">
         <ManualP>
-          <ManualPath>Herní deska</ManualPath> — vizuální bojiště na míru. Zaškrtni jednotky z knihovny do <b>Moje jednotky</b> nebo <b>Jednotky protihráče</b> — objeví se jako tokeny (jeden na každý model), přetáhni je na místo. Nad seznamem vybereš uloženou armádu (třeba z New Recruit) — seznam se zúží na její jednotky a „Dát celou armádu na desku“ je rozmístí najednou; „Nahrát z New Recruit (JSON)“ nahraje nový export rovnou na tuhle stranu i s base sizy ze sloupce Base. Tažením modelu hýbeš celou jednotkou (tlačítko v liště přepne na jeden model, Alt při tažení přepne na opak; Shift při tažení vezme vždy jen jeden model — třeba když ho chceš nacpat za zeď). Víc modelů označíš tažením myší po prázdné desce (Shift přidává, Shift+klik na model ho přidá/odebere) — pak se všechny označené hýbou spolu. Kolečkem myši nad modelem otočíš celou jednotku (nebo označené modely, nebo jeden model — stejná pravidla jako při tažení); kolečko dolů otáčí po směru hodin, Shift = jemné kroky po 5°. Taktický vzhled má vlastní sadu ikon (domů, kalkulačka, knihovna, historie, nastavení, koš atd.). Vzhled aplikace přepneš v Nastavení (ozubené kolečko → Vzhled): „Základní“ nebo „Taktický“ (sytě modrý HUD, hexagonové tokeny, texturované podložky, kompas a měřítko na desce). Desku můžeš otočit o 90° tlačítkem „Otočit“ (jen pohled, data zůstávají) a přibližovat tlačítky lupy nebo Ctrl + kolečkem (na touchpadu štípnutím) kolem kurzoru; přiblíženou desku posouváš posuvníky. Podložky jsou standardně zamčené (tlačítko „Terén zamčený“ v liště nad deskou) — táhneš jen modely, terén se nehne; odemknutím ho zase přesouváš a upravuješ. Velikost tokenu vychází z base size jednotky — přímo u jednotky v knihovně je malý rozklikávací seznam se standardními velikostmi (25 až 160mm kulaté, plus běžné oválné jako 90×52mm), není potřeba kvůli tomu otvírat celou editaci.
+          <ManualPath>Herní deska</ManualPath> — vizuální bojiště na míru. Zaškrtni jednotky z knihovny do <b>Moje jednotky</b> nebo <b>Jednotky protihráče</b> — objeví se jako tokeny (jeden na každý model), přetáhni je na místo. Nad seznamem vybereš uloženou armádu (třeba z New Recruit) — seznam se zúží na její jednotky a „Dát celou armádu na desku“ je rozmístí najednou; „Nahrát z New Recruit (JSON)“ nahraje nový export rovnou na tuhle stranu i s base sizy ze sloupce Base. Tažením modelu hýbeš celou jednotkou (tlačítko v liště přepne na jeden model, Alt při tažení přepne na opak; Shift při tažení vezme vždy jen jeden model — třeba když ho chceš nacpat za zeď). Víc modelů označíš tažením myší po prázdné desce (Shift přidává, Shift+klik na model ho přidá/odebere) — pak se všechny označené hýbou spolu. Kolečkem myši nad modelem otočíš celou jednotku (nebo označené modely, nebo jeden model — stejná pravidla jako při tažení); kolečko dolů otáčí po směru hodin, Shift = jemné kroky po 5°. Taktický vzhled má vlastní sadu ikon (domů, kalkulačka, knihovna, historie, nastavení, koš atd.). Vzhled aplikace přepneš v Nastavení (ozubené kolečko → Vzhled): „Základní“ nebo „Taktický“ (sytě modrý HUD, hexagonové tokeny, texturované podložky, kompas a měřítko na desce). Tlačítko „Linie palby“ ukazuje, na koho vidí jednotka, kterou táhneš (nebo kterou vybereš klikem jako útočníka): zelená čára = vidí a vzdálenost v palcích, červená přerušovaná = zakryto terénem; kroužky kolem nepřátelských modelů jsou zelené (vidím) nebo červené (nevidím). Zakrývají zdi podložek (barevné rohy) a plné ruiny, ne samotná podložka. Desku můžeš otočit o 90° tlačítkem „Otočit“ (jen pohled, data zůstávají) a přibližovat tlačítky lupy nebo Ctrl + kolečkem (na touchpadu štípnutím) kolem kurzoru; přiblíženou desku posouváš posuvníky. Podložky jsou standardně zamčené (tlačítko „Terén zamčený“ v liště nad deskou) — táhneš jen modely, terén se nehne; odemknutím ho zase přesouváš a upravuješ. Velikost tokenu vychází z base size jednotky — přímo u jednotky v knihovně je malý rozklikávací seznam se standardními velikostmi (25 až 160mm kulaté, plus běžné oválné jako 90×52mm), není potřeba kvůli tomu otvírat celou editaci.
         </ManualP>
         <ManualUl
           items={[
@@ -8664,6 +8820,10 @@ export default function Wh40kCalculator({ session }) {
     } else {
       dragGroupRef.current = [token.id];
     }
+    setDragIds(dragGroupRef.current);
+    const clearDrag = () => setDragIds([]);
+    window.addEventListener("pointerup", clearDrag, { once: true });
+    window.addEventListener("pointercancel", clearDrag, { once: true });
   };
   // The grabbed token follows the cursor; everything else in the group keeps
   // its offset to it (the shift is clamped so nobody leaves the board).
@@ -9471,6 +9631,25 @@ export default function Wh40kCalculator({ session }) {
       /* storage blocked - the rotation still applies for this session */
     }
   };
+  // Fire lines: while a unit is dragged (or picked as the attacker) draw its line
+  // of sight to the enemy units, blocked by wall parts of the terrain.
+  const [fireLineOn, setFireLineOn] = useState(() => {
+    try {
+      return localStorage.getItem("board_fireline_v1") === "1";
+    } catch (e) {
+      return false;
+    }
+  });
+  const toggleFireLine = () => {
+    const next = !fireLineOn;
+    setFireLineOn(next);
+    try {
+      localStorage.setItem("board_fireline_v1", next ? "1" : "0");
+    } catch (e) {
+      /* storage blocked - the toggle still works for this session */
+    }
+  };
+  const [dragIds, setDragIds] = useState([]);
   const [boardZoom, setBoardZoom] = useState(1);
   const boardScrollRef = useRef(null);
   const boardSizedRef = useRef(null);
@@ -10011,6 +10190,25 @@ export default function Wh40kCalculator({ session }) {
     const time = d.toLocaleTimeString("cs-CZ", { hour: "2-digit", minute: "2-digit" });
     return isToday ? `Dnes, ${time}` : `${d.toLocaleDateString("cs-CZ")}, ${time}`;
   };
+
+  const fireData = useMemo(() => {
+    if (!fireLineOn || view !== "board") return null;
+    let ids = dragIds;
+    if (ids.length === 0 && boardAttackerTokenId) {
+      const at = board.tokens.find((t) => t.id === boardAttackerTokenId);
+      if (at) ids = board.tokens.filter((t) => t.side === at.side && t.unitId === at.unitId && (t.inst || 0) === (at.inst || 0)).map((t) => t.id);
+    }
+    if (ids.length === 0) return null;
+    return computeFireLines({
+      tokens: board.tokens,
+      terrain: board.terrain,
+      W: board.widthIn,
+      H: board.heightIn,
+      groupIds: ids,
+      libById: new Map(library.map((u) => [u.id, u])),
+      shapeOf: pieceShape,
+    });
+  }, [fireLineOn, view, dragIds, boardAttackerTokenId, board.tokens, board.terrain, board.widthIn, board.heightIn, library]);
 
   const tabBtnStyle = (active) => ({
     flex: 1,
@@ -12753,6 +12951,25 @@ export default function Wh40kCalculator({ session }) {
               {moveWholeUnit ? "Táhne celá jednotka" : "Táhne jeden model"}
             </button>
             <button
+              onClick={toggleFireLine}
+              title="Linie palby: při tažení jednotky (nebo když ji vybereš klikem jako útočníka) ukáže, na koho vidí. Zelená = vidí, červená přerušovaná = zakryto terénem (zdi podložek). U čáry je vzdálenost v palcích."
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 5,
+                border: `1px solid ${fireLineOn ? "var(--accent)" : "var(--field-border)"}`,
+                background: fireLineOn ? "var(--accent-dim)" : "transparent",
+                color: fireLineOn ? "var(--accent-text)" : "var(--muted)",
+                borderRadius: 6,
+                padding: "5px 8px",
+                fontSize: 11,
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+            >
+              <Crosshair size={13} /> Linie palby
+            </button>
+            <button
               onClick={rotateBoardView}
               title="Otočit pohled na desku o 90° (jen vzhled, data se nemění)"
               style={{ display: "flex", alignItems: "center", gap: 5, border: "1px solid var(--field-border)", background: "transparent", color: "var(--text)", borderRadius: 6, padding: "5px 8px", fontSize: 11, fontWeight: 600, cursor: "pointer" }}
@@ -13050,6 +13267,56 @@ export default function Wh40kCalculator({ session }) {
                 />
               );
             })}
+            {fireData && (
+              <svg
+                viewBox={`0 0 ${board.widthIn} ${board.heightIn}`}
+                preserveAspectRatio="none"
+                style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none", zIndex: 4 }}
+              >
+                {fireData.rings.map((rg, i) => (
+                  <circle
+                    key={`r${i}`}
+                    cx={rg.x}
+                    cy={rg.y}
+                    r={rg.r + 0.25}
+                    fill="none"
+                    stroke={rg.visible ? "#3ddc84" : "#ff5a4d"}
+                    strokeWidth={0.12}
+                    opacity={rg.visible ? 0.95 : 0.7}
+                  />
+                ))}
+                {fireData.lines.map((ln, i) => (
+                  <g key={`l${i}`}>
+                    <line
+                      x1={ln.x1}
+                      y1={ln.y1}
+                      x2={ln.x2}
+                      y2={ln.y2}
+                      stroke={ln.visible ? "#3ddc84" : "#ff5a4d"}
+                      strokeWidth={0.16}
+                      strokeDasharray={ln.visible ? undefined : "0.5 0.35"}
+                      strokeLinecap="round"
+                      opacity={0.95}
+                    />
+                    <text
+                      x={ln.x1 + (ln.x2 - ln.x1) * 0.78}
+                      y={ln.y1 + (ln.y2 - ln.y1) * 0.78 - 0.35}
+                      fontSize={1.05}
+                      fontWeight={700}
+                      textAnchor="middle"
+                      fill="#fff"
+                      stroke="#000"
+                      strokeWidth={0.22}
+                      paintOrder="stroke"
+                      transform={`rotate(${-viewRot} ${ln.x1 + (ln.x2 - ln.x1) * 0.78} ${ln.y1 + (ln.y2 - ln.y1) * 0.78 - 0.35})`}
+                    >
+                      {ln.visible ? "" : "✕ "}
+                      {ln.d.toFixed(1)}″
+                    </text>
+                  </g>
+                ))}
+              </svg>
+            )}
             {uiTheme === "tactical" && (
               <>
                 {/* compass (top-right) and a 6" scale bar (bottom-right) */}
