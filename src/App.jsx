@@ -8531,9 +8531,9 @@ export default function Wh40kCalculator({ session }) {
   const [uiTheme, setUiTheme] = useState(() => {
     try {
       const saved = localStorage.getItem("ui_theme_v1");
-      return saved === "tactical" || saved === "grimdark" ? saved : "classic";
+      return saved === "tactical" || saved === "classic" ? saved : "grimdark";
     } catch (e) {
-      return "classic";
+      return "grimdark";
     }
   });
   const chooseUiTheme = (t) => {
@@ -10698,9 +10698,9 @@ export default function Wh40kCalculator({ session }) {
               <div style={{ fontSize: 10.5, color: "var(--muted)", marginBottom: 5, textTransform: "uppercase", letterSpacing: 0.5, fontWeight: 700 }}>Vzhled</div>
               <div style={{ display: "flex", gap: 6 }}>
                 {[
-                  ["classic", "Základní"],
-                  ["tactical", "Taktický"],
                   ["grimdark", "Grimdark"],
+                  ["tactical", "Taktický"],
+                  ["classic", "Základní"],
                 ].map(([id, label]) => (
                   <button
                     key={id}
