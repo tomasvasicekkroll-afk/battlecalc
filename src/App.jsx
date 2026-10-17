@@ -58,7 +58,7 @@ const TACTICAL_ICON_URLS = (() => {
 function themedIcon(Base, key) {
   const Themed = (props) => {
     const theme = React.useContext(UiThemeContext);
-    const src = theme === "tactical" ? TACTICAL_ICON_URLS[key] : null;
+    const src = theme !== "classic" ? TACTICAL_ICON_URLS[key] : null;
     if (!src) return <Base {...props} />;
     const size = props.size || 24;
     return (
@@ -7684,6 +7684,70 @@ const TACTICAL_VARS = {
   "--amber": "#ffb02e",
 };
 
+// Third visual set ("Grimdark"): the tactical skin dressed in steel and gold -
+// deep royal blue, brushed-metal frames, parchment data cells, a serif display font.
+const GRIMDARK_VARS = {
+  "--bg": "#050b18",
+  "--panel": "#0b1a36",
+  "--field-bg": "#08142a",
+  "--field-border": "#46699a",
+  "--text": "#f1f5fb",
+  "--muted": "#9db3d1",
+  "--label": "#c2d3ea",
+  "--accent": "#3a7bd9",
+  "--accent-dim": "#12315f",
+  "--accent-text": "#b5d4f7",
+  "--blue": "#3a7bd9",
+  "--blue-dim": "#12315f",
+  "--amber": "#d9b25a",
+};
+const GD_ART_MARINE = new URL("./assets/grimdark/marine.jpg", import.meta.url).href;
+const GD_ART_CHAOS = new URL("./assets/grimdark/chaos.jpg", import.meta.url).href;
+// Marine on the left, chaos champion on the right, fading into the page.
+function GrimdarkArt({ height = "100%", opacity = 0.9 }) {
+  const mask = (dir) => `linear-gradient(to ${dir}, #000 25%, transparent 100%)`;
+  const img = (src, side, dir) => (
+    <img
+      src={src}
+      alt=""
+      draggable={false}
+      style={{ position: "absolute", top: 0, [side]: 0, height, width: "auto", opacity, WebkitMaskImage: mask(dir), maskImage: mask(dir), pointerEvents: "none" }}
+    />
+  );
+  return (
+    <div aria-hidden="true" style={{ position: "absolute", inset: 0, overflow: "hidden", pointerEvents: "none", zIndex: -1, borderRadius: "inherit" }}>
+      {img(GD_ART_MARINE, "left", "right")}
+      {img(GD_ART_CHAOS, "right", "left")}
+    </div>
+  );
+}
+
+// One matrix cell of the cheat sheet (S = ranged on top, M = melee below; grey =
+// base, blue = with bonuses). Used by the poster look.
+function CheatCellBody({ c }) {
+  const targetModels = totalModels(c.target) || 1;
+  const frac = (res, type) => killedModelsByType(res, type) / targetModels;
+  const pie = (f, color, track) => (
+    <div style={{ textAlign: "center", lineHeight: 1 }}>
+      <MiniSkullPie frac={f} size={26} color={color} trackColor={track} />
+      <div style={{ fontSize: 12, color, fontWeight: 800, marginTop: 2 }}>{(f * 100).toFixed(0)}%</div>
+    </div>
+  );
+  const row = (label, type) => (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+      <span style={{ fontSize: 11, fontWeight: 800, color: "#6a5a3a", width: 12, textAlign: "right" }}>{label}</span>
+      {pie(frac(c.base.res, type), "#6b6b6b", "#d3c7ab")}
+      {pie(frac(c.boosted.res, type), "#1b5faa", "#c9d9ee")}
+    </div>
+  );
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "center" }}>
+      {row("S", "ranged")}
+      {row("M", "melee")}
+    </div>
+  );
+}
+
 function SkullLogo({ size = 28 }) {
   return (
     <div
@@ -7715,7 +7779,7 @@ function HomeTile({ icon: Icon, label, value, onClick }) {
     >
       <Icon size={30} color="var(--accent-text)" />
       <span style={{ flex: 1, minWidth: 0 }}>
-        <span style={{ display: "block", fontSize: 13, fontWeight: 800, color: "var(--text)", textTransform: "uppercase", letterSpacing: 0.5 }}>{label}</span>
+        <span className="gd-title" style={{ display: "block", fontSize: 13, fontWeight: 800, color: "var(--text)", textTransform: "uppercase", letterSpacing: 0.5 }}>{label}</span>
         <span style={{ display: "block", fontSize: 12, color: "var(--muted)", marginTop: 2 }}>{value}</span>
       </span>
       <ChevronRight size={18} color="var(--accent-text)" />
@@ -8282,7 +8346,7 @@ function ManualView({ onBack }) {
 
       <ManualSection num="08" title="Herní deska">
         <ManualP>
-          <ManualPath>Herní deska</ManualPath> — vizuální bojiště na míru. Zaškrtni jednotky z knihovny do <b>Moje jednotky</b> nebo <b>Jednotky protihráče</b> — objeví se jako tokeny (jeden na každý model), přetáhni je na místo. Nad seznamem vybereš uloženou armádu (třeba z New Recruit) — seznam se zúží na její jednotky a „Dát celou armádu na desku“ je rozmístí najednou; „Nahrát z New Recruit (JSON)“ nahraje nový export rovnou na tuhle stranu i s base sizy ze sloupce Base. Tažením modelu hýbeš celou jednotkou (tlačítko v liště přepne na jeden model, Alt při tažení přepne na opak; Shift při tažení vezme vždy jen jeden model — třeba když ho chceš nacpat za zeď). Víc modelů označíš tažením myší po prázdné desce (Shift přidává, Shift+klik na model ho přidá/odebere) — pak se všechny označené hýbou spolu. Kolečkem myši nad modelem otočíš celou jednotku (nebo označené modely, nebo jeden model — stejná pravidla jako při tažení); kolečko dolů otáčí po směru hodin, Shift = jemné kroky po 5°. Taktický vzhled má vlastní sadu ikon (domů, kalkulačka, knihovna, historie, nastavení, koš atd.). Vzhled aplikace přepneš v Nastavení (ozubené kolečko → Vzhled): „Základní“ nebo „Taktický“ (sytě modrý HUD, hexagonové tokeny, texturované podložky, kompas a měřítko na desce). Tlačítko „Linie palby“ ukazuje, na koho vidí jednotka, kterou táhneš (nebo kterou vybereš klikem jako útočníka): zelená čára = vidí a vzdálenost v palcích; zakryté jednotky se nekreslí; zelený kroužek je kolem nepřátelských modelů, které vidí. Podle pravidel 11. edice zakrývá celá plocha terénu (podložky, ruiny, zdi, lesy; krátery a objektivy ne). Model, jehož podstava se oblasti dotýká, skrz ni vidí. Desku můžeš otočit o 90° tlačítkem „Otočit“ (jen pohled, data zůstávají) a přibližovat tlačítky lupy nebo Ctrl + kolečkem (na touchpadu štípnutím) kolem kurzoru; přiblíženou desku posouváš posuvníky. Podložky jsou standardně zamčené (tlačítko „Terén zamčený“ v liště nad deskou) — táhneš jen modely, terén se nehne; odemknutím ho zase přesouváš a upravuješ. Velikost tokenu vychází z base size jednotky — přímo u jednotky v knihovně je malý rozklikávací seznam se standardními velikostmi (25 až 160mm kulaté, plus běžné oválné jako 90×52mm), není potřeba kvůli tomu otvírat celou editaci.
+          <ManualPath>Herní deska</ManualPath> — vizuální bojiště na míru. Zaškrtni jednotky z knihovny do <b>Moje jednotky</b> nebo <b>Jednotky protihráče</b> — objeví se jako tokeny (jeden na každý model), přetáhni je na místo. Nad seznamem vybereš uloženou armádu (třeba z New Recruit) — seznam se zúží na její jednotky a „Dát celou armádu na desku“ je rozmístí najednou; „Nahrát z New Recruit (JSON)“ nahraje nový export rovnou na tuhle stranu i s base sizy ze sloupce Base. Tažením modelu hýbeš celou jednotkou (tlačítko v liště přepne na jeden model, Alt při tažení přepne na opak; Shift při tažení vezme vždy jen jeden model — třeba když ho chceš nacpat za zeď). Víc modelů označíš tažením myší po prázdné desce (Shift přidává, Shift+klik na model ho přidá/odebere) — pak se všechny označené hýbou spolu. Kolečkem myši nad modelem otočíš celou jednotku (nebo označené modely, nebo jeden model — stejná pravidla jako při tažení); kolečko dolů otáčí po směru hodin, Shift = jemné kroky po 5°. Třetí vzhled „Grimdark“ přidává ocelové a zlaté rámečky, obrázky hrdinů v hlavičce a cheat sheet ve stylu pergamenové tabulky (tisk zůstává černobílý). Taktický vzhled má vlastní sadu ikon (domů, kalkulačka, knihovna, historie, nastavení, koš atd.). Vzhled aplikace přepneš v Nastavení (ozubené kolečko → Vzhled): „Základní“ nebo „Taktický“ (sytě modrý HUD, hexagonové tokeny, texturované podložky, kompas a měřítko na desce). Tlačítko „Linie palby“ ukazuje, na koho vidí jednotka, kterou táhneš (nebo kterou vybereš klikem jako útočníka): zelená čára = vidí a vzdálenost v palcích; zakryté jednotky se nekreslí; zelený kroužek je kolem nepřátelských modelů, které vidí. Podle pravidel 11. edice zakrývá celá plocha terénu (podložky, ruiny, zdi, lesy; krátery a objektivy ne). Model, jehož podstava se oblasti dotýká, skrz ni vidí. Desku můžeš otočit o 90° tlačítkem „Otočit“ (jen pohled, data zůstávají) a přibližovat tlačítky lupy nebo Ctrl + kolečkem (na touchpadu štípnutím) kolem kurzoru; přiblíženou desku posouváš posuvníky. Podložky jsou standardně zamčené (tlačítko „Terén zamčený“ v liště nad deskou) — táhneš jen modely, terén se nehne; odemknutím ho zase přesouváš a upravuješ. Velikost tokenu vychází z base size jednotky — přímo u jednotky v knihovně je malý rozklikávací seznam se standardními velikostmi (25 až 160mm kulaté, plus běžné oválné jako 90×52mm), není potřeba kvůli tomu otvírat celou editaci.
         </ManualP>
         <ManualUl
           items={[
@@ -8466,7 +8530,8 @@ export default function Wh40kCalculator({ session }) {
   // screen size, for anyone who prefers that even on a big display.
   const [uiTheme, setUiTheme] = useState(() => {
     try {
-      return localStorage.getItem("ui_theme_v1") === "tactical" ? "tactical" : "classic";
+      const saved = localStorage.getItem("ui_theme_v1");
+      return saved === "tactical" || saved === "grimdark" ? saved : "classic";
     } catch (e) {
       return "classic";
     }
@@ -10356,7 +10421,7 @@ export default function Wh40kCalculator({ session }) {
   return (
     <UiThemeContext.Provider value={uiTheme}>
     <div
-      className={`wh40k-shell${forceCompact ? " wh40k-compact" : ""}${uiTheme === "tactical" ? " wh40k-theme-tactical" : ""}`}
+      className={`wh40k-shell${forceCompact ? " wh40k-compact" : ""}${uiTheme !== "classic" ? " wh40k-theme-tactical" : ""}${uiTheme === "grimdark" ? " wh40k-theme-grimdark" : ""}`}
       style={{
         "--bg": "#070c14",
         "--panel": "#0f1826",
@@ -10373,10 +10438,12 @@ export default function Wh40kCalculator({ session }) {
         "--blue-dim": "#0f2842",
         "--amber": "#e8a72f",
         "--mono": "'JetBrains Mono', 'Courier New', monospace",
-        ...(uiTheme === "tactical" ? TACTICAL_VARS : {}),
+        ...(uiTheme === "tactical" ? TACTICAL_VARS : uiTheme === "grimdark" ? GRIMDARK_VARS : {}),
         fontFamily: "'Inter', -apple-system, sans-serif",
         background:
-          uiTheme === "tactical"
+          uiTheme === "grimdark"
+            ? "radial-gradient(ellipse 120% 50% at 50% -8%, #123a78 0%, #07142b 48%, #040a16 100%)"
+            : uiTheme === "tactical"
             ? "radial-gradient(ellipse 120% 60% at 50% -10%, #0c2c58 0%, #040b17 58%)"
             : "radial-gradient(ellipse 120% 60% at 50% -10%, #102338 0%, #070c14 55%)",
         color: "var(--text)",
@@ -10534,6 +10601,24 @@ export default function Wh40kCalculator({ session }) {
           box-shadow: 0 0 10px rgba(45,140,255,0.55), inset 0 0 0 1px rgba(255,255,255,0.35) !important;
           font-weight: 800;
         }
+        /* ---- "Grimdark" look: steel + gold on top of the tactical skin ---- */
+        .wh40k-theme-grimdark { isolation: isolate; border-color: #5b7fb0 !important; }
+        .wh40k-theme-grimdark .gd-title { font-family: 'Cinzel', 'Georgia', serif !important; letter-spacing: 1.2px; }
+        .wh40k-theme-grimdark .gd-metal {
+          font-family: 'Cinzel', 'Georgia', serif; font-weight: 800; letter-spacing: 2px;
+          background: linear-gradient(180deg, #ffffff 0%, #c8d4e6 38%, #7f93b0 52%, #dfe8f5 70%, #8fa2bf 100%);
+          -webkit-background-clip: text; background-clip: text; color: transparent; -webkit-text-fill-color: transparent;
+          filter: drop-shadow(0 2px 2px rgba(0,0,0,0.85));
+        }
+        .wh40k-theme-grimdark [style*="background: var(--panel)"] {
+          background-image: linear-gradient(180deg, rgba(120,160,220,0.12), rgba(120,160,220,0) 40%), repeating-linear-gradient(115deg, rgba(255,255,255,0.018) 0 2px, transparent 2px 5px) !important;
+          border-color: #5d82b6 !important;
+          box-shadow: inset 0 0 0 1px rgba(217,178,90,0.30), 0 0 0 1px rgba(10,20,40,0.9), 0 3px 12px rgba(0,0,0,0.55) !important;
+        }
+        .wh40k-theme-grimdark .wh40k-btn { box-shadow: inset 0 0 0 1px rgba(217,178,90,0.22); text-shadow: 0 1px 2px rgba(0,0,0,0.7); }
+        .wh40k-theme-grimdark button[style*="var(--accent)"] { box-shadow: 0 0 12px rgba(58,123,217,0.4), inset 0 0 0 1px rgba(217,178,90,0.4) !important; }
+        .wh40k-theme-grimdark button[data-active="1"] > img { filter: drop-shadow(0 0 7px rgba(217,178,90,0.75)); }
+        @media screen { .wh40k-theme-grimdark .gd-print-only { display: none !important; } }
         .wh40k-theme-tactical button[data-active="0"] > img { opacity: 0.55; }
         .wh40k-theme-tactical button[data-active="1"] > img { filter: drop-shadow(0 0 6px rgba(80,170,255,0.8)); }
         .wh40k-theme-tactical [data-board-piece="token"][data-sel] { box-shadow: 0 0 12px 3px rgba(255,255,255,0.6) !important; }
@@ -10541,6 +10626,7 @@ export default function Wh40kCalculator({ session }) {
 
       {/* TOP BAR */}
       <div className="no-print" style={{ padding: "16px 14px 10px", display: "flex", alignItems: "center", justifyContent: "space-between", position: "relative" }}>
+        {uiTheme === "grimdark" && <GrimdarkArt opacity={0.75} />}
         <button onClick={() => setMenuOpen((o) => !o)} aria-label="Menu" style={{ background: "transparent", border: "none", color: "var(--text)", cursor: "pointer", padding: 6, display: "flex" }}>
           <Menu size={20} />
         </button>
@@ -10554,7 +10640,7 @@ export default function Wh40kCalculator({ session }) {
         >
           <SkullLogo size={30} />
           <div style={{ textAlign: "left" }}>
-            <div style={{ fontSize: 15, fontWeight: 800, letterSpacing: 0.5, color: "var(--text)" }}>BATTLECALC</div>
+            <div className={uiTheme === "grimdark" ? "gd-metal" : undefined} style={{ fontSize: 15, fontWeight: 800, letterSpacing: 0.5, color: "var(--text)" }}>BATTLECALC</div>
             <div style={{ fontSize: 8, fontWeight: 700, color: "var(--accent-text)", letterSpacing: 1.2 }}>DAMAGE CALCULATOR</div>
           </div>
         </button>
@@ -10614,6 +10700,7 @@ export default function Wh40kCalculator({ session }) {
                 {[
                   ["classic", "Základní"],
                   ["tactical", "Taktický"],
+                  ["grimdark", "Grimdark"],
                 ].map(([id, label]) => (
                   <button
                     key={id}
@@ -10698,7 +10785,7 @@ export default function Wh40kCalculator({ session }) {
             <div className="wh40k-home-hero">
               <div style={{ position: "relative" }}>
                 <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 2.2, textTransform: "uppercase", color: "var(--accent-text)" }}>Nový výpočet</div>
-                <div style={{ fontSize: 24, fontWeight: 800, color: "var(--text)", lineHeight: 1.15, margin: "8px 0 8px" }}>Vytvořte si vlastní výpočet</div>
+                <div className="gd-title" style={{ fontSize: 24, fontWeight: 800, color: "var(--text)", lineHeight: 1.15, margin: "8px 0 8px" }}>Vytvořte si vlastní výpočet</div>
                 <div style={{ fontSize: 12.5, color: "var(--muted)", lineHeight: 1.5 }}>
                   Vyberte jednotky a zbraně, nastavte podmínky a zjistěte, kolik modelů protivníka zničíte.
                 </div>
@@ -10743,7 +10830,7 @@ export default function Wh40kCalculator({ session }) {
           >
             <Shield size={34} color="var(--accent-text)" />
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 15, fontWeight: 800, letterSpacing: 0.7, textTransform: "uppercase", color: "var(--text)" }}>Armáda</div>
+              <div className="gd-title" style={{ fontSize: 15, fontWeight: 800, letterSpacing: 0.7, textTransform: "uppercase", color: "var(--text)" }}>Armáda</div>
               <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>Statistiky, souboj proti jiným armádám a herní deska.</div>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 8, border: "1px solid var(--field-border)", borderRadius: 8, padding: "7px 10px", background: "var(--field-bg)" }}>
@@ -11983,8 +12070,63 @@ export default function Wh40kCalculator({ session }) {
           scrolling — kept as its own top-level block (not nested inside the
           .no-print wrapper above/below) since a display:none ancestor would
           hide it from printing even with its own display override. */}
+      {view === "lists" && uiTheme === "grimdark" && cheatMatrix.length > 0 && cheatMatrix[0].cells.length > 0 && (
+        <div className="no-print" style={{ margin: "0 14px 16px" }}>
+          <div style={{ position: "relative", textAlign: "center", padding: "18px 12px 14px", border: "1px solid #5d82b6", borderRadius: 10, background: "linear-gradient(180deg, #0f2a57, #08162f)", boxShadow: "inset 0 0 0 1px rgba(217,178,90,0.3)", marginBottom: 10, overflow: "hidden", isolation: "isolate" }}>
+            <GrimdarkArt />
+            <div className="gd-metal" style={{ fontSize: 34, lineHeight: 1.05 }}>BATTLECALC</div>
+            <div className="gd-title" style={{ fontSize: 14, fontWeight: 700, color: "#eaf1fb", marginTop: 6, textShadow: "0 1px 3px #000" }}>— Cheat Sheet: Damage na jedno kolo útoku —</div>
+            <div style={{ display: "inline-block", marginTop: 8, padding: "3px 22px", fontSize: 11.5, color: "#bfe0ff", border: "1px solid #4f78b0", background: "rgba(16,48,98,0.85)", clipPath: "polygon(8px 0, calc(100% - 8px) 0, 100% 50%, calc(100% - 8px) 100%, 8px 100%, 0 50%)" }}>
+              Rychlý přehled výsledků vaší kalkulace
+            </div>
+          </div>
+          <button
+            onClick={() => window.print()}
+            className="wh40k-btn"
+            style={{ display: "flex", alignItems: "center", gap: 6, border: "1px solid var(--accent)", background: "var(--accent)", color: "#fff", borderRadius: 6, padding: "8px 16px", fontSize: 13, fontWeight: 700, cursor: "pointer", marginBottom: 10 }}
+          >
+            Vytisknout cheat sheet
+          </button>
+          <div style={{ overflowX: "auto", border: "2px solid #7391bd", borderRadius: 10, boxShadow: "inset 0 0 0 1px rgba(217,178,90,0.45), 0 4px 14px rgba(0,0,0,0.5)", background: "#0a1a36" }}>
+            <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0, minWidth: 130 + cheatMatrix[0].cells.length * 112 }}>
+              <thead>
+                <tr>
+                  <th className="gd-title" style={{ textAlign: "left", padding: "10px 12px", background: "linear-gradient(180deg, #17407f, #0d2650)", color: "#fff", fontSize: 14, fontWeight: 800, borderRight: "1px solid #4f78b0", borderBottom: "2px solid #7391bd", width: 130 }}>Útočník v cíli</th>
+                  {cheatMatrix[0].cells.map((c) => (
+                    <th key={c.target.id} style={{ textAlign: "center", padding: "10px 6px", background: "linear-gradient(180deg, #17407f, #0d2650)", color: "#fff", borderRight: "1px solid #3a5f94", borderBottom: "2px solid #7391bd", verticalAlign: "top" }}>
+                      <div className="gd-title" style={{ fontSize: 13, fontWeight: 800, lineHeight: 1.15 }}>{c.target.name}</div>
+                      <div style={{ fontSize: 10.5, fontWeight: 600, color: "#a9c8ee", marginTop: 4 }}>
+                        T{c.target.toughness} {c.target.save}+{c.target.invul > 0 ? " Inv" + c.target.invul + "+" : ""} · {totalModels(c.target)}× · {c.target.wounds}W
+                      </div>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {cheatMatrix.map((row) => (
+                  <tr key={row.attacker.id}>
+                    <td className="gd-title" style={{ padding: "10px 12px", background: "linear-gradient(180deg, #efe3c6, #dccba5)", color: "#1a1a1a", fontWeight: 800, fontSize: 12.5, lineHeight: 1.2, borderRight: "1px solid #b9a679", borderBottom: "1px solid #b9a679" }}>{row.attacker.name}</td>
+                    {row.cells.map((c) => (
+                      <td key={c.target.id} style={{ padding: "10px 6px", background: "linear-gradient(180deg, #f3e9d0, #e6d6b0)", borderRight: "1px solid #c4b387", borderBottom: "1px solid #c4b387", textAlign: "center" }}>
+                        <CheatCellBody c={c} />
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 18px", alignItems: "center", justifyContent: "space-between", marginTop: 10, padding: "10px 14px", border: "1px solid #5d82b6", borderRadius: 10, background: "linear-gradient(180deg, #0f2a57, #08162f)", boxShadow: "inset 0 0 0 1px rgba(217,178,90,0.3)", fontSize: 12, color: "#dbe7f7" }}>
+            <span><b style={{ color: "#fff" }}>S</b> = na dálku (Shoot) · <b style={{ color: "#fff" }}>M</b> = na blízko (Melee)</span>
+            <span><b style={{ color: "#c9c9c9" }}>Šedá</b> = základ · <b style={{ color: "#7db4f2" }}>Modrá</b> = s bonusy</span>
+            <span>Lebka = % zničené jednotky</span>
+            <span style={{ padding: "6px 12px", background: "linear-gradient(180deg, #f3e9d0, #e1cfa6)", color: "#2a2210", borderRadius: 6, fontWeight: 700 }}>Plánujte chytře, bojujte efektivně!</span>
+          </div>
+        </div>
+      )}
+
       {view === "lists" && cheatMatrix.length > 0 && cheatMatrix[0].cells.length > 0 && (
-        <div className="print-area" style={{ margin: "0 14px 16px", overflowX: "auto", background: "#fff", borderRadius: 8, padding: 12 }}>
+        <div className={`print-area${uiTheme === "grimdark" ? " gd-print-only" : ""}`} style={{ margin: "0 14px 16px", overflowX: "auto", background: "#fff", borderRadius: 8, padding: 12 }}>
           <button
             onClick={() => window.print()}
             className="wh40k-btn no-print"
@@ -12175,7 +12317,7 @@ export default function Wh40kCalculator({ session }) {
 
           <div className="wh40k-board-layout">
             <div className="wh40k-board-sidebar">
-          {uiTheme === "tactical" && (
+          {uiTheme !== "classic" && (
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
               <SkullLogo size={34} />
               <div>
@@ -13484,7 +13626,7 @@ export default function Wh40kCalculator({ session }) {
                 ))}
               </svg>
             )}
-            {uiTheme === "tactical" && (
+            {uiTheme !== "classic" && (
               <>
                 {/* compass (top-right) and a 6" scale bar (bottom-right) */}
                 <svg viewBox="0 0 60 60" width="54" height="54" style={{ position: "absolute", right: 8, top: 8, pointerEvents: "none", zIndex: 4, opacity: 0.85 }}>
