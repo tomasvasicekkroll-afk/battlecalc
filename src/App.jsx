@@ -4327,7 +4327,7 @@ function totalModels(unit) {
 // generated ids and fields that can legitimately differ between imports of the
 // same unit without it being a different unit (points cost, favorite flag) — so
 // re-importing the same unit from a different list doesn't create a duplicate.
-const SIGNATURE_IGNORE_KEYS = new Set(["id", "points", "isFavorite", "baseSize", "modelCount"]);
+const SIGNATURE_IGNORE_KEYS = new Set(["id", "points", "isFavorite", "baseSize", "modelCount", "move"]);
 function stripIds(value) {
   if (Array.isArray(value)) return value.map(stripIds);
   if (value && typeof value === "object") {
@@ -5269,6 +5269,8 @@ function extractUnitChars(up) {
     // column right alongside T/Sv/W rather than as ability description text.
     fnp: parseSaveVal(uc.FNP || uc["Feel No Pain"] || uc.FNPSave || uc.FnP),
     base: parseBaseText(uc.Base),
+    // Movement in inches ('8"', '12"+', '-' = none/unknown -> 0).
+    move: parseIntSafe(String(uc.M || "").replace(/[^0-9]/g, ""), 0).value,
   };
 }
 
@@ -5470,6 +5472,9 @@ function parseBattleScribeJSON(text) {
         }
       });
       if (baseSize === "hull") baseSize = hullBaseFor(String(u.name || "").replace(/ \(vede.*$/, ""));
+      // A unit moves at its slowest model's speed.
+      const moves = u.members.map((m) => m.chars.move).filter((v) => v > 0);
+      const move = moves.length ? Math.min(...moves) : 0;
 
       return {
         id: u.id,
@@ -5477,6 +5482,7 @@ function parseBattleScribeJSON(text) {
         name: u.name,
         points: u.points,
         baseSize,
+        move,
         toughness: weightedPick("toughness"),
         save: weightedPick("save"),
         invul: weightedPick("invul"),
@@ -5868,7 +5874,7 @@ function UnitForm({ initial, onSave, onCancel }) {
       </Row>
       <Row cols={2}>
         <SelectField label="Base size (pro Desku)" value={String(u.baseSize || 32)} onChange={set("baseSize")} options={baseSizeOptions(u.baseSize)} />
-        <div />
+        <NumberField label='Pohyb M (palce, pro Desku)' value={u.move || 0} onChange={set("move")} min={0} />
       </Row>
       <Row cols={3}>
         <NumberField label="Feel No Pain (0 = žádný)" value={u.fnp} onChange={set("fnp")} min={0} />
@@ -7684,6 +7690,24 @@ const TACTICAL_VARS = {
   "--amber": "#ffb02e",
 };
 
+// Outline of the union of circles, drawn with a mask (white = outer discs, black =
+// inner discs) so overlapping models of one unit give a single clean contour.
+function RangeOutline({ id, circles, color, W, H, thick = 0.14, opacity = 0.9 }) {
+  return (
+    <>
+      <mask id={id} maskUnits="userSpaceOnUse" x={0} y={0} width={W} height={H}>
+        {circles.map((c, i) => (
+          <circle key={`o${i}`} cx={c.x} cy={c.y} r={c.r + thick / 2} fill="#fff" />
+        ))}
+        {circles.map((c, i) => (
+          <circle key={`i${i}`} cx={c.x} cy={c.y} r={Math.max(0, c.r - thick / 2)} fill="#000" />
+        ))}
+      </mask>
+      <rect x={0} y={0} width={W} height={H} fill={color} mask={`url(#${id})`} opacity={opacity} />
+    </>
+  );
+}
+
 // Third visual set ("Grimdark"): the tactical skin dressed in steel and gold -
 // deep royal blue, brushed-metal frames, parchment data cells, a serif display font.
 const GRIMDARK_VARS = {
@@ -8346,7 +8370,7 @@ function ManualView({ onBack }) {
 
       <ManualSection num="08" title="Herní deska">
         <ManualP>
-          <ManualPath>Herní deska</ManualPath> — vizuální bojiště na míru. Zaškrtni jednotky z knihovny do <b>Moje jednotky</b> nebo <b>Jednotky protihráče</b> — objeví se jako tokeny (jeden na každý model), přetáhni je na místo. Nad seznamem vybereš uloženou armádu (třeba z New Recruit) — seznam se zúží na její jednotky a „Dát celou armádu na desku“ je rozmístí najednou; „Nahrát z New Recruit (JSON)“ nahraje nový export rovnou na tuhle stranu i s base sizy ze sloupce Base. Tažením modelu hýbeš celou jednotkou (tlačítko v liště přepne na jeden model, Alt při tažení přepne na opak; Shift při tažení vezme vždy jen jeden model — třeba když ho chceš nacpat za zeď). Víc modelů označíš tažením myší po prázdné desce (Shift přidává, Shift+klik na model ho přidá/odebere) — pak se všechny označené hýbou spolu. Kolečkem myši nad modelem otočíš celou jednotku (nebo označené modely, nebo jeden model — stejná pravidla jako při tažení); kolečko dolů otáčí po směru hodin, Shift = jemné kroky po 5°. Třetí vzhled „Grimdark“ přidává ocelové a zlaté rámečky, obrázky hrdinů v hlavičce a cheat sheet ve stylu pergamenové tabulky (tisk zůstává černobílý). Taktický vzhled má vlastní sadu ikon (domů, kalkulačka, knihovna, historie, nastavení, koš atd.). Vzhled aplikace přepneš v Nastavení (ozubené kolečko → Vzhled): „Základní“ nebo „Taktický“ (sytě modrý HUD, hexagonové tokeny, texturované podložky, kompas a měřítko na desce). Tlačítko „Linie palby“ ukazuje, na koho vidí jednotka, kterou táhneš (nebo kterou vybereš klikem jako útočníka): zelená čára = vidí a vzdálenost v palcích; zakryté jednotky se nekreslí; zelený kroužek je kolem nepřátelských modelů, které vidí. Podle pravidel 11. edice zakrývá celá plocha terénu (podložky, ruiny, zdi, lesy; krátery a objektivy ne). Model, jehož podstava se oblasti dotýká, skrz ni vidí. Desku můžeš otočit o 90° tlačítkem „Otočit“ (jen pohled, data zůstávají) a přibližovat tlačítky lupy nebo Ctrl + kolečkem (na touchpadu štípnutím) kolem kurzoru; přiblíženou desku posouváš posuvníky. Podložky jsou standardně zamčené (tlačítko „Terén zamčený“ v liště nad deskou) — táhneš jen modely, terén se nehne; odemknutím ho zase přesouváš a upravuješ. Velikost tokenu vychází z base size jednotky — přímo u jednotky v knihovně je malý rozklikávací seznam se standardními velikostmi (25 až 160mm kulaté, plus běžné oválné jako 90×52mm), není potřeba kvůli tomu otvírat celou editaci.
+          <ManualPath>Herní deska</ManualPath> — vizuální bojiště na míru. Zaškrtni jednotky z knihovny do <b>Moje jednotky</b> nebo <b>Jednotky protihráče</b> — objeví se jako tokeny (jeden na každý model), přetáhni je na místo. Nad seznamem vybereš uloženou armádu (třeba z New Recruit) — seznam se zúží na její jednotky a „Dát celou armádu na desku“ je rozmístí najednou; „Nahrát z New Recruit (JSON)“ nahraje nový export rovnou na tuhle stranu i s base sizy ze sloupce Base. Tažením modelu hýbeš celou jednotkou (tlačítko v liště přepne na jeden model, Alt při tažení přepne na opak; Shift při tažení vezme vždy jen jeden model — třeba když ho chceš nacpat za zeď). Víc modelů označíš tažením myší po prázdné desce (Shift přidává, Shift+klik na model ho přidá/odebere) — pak se všechny označené hýbou spolu. Kolečkem myši nad modelem otočíš celou jednotku (nebo označené modely, nebo jeden model — stejná pravidla jako při tažení); kolečko dolů otáčí po směru hodin, Shift = jemné kroky po 5°. Třetí vzhled „Grimdark“ přidává ocelové a zlaté rámečky, obrázky hrdinů v hlavičce a cheat sheet ve stylu pergamenové tabulky (tisk zůstává černobílý). Taktický vzhled má vlastní sadu ikon (domů, kalkulačka, knihovna, historie, nastavení, koš atd.). Vzhled aplikace přepneš v Nastavení (ozubené kolečko → Vzhled): „Základní“ nebo „Taktický“ (sytě modrý HUD, hexagonové tokeny, texturované podložky, kompas a měřítko na desce). Tlačítko „Dosah pohybu“ kreslí kolem jednotek dva obrysy: tyrkysový = maximální pohyb (M), žlutý = maximální advance (M + 6″), oboje od okraje podstavy; když je něco vybráno nebo taženo, ukáže se jen to, jinak všechny jednotky. M se načítá z importu z New Recruit (u starších jednotek list nahraj znovu nebo M dopiš v knihovně). Tlačítko „Linie palby“ ukazuje, na koho vidí jednotka, kterou táhneš (nebo kterou vybereš klikem jako útočníka): zelená čára = vidí a vzdálenost v palcích; zakryté jednotky se nekreslí; zelený kroužek je kolem nepřátelských modelů, které vidí. Podle pravidel 11. edice zakrývá celá plocha terénu (podložky, ruiny, zdi, lesy; krátery a objektivy ne). Model, jehož podstava se oblasti dotýká, skrz ni vidí. Desku můžeš otočit o 90° tlačítkem „Otočit“ (jen pohled, data zůstávají) a přibližovat tlačítky lupy nebo Ctrl + kolečkem (na touchpadu štípnutím) kolem kurzoru; přiblíženou desku posouváš posuvníky. Podložky jsou standardně zamčené (tlačítko „Terén zamčený“ v liště nad deskou) — táhneš jen modely, terén se nehne; odemknutím ho zase přesouváš a upravuješ. Velikost tokenu vychází z base size jednotky — přímo u jednotky v knihovně je malý rozklikávací seznam se standardními velikostmi (25 až 160mm kulaté, plus běžné oválné jako 90×52mm), není potřeba kvůli tomu otvírat celou editaci.
         </ManualP>
         <ManualUl
           items={[
@@ -9508,6 +9532,7 @@ export default function Wh40kCalculator({ session }) {
     const allIds = [];
     const baseFromImport = new Map();
     const modelsFromImport = new Map();
+    const moveFromImport = new Map();
     let skipped = 0;
     units.forEach((u) => {
       const sig = unitSignature(u);
@@ -9516,6 +9541,7 @@ export default function Wh40kCalculator({ session }) {
         allIds.push(existingSigToId.get(sig));
         if (u.baseSize && String(u.baseSize) !== "32") baseFromImport.set(existingSigToId.get(sig), String(u.baseSize));
         if (u.modelCount > 0) modelsFromImport.set(existingSigToId.get(sig), u.modelCount);
+        if (u.move > 0) moveFromImport.set(existingSigToId.get(sig), u.move);
       } else {
         existingSigToId.set(sig, u.id);
         toAdd.push(u);
@@ -9538,6 +9564,11 @@ export default function Wh40kCalculator({ session }) {
           baseUpdated += 1;
           next = fixed;
         }
+      }
+      const mv = moveFromImport.get(x.id);
+      if (mv && !(x.move > 0)) {
+        baseUpdated += 1;
+        next = { ...next, move: mv };
       }
       const mc = modelsFromImport.get(x.id);
       if (mc && !(x.modelCount > 0)) {
@@ -9757,6 +9788,24 @@ export default function Wh40kCalculator({ session }) {
     setFireLineOn(next);
     try {
       localStorage.setItem("board_fireline_v1", next ? "1" : "0");
+    } catch (e) {
+      /* storage blocked - the toggle still works for this session */
+    }
+  };
+  // Movement ranges: two outlines around deployed units - maximum Move (M") and
+  // maximum Advance (M" + 6"), both measured from the base edge.
+  const [moveRangeOn, setMoveRangeOn] = useState(() => {
+    try {
+      return localStorage.getItem("board_moverange_v1") === "1";
+    } catch (e) {
+      return false;
+    }
+  });
+  const toggleMoveRange = () => {
+    const next = !moveRangeOn;
+    setMoveRangeOn(next);
+    try {
+      localStorage.setItem("board_moverange_v1", next ? "1" : "0");
     } catch (e) {
       /* storage blocked - the toggle still works for this session */
     }
@@ -10374,6 +10423,42 @@ export default function Wh40kCalculator({ session }) {
     });
     return out;
   }, [view, viewRot, board.tokens, board.widthIn, board.heightIn, library, boardPxPerIn]);
+
+  // Groups (side|unit|instance) that get range outlines: the picked / dragged / marquee
+  // selected units, or every deployed unit while nothing is picked.
+  const moveRangeData = useMemo(() => {
+    if (!moveRangeOn || view !== "board") return null;
+    const groupKey = (t) => `${t.side}|${t.unitId}|${t.inst || 0}`;
+    const wanted = new Set();
+    const pick = (id) => {
+      const t = board.tokens.find((x) => x.id === id);
+      if (t) wanted.add(groupKey(t));
+    };
+    dragIds.forEach(pick);
+    selectedTokenIds.forEach(pick);
+    if (boardAttackerTokenId) pick(boardAttackerTokenId);
+    const groups = new Map();
+    let missing = 0;
+    const seenMissing = new Set();
+    board.tokens.forEach((t) => {
+      const k = groupKey(t);
+      if (wanted.size > 0 && !wanted.has(k)) return;
+      const u = library.find((x) => x.id === t.unitId);
+      if (!u) return;
+      if (!(u.move > 0)) {
+        if (!seenMissing.has(k)) {
+          seenMissing.add(k);
+          missing += 1;
+        }
+        return;
+      }
+      const bm = parseBaseSizeMm(u.baseSize);
+      const r = (bm.w + bm.h) / 4 / 25.4;
+      if (!groups.has(k)) groups.set(k, { key: k, side: t.side, move: u.move, pts: [] });
+      groups.get(k).pts.push({ x: (t.xPct / 100) * board.widthIn, y: (t.yPct / 100) * board.heightIn, r });
+    });
+    return { groups: [...groups.values()], missing, focused: wanted.size > 0 };
+  }, [moveRangeOn, view, dragIds, selectedTokenIds, boardAttackerTokenId, board.tokens, board.widthIn, board.heightIn, library]);
 
   const fireData = useMemo(() => {
     if (!fireLineOn || view !== "board") return null;
@@ -13234,6 +13319,28 @@ export default function Wh40kCalculator({ session }) {
               {moveWholeUnit ? "Táhne celá jednotka" : "Táhne jeden model"}
             </button>
             <button
+              onClick={toggleMoveRange}
+              title="Dosah pohybu: kolem jednotek dvě obrysy - plný pohyb (M) a maximální advance (M + 6″), měřeno od okraje podstavy. Když je něco vybráno nebo taženo, ukáže se jen to; jinak všechny rozmístěné jednotky. Hodnotu M bere z importu (u starších jednotek ji dopiš v knihovně nebo znovu nahraj list)."
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 5,
+                border: `1px solid ${moveRangeOn ? "var(--accent)" : "var(--field-border)"}`,
+                background: moveRangeOn ? "var(--accent-dim)" : "transparent",
+                color: moveRangeOn ? "var(--accent-text)" : "var(--muted)",
+                borderRadius: 6,
+                padding: "5px 8px",
+                fontSize: 11,
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+            >
+              <Maximize2 size={13} /> Dosah pohybu
+            </button>
+            {moveRangeOn && moveRangeData && moveRangeData.missing > 0 && (
+              <span style={{ fontSize: 10.5, color: "var(--amber)" }}>{moveRangeData.missing}× chybí M (nahraj list znovu / dopiš v knihovně)</span>
+            )}
+            <button
               onClick={toggleFireLine}
               title="Linie palby: při tažení jednotky (nebo když ji vybereš klikem jako útočníka) ukáže, na koho vidí. Zelená čára = vidí; co je zakryto, se nekreslí. Terén zakrývá celou plochou; model, který se oblasti dotýká (je „within“), skrz ni vidí. U čáry je vzdálenost v palcích."
               style={{
@@ -13551,6 +13658,20 @@ export default function Wh40kCalculator({ session }) {
                 />
               );
             })}
+            {moveRangeData && moveRangeData.groups.length > 0 && (
+              <svg
+                viewBox={`0 0 ${board.widthIn} ${board.heightIn}`}
+                preserveAspectRatio="none"
+                style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none", zIndex: 3 }}
+              >
+                {moveRangeData.groups.map((g, gi) => (
+                  <React.Fragment key={g.key}>
+                    <RangeOutline id={`mr-adv-${gi}`} circles={g.pts.map((p) => ({ x: p.x, y: p.y, r: p.r + g.move + 6 }))} color="#f0b840" W={board.widthIn} H={board.heightIn} thick={0.13} opacity={0.85} />
+                    <RangeOutline id={`mr-mov-${gi}`} circles={g.pts.map((p) => ({ x: p.x, y: p.y, r: p.r + g.move }))} color="#3ddcc8" W={board.widthIn} H={board.heightIn} thick={0.16} opacity={0.95} />
+                  </React.Fragment>
+                ))}
+              </svg>
+            )}
             {unitTags.map((g) => (
               <div
                 key={g.key}
