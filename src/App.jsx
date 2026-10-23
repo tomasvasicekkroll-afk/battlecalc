@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef, useId } from "react";
 import {
+  Lightbulb,
   Users,
   ClipboardList as LucideClipboardList,
   BookOpen as LucideBookOpen,
@@ -7708,6 +7709,273 @@ function RangeOutline({ id, circles, color, W, H, thick = 0.14, opacity = 0.9 })
   );
 }
 
+// ---- Board coach ("Rádce") ------------------------------------------------------------------
+// Heuristic advice for the picked unit: which enemy unit it should hit (expected
+// damage in points, given range, line of sight, movement and charge odds), who threatens
+// it next turn, and where the objectives are. Not a chess engine - it reads the
+// numbers the calculator already trusts.
+
+// Range of a weapon in inches from its stored "24" · Rapid Fire 2" note; melee = 0,
+// unknown = null (treated as "reaches", and flagged).
+function weaponReachIn(w) {
+  if (w.type === "melee") return 0;
+  const m = String(w.note || "").match(/^\s*(\d+)/);
+  return m ? parseInt(m[1], 10) : null;
+}
+// P(2D6 >= n)
+function chargeProb(n) {
+  if (n <= 2) return 1;
+  if (n >= 13) return 0;
+  if (n <= 7) return (36 - ((n - 1) * (n - 2)) / 2) / 36;
+  return (((13 - n) * (14 - n)) / 2) / 36;
+}
+function coachEval(att, def, pred) {
+  const filtered = { ...att, members: (att.members || []).map((m) => ({ ...m, weapons: (m.weapons || []).filter(pred) })) };
+  if (!filtered.members.some((m) => m.weapons.length > 0)) return { kills: 0, frac: 0 };
+  const res = computeUnitVsUnit(filtered, defenderProfile(def), { ranged: emptyBonus(), melee: emptyBonus() });
+  // Rosters often store a squad as ONE member line with the real model count kept
+  // separately (modelCount) - scale output and target size to the real number of models.
+  const modelsOf = (u) => Math.max(totalModels(u) || 1, u.modelCount || 0);
+  const mult = modelsOf(att) / (totalModels(att) || 1);
+  const total = modelsOf(def);
+  const kills = Math.min(total, (res.killedModels || 0) * mult);
+  return { kills, frac: Math.min(1, kills / total) };
+}
+
+function computeCoach({ tokens, terrain, W, H, groupIds, library, shapeOf }) {
+  const libById = new Map(library.map((u) => [u.id, u]));
+  const first = tokens.find((t) => groupIds.includes(t.id));
+  if (!first) return null;
+  const me = libById.get(first.unitId);
+  if (!me) return null;
+  const keyOf = (t) => `${t.side}|${t.unitId}|${t.inst || 0}`;
+  const myTokens = tokens.filter((t) => keyOf(t) === keyOf(first));
+  const posOf = (t) => {
+    const bm = parseBaseSizeMm(libById.get(t.unitId) ? libById.get(t.unitId).baseSize : 32);
+    return { x: (t.xPct / 100) * W, y: (t.yPct / 100) * H, r: (bm.w + bm.h) / 4 / 25.4 };
+  };
+  const blockers = sightBlockers(terrain, W, H, shapeOf);
+  const G = myTokens.map(posOf);
+  const noMove = new Set();
+  const noRange = new Set();
+  const moveOf = (u) => {
+    if (u.move > 0) return u.move;
+    noMove.add(u.name);
+    return 6;
+  };
+  const checkRanges = (u) => {
+    (u.members || []).forEach((m) => (m.weapons || []).forEach((w) => w.type !== "melee" && weaponReachIn(w) === null && noRange.add(u.name)));
+  };
+  const myMove = moveOf(me);
+  checkRanges(me);
+  const reachOk = (need) => (w) => {
+    if (w.type === "melee") return false;
+    const r = weaponReachIn(w);
+    return r === null || r >= need;
+  };
+  const meleeOnly = (w) => w.type === "melee";
+  const chargeNeed = (d) => Math.max(2, Math.ceil(d - 1));
+
+  const groups = new Map();
+  tokens.filter((t) => t.side !== first.side).forEach((t) => {
+    const k = keyOf(t);
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(t);
+  });
+
+  const targets = [];
+  const threats = [];
+  let exposure = 0;
+  groups.forEach((members) => {
+    const eu = libById.get(members[0].unitId);
+    if (!eu) return;
+    checkRanges(eu);
+    const sameUnitGroups = [...groups.values()].filter((g) => g[0].unitId === members[0].unitId);
+    const nameShown = sameUnitGroups.length > 1 ? `${eu.name} #${sameUnitGroups.findIndex((g) => g === members) + 1}` : eu.name;
+    const E = members.map(posOf);
+    let dist = Infinity;
+    let visDist = Infinity;
+    G.forEach((a) => {
+      E.forEach((b) => {
+        const d = Math.max(0, Math.hypot(a.x - b.x, a.y - b.y) - a.r - b.r);
+        if (d < dist) dist = d;
+        if (d < visDist && modelsSeeEachOther(a, b, blockers)) visDist = d;
+      });
+    });
+    const visible = visDist < Infinity;
+    if (visible) exposure += 1;
+    const pts = parseInt(eu.points, 10) || 0;
+    const myPts = parseInt(me.points, 10) || 0;
+
+    // --- what I can do to them
+    const options = [];
+    if (visible) {
+      const e = coachEval(me, eu, reachOk(visDist));
+      if (e.kills > 0) options.push({ kind: "now", ...e, value: e.frac });
+    }
+    const moveReach = Math.max(0, dist - myMove);
+    const eMove = coachEval(me, eu, reachOk(moveReach));
+    const nowBest = options[0] ? options[0].frac : 0;
+    if (eMove.frac > nowBest * 1.15 + 0.005) {
+      const maxReach = Math.max(0, ...(me.members || []).flatMap((m) => (m.weapons || []).filter((w) => w.type !== "melee").map((w) => weaponReachIn(w) ?? 999)));
+      options.push({ kind: "move", ...eMove, need: Math.max(0, dist - maxReach), value: eMove.frac * (visible ? 1 : 0.85) });
+    }
+    const need = chargeNeed(dist);
+    const pc = chargeProb(need);
+    if (pc > 0) {
+      const eC = coachEval(me, eu, meleeOnly);
+      if (eC.kills > 0) options.push({ kind: "charge", kills: eC.kills * pc, frac: eC.frac * pc, prob: pc, value: eC.frac * pc });
+    }
+    options.sort((a, b) => b.value - a.value);
+    const best = options[0] || null;
+    targets.push({
+      name: nameShown,
+      pts,
+      dist,
+      visible,
+      best,
+      score: best ? best.value * (pts || 100) : 0,
+      tokenIds: members.map((t) => t.id),
+    });
+
+    // --- what they can do to me
+    const eMv = moveOf(eu);
+    const dEff = Math.max(0, dist - eMv);
+    const shoot = coachEval(eu, me, reachOk(dEff));
+    const pcE = chargeProb(chargeNeed(dEff));
+    const chg = pcE > 0 ? coachEval(eu, me, meleeOnly) : { kills: 0, frac: 0 };
+    const frac = Math.min(1, shoot.frac * (visible ? 1 : 0.5) + chg.frac * pcE);
+    if (frac > 0.005) threats.push({ name: nameShown, frac, shoot: shoot.frac, charge: chg.frac * pcE, chargeProb: pcE, visible, score: frac * (myPts || 100), dist });
+  });
+
+  targets.sort((a, b) => b.score - a.score);
+  threats.sort((a, b) => b.score - a.score);
+
+  // --- objectives + cover
+  const cx = G.reduce((a, g) => a + g.x, 0) / G.length;
+  const cy = G.reduce((a, g) => a + g.y, 0) / G.length;
+  let objective = null;
+  (terrain || []).forEach((pc) => {
+    const sh = shapeOf(pc);
+    if (!sh || !String(sh.id || "").startsWith("obj-")) return;
+    const ox = (pc.xPct / 100) * W;
+    const oy = (pc.yPct / 100) * H;
+    const d = Math.max(0, Math.min(...G.map((g) => Math.hypot(g.x - ox, g.y - oy) - g.r)));
+    if (!objective || d < objective.d) objective = { d, label: sh.label || "Objektiv" };
+  });
+  if (objective) {
+    objective.holding = objective.d <= 3;
+    objective.reachable = objective.d - 3 <= myMove;
+  }
+  const inCover = blockers.some((bk) => G.some((g) => pointOnBlocker(g.x, g.y, bk, g.r)));
+
+  return {
+    me,
+    move: myMove,
+    targets: targets.filter((t) => t.best).slice(0, 4),
+    unreachable: targets.filter((t) => !t.best).length,
+    threats: threats.slice(0, 3),
+    exposure,
+    inCover,
+    objective,
+    cx,
+    cy,
+    noMove: [...noMove],
+    noRange: [...noRange],
+  };
+}
+
+function coachAdvice(c) {
+  const out = [];
+  const pct = (f) => Math.round(f * 100);
+  const t = c.targets[0];
+  if (t) {
+    const b = t.best;
+    if (b.kind === "now") out.push(`Střílej na ${t.name}: vidíš na něj a je v dosahu — zabiješ ≈ ${b.kills.toFixed(1)} modelů (${pct(b.frac)} %).`);
+    else if (b.kind === "move") out.push(`${b.need > 0.5 ? `Posuň se asi o ${Math.ceil(b.need)}″ a střílej` : "Po krátkém posunu střílej"} na ${t.name}: ≈ ${b.kills.toFixed(1)} modelů (${pct(b.frac)} %).${t.visible ? "" : " Dej pozor, teď na něj nevidíš."}`);
+    else out.push(`Nabij na ${t.name} (${pct(b.prob)} % šance na charge): ≈ ${b.kills.toFixed(1)} modelů (${pct(b.frac)} %).`);
+  } else {
+    out.push("Zatím žádná nepřátelská jednotka není dosažitelná ani v charge, ani ve střelbě.");
+  }
+  const th = c.threats[0];
+  if (th && th.frac >= 0.2) out.push(`Největší hrozba je ${th.name}: příští kolo ti vezme ≈ ${pct(th.frac)} % jednotky.`);
+  if (c.inCover) out.push("Jsi v oblasti terénu — nepřátelé mimo ni na tebe nevidí skrz ni.");
+  else if (c.exposure >= 2 && th && th.frac >= 0.3) out.push(`Vidí tě ${c.exposure} nepřátelské jednotky a nejsi v krytu — zvaž stažení za podložku.`);
+  if (c.objective) {
+    const o = c.objective;
+    if (o.holding) out.push(`Držíš objektiv (${o.label}).`);
+    else if (o.reachable) out.push(`Objektiv (${o.label}) je ${o.d.toFixed(1)}″ daleko — dosáhneš na něj pohybem (M ${c.move}″).`);
+    else out.push(`Nejbližší objektiv (${o.label}) je ${o.d.toFixed(1)}″ daleko, na pohyb M ${c.move}″ to nestačí.`);
+  }
+  return out;
+}
+
+function CoachPanel({ coach }) {
+  const pct = (f) => Math.round(f * 100);
+  const box = { background: "var(--panel)", border: "1px solid var(--accent)", borderRadius: 10, padding: 12, marginTop: 10 };
+  const label = { fontSize: 10.5, fontWeight: 800, color: "var(--label)", textTransform: "uppercase", letterSpacing: 0.6, margin: "10px 0 5px" };
+  const chip = (text, color) => (
+    <span style={{ fontSize: 10.5, fontWeight: 700, color: "#fff", background: color, borderRadius: 4, padding: "1px 6px", whiteSpace: "nowrap" }}>{text}</span>
+  );
+  const kindChip = (t) =>
+    t.best.kind === "now" ? chip("střelba teď", "#2e9e5b") : t.best.kind === "move" ? chip(t.best.need > 0.5 ? `po posunu ~${Math.ceil(t.best.need)}″` : "po posunu", "#c28a1d") : chip(`charge ${pct(t.best.prob)} %`, "#b4443a");
+  const notes = [];
+  if (coach.noMove.length) notes.push(`Chybí M u: ${coach.noMove.join(", ")} (počítám 6″).`);
+  if (coach.noRange.length) notes.push(`Chybí dosah zbraní u: ${coach.noRange.join(", ")} (počítám s neomezeným dosahem — nahraj list znovu).`);
+  return (
+    <div style={box}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <Lightbulb size={18} color="var(--amber)" />
+        <div className="gd-title" style={{ fontSize: 13.5, fontWeight: 800, color: "var(--text)" }}>Rádce — {coach.me.name}</div>
+      </div>
+      <div style={label}>Doporučení</div>
+      <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12.5, lineHeight: 1.5, color: "var(--text)" }}>
+        {coachAdvice(coach).map((a, i) => (
+          <li key={i} style={{ marginBottom: 3 }}>{a}</li>
+        ))}
+      </ul>
+      {coach.targets.length > 0 && (
+        <>
+          <div style={label}>Nejlepší cíle (podle očekávaných bodů)</div>
+          {coach.targets.map((t, i) => (
+            <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 8px", marginBottom: 4, borderRadius: 6, background: "var(--field-bg)", border: `1px solid ${i === 0 ? "var(--amber)" : "var(--field-border)"}` }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 12.5, fontWeight: 700, color: "var(--text)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{i === 0 ? "★ " : ""}{t.name}</div>
+                <div style={{ fontSize: 10.5, color: "var(--muted)" }}>
+                  {t.dist.toFixed(1)}″ · {t.visible ? "vidíš" : "zakryto"} · ≈ {t.best.kills.toFixed(1)} modelů ({pct(t.best.frac)} %){t.pts ? ` · ≈ ${Math.round(t.best.frac * t.pts)} b.` : ""}
+                </div>
+              </div>
+              {kindChip(t)}
+            </div>
+          ))}
+        </>
+      )}
+      {coach.threats.length > 0 && (
+        <>
+          <div style={label}>Hrozby pro tuto jednotku (příští kolo)</div>
+          {coach.threats.map((t, i) => (
+            <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 8px", marginBottom: 4, borderRadius: 6, background: "var(--field-bg)", border: "1px solid var(--field-border)" }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 12.5, fontWeight: 700, color: "var(--text)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.name}</div>
+                <div style={{ fontSize: 10.5, color: "var(--muted)" }}>
+                  {t.dist.toFixed(1)}″ · {t.visible ? "vidí tě" : "zatím nevidí"}{t.shoot > 0.01 ? ` · střelba ≈ ${pct(t.shoot)} %` : ""}{t.charge > 0.01 ? ` · charge ≈ ${pct(t.charge)} %` : ""}
+                </div>
+              </div>
+              {chip(`≈ ${pct(t.frac)} %`, t.frac >= 0.5 ? "#b4443a" : t.frac >= 0.25 ? "#c28a1d" : "#46699a")}
+            </div>
+          ))}
+        </>
+      )}
+      <div style={{ fontSize: 10.5, color: "var(--muted)", marginTop: 8, lineHeight: 1.45 }}>
+        Odhad z kalkulačky (základ bez bonusů, plný počet modelů): střelba jen zbraněmi, které na cíl dosáhnou; charge počítá 2D6. Nepřítel se při hrozbách může pohnout o svoje M. Rada je orientační, ne záruka.
+        {notes.map((n, i) => (
+          <div key={i} style={{ color: "var(--amber)" }}>{n}</div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // Third visual set ("Grimdark"): the tactical skin dressed in steel and gold -
 // deep royal blue, brushed-metal frames, parchment data cells, a serif display font.
 const GRIMDARK_VARS = {
@@ -8370,7 +8638,7 @@ function ManualView({ onBack }) {
 
       <ManualSection num="08" title="Herní deska">
         <ManualP>
-          <ManualPath>Herní deska</ManualPath> — vizuální bojiště na míru. Zaškrtni jednotky z knihovny do <b>Moje jednotky</b> nebo <b>Jednotky protihráče</b> — objeví se jako tokeny (jeden na každý model), přetáhni je na místo. Nad seznamem vybereš uloženou armádu (třeba z New Recruit) — seznam se zúží na její jednotky a „Dát celou armádu na desku“ je rozmístí najednou; „Nahrát z New Recruit (JSON)“ nahraje nový export rovnou na tuhle stranu i s base sizy ze sloupce Base. Tažením modelu hýbeš celou jednotkou (tlačítko v liště přepne na jeden model, Alt při tažení přepne na opak; Shift při tažení vezme vždy jen jeden model — třeba když ho chceš nacpat za zeď). Víc modelů označíš tažením myší po prázdné desce (Shift přidává, Shift+klik na model ho přidá/odebere) — pak se všechny označené hýbou spolu. Kolečkem myši nad modelem otočíš celou jednotku (nebo označené modely, nebo jeden model — stejná pravidla jako při tažení); kolečko dolů otáčí po směru hodin, Shift = jemné kroky po 5°. Třetí vzhled „Grimdark“ přidává ocelové a zlaté rámečky, obrázky hrdinů v hlavičce a cheat sheet ve stylu pergamenové tabulky (tisk zůstává černobílý). Taktický vzhled má vlastní sadu ikon (domů, kalkulačka, knihovna, historie, nastavení, koš atd.). Vzhled aplikace přepneš v Nastavení (ozubené kolečko → Vzhled): „Základní“ nebo „Taktický“ (sytě modrý HUD, hexagonové tokeny, texturované podložky, kompas a měřítko na desce). Tlačítko „Dosah pohybu“ kreslí kolem jednotek dva obrysy: tyrkysový = maximální pohyb (M), žlutý = maximální advance (M + 6″), oboje od okraje podstavy; když je něco vybráno nebo taženo, ukáže se jen to, jinak všechny jednotky. M se načítá z importu z New Recruit (u starších jednotek list nahraj znovu nebo M dopiš v knihovně). Tlačítko „Linie palby“ ukazuje, na koho vidí jednotka, kterou táhneš (nebo kterou vybereš klikem jako útočníka): zelená čára = vidí a vzdálenost v palcích; zakryté jednotky se nekreslí; zelený kroužek je kolem nepřátelských modelů, které vidí. Podle pravidel 11. edice zakrývá celá plocha terénu (podložky, ruiny, zdi, lesy; krátery a objektivy ne). Model, jehož podstava se oblasti dotýká, skrz ni vidí. Desku můžeš otočit o 90° tlačítkem „Otočit“ (jen pohled, data zůstávají) a přibližovat tlačítky lupy nebo Ctrl + kolečkem (na touchpadu štípnutím) kolem kurzoru; přiblíženou desku posouváš posuvníky. Podložky jsou standardně zamčené (tlačítko „Terén zamčený“ v liště nad deskou) — táhneš jen modely, terén se nehne; odemknutím ho zase přesouváš a upravuješ. Velikost tokenu vychází z base size jednotky — přímo u jednotky v knihovně je malý rozklikávací seznam se standardními velikostmi (25 až 160mm kulaté, plus běžné oválné jako 90×52mm), není potřeba kvůli tomu otvírat celou editaci.
+          <ManualPath>Herní deska</ManualPath> — vizuální bojiště na míru. Zaškrtni jednotky z knihovny do <b>Moje jednotky</b> nebo <b>Jednotky protihráče</b> — objeví se jako tokeny (jeden na každý model), přetáhni je na místo. Nad seznamem vybereš uloženou armádu (třeba z New Recruit) — seznam se zúží na její jednotky a „Dát celou armádu na desku“ je rozmístí najednou; „Nahrát z New Recruit (JSON)“ nahraje nový export rovnou na tuhle stranu i s base sizy ze sloupce Base. Tažením modelu hýbeš celou jednotkou (tlačítko v liště přepne na jeden model, Alt při tažení přepne na opak; Shift při tažení vezme vždy jen jeden model — třeba když ho chceš nacpat za zeď). Víc modelů označíš tažením myší po prázdné desce (Shift přidává, Shift+klik na model ho přidá/odebere) — pak se všechny označené hýbou spolu. Kolečkem myši nad modelem otočíš celou jednotku (nebo označené modely, nebo jeden model — stejná pravidla jako při tažení); kolečko dolů otáčí po směru hodin, Shift = jemné kroky po 5°. Třetí vzhled „Grimdark“ přidává ocelové a zlaté rámečky, obrázky hrdinů v hlavičce a cheat sheet ve stylu pergamenové tabulky (tisk zůstává černobílý). Taktický vzhled má vlastní sadu ikon (domů, kalkulačka, knihovna, historie, nastavení, koš atd.). Vzhled aplikace přepneš v Nastavení (ozubené kolečko → Vzhled): „Základní“ nebo „Taktický“ (sytě modrý HUD, hexagonové tokeny, texturované podložky, kompas a měřítko na desce). Tlačítko „Rádce“: klikni na svůj token a pod deskou se objeví rada pro jeho jednotku - na koho střílet nebo útočit (podle očekávaných bodů, s ohledem na dosah zbraní, viditelnost, pohyb a šanci na charge), kdo ti příští kolo hrozí a kde je nejbližší objektiv. Nejlepší cíl má na desce zlatý přerušovaný kroužek. Odhady jsou orientační. Tlačítko „Dosah pohybu“ kreslí kolem jednotek dva obrysy: tyrkysový = maximální pohyb (M), žlutý = maximální advance (M + 6″), oboje od okraje podstavy; když je něco vybráno nebo taženo, ukáže se jen to, jinak všechny jednotky. M se načítá z importu z New Recruit (u starších jednotek list nahraj znovu nebo M dopiš v knihovně). Tlačítko „Linie palby“ ukazuje, na koho vidí jednotka, kterou táhneš (nebo kterou vybereš klikem jako útočníka): zelená čára = vidí a vzdálenost v palcích; zakryté jednotky se nekreslí; zelený kroužek je kolem nepřátelských modelů, které vidí. Podle pravidel 11. edice zakrývá celá plocha terénu (podložky, ruiny, zdi, lesy; krátery a objektivy ne). Model, jehož podstava se oblasti dotýká, skrz ni vidí. Desku můžeš otočit o 90° tlačítkem „Otočit“ (jen pohled, data zůstávají) a přibližovat tlačítky lupy nebo Ctrl + kolečkem (na touchpadu štípnutím) kolem kurzoru; přiblíženou desku posouváš posuvníky. Podložky jsou standardně zamčené (tlačítko „Terén zamčený“ v liště nad deskou) — táhneš jen modely, terén se nehne; odemknutím ho zase přesouváš a upravuješ. Velikost tokenu vychází z base size jednotky — přímo u jednotky v knihovně je malý rozklikávací seznam se standardními velikostmi (25 až 160mm kulaté, plus běžné oválné jako 90×52mm), není potřeba kvůli tomu otvírat celou editaci.
         </ManualP>
         <ManualUl
           items={[
@@ -9810,6 +10078,23 @@ export default function Wh40kCalculator({ session }) {
       /* storage blocked - the toggle still works for this session */
     }
   };
+  // Coach panel under the board: advice for the picked unit.
+  const [coachOn, setCoachOn] = useState(() => {
+    try {
+      return localStorage.getItem("board_coach_v1") !== "0";
+    } catch (e) {
+      return true;
+    }
+  });
+  const toggleCoach = () => {
+    const next = !coachOn;
+    setCoachOn(next);
+    try {
+      localStorage.setItem("board_coach_v1", next ? "1" : "0");
+    } catch (e) {
+      /* storage blocked - the toggle still works for this session */
+    }
+  };
   const [dragIds, setDragIds] = useState([]);
   // Board pixels per inch (layout size, so it follows the zoom) - lets tokens
   // decide whether their name fits inside or has to go on a tag beside the group.
@@ -10459,6 +10744,21 @@ export default function Wh40kCalculator({ session }) {
     });
     return { groups: [...groups.values()], missing, focused: wanted.size > 0 };
   }, [moveRangeOn, view, dragIds, selectedTokenIds, boardAttackerTokenId, board.tokens, board.widthIn, board.heightIn, library]);
+
+  const coachData = useMemo(() => {
+    if (!coachOn || view !== "board" || !boardAttackerTokenId) return null;
+    const at = board.tokens.find((t) => t.id === boardAttackerTokenId);
+    if (!at) return null;
+    return computeCoach({
+      tokens: board.tokens,
+      terrain: board.terrain,
+      W: board.widthIn,
+      H: board.heightIn,
+      groupIds: [at.id],
+      library,
+      shapeOf: pieceShape,
+    });
+  }, [coachOn, view, boardAttackerTokenId, board.tokens, board.terrain, board.widthIn, board.heightIn, library]);
 
   const fireData = useMemo(() => {
     if (!fireLineOn || view !== "board") return null;
@@ -13319,6 +13619,25 @@ export default function Wh40kCalculator({ session }) {
               {moveWholeUnit ? "Táhne celá jednotka" : "Táhne jeden model"}
             </button>
             <button
+              onClick={toggleCoach}
+              title="Rádce: klikni na svůj token a pod deskou se ukáže rada - na koho střílet nebo útočit, kdo ti hrozí a kde je objektiv. Nejlepší cíl je na desce označený zlatým kroužkem."
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 5,
+                border: `1px solid ${coachOn ? "var(--accent)" : "var(--field-border)"}`,
+                background: coachOn ? "var(--accent-dim)" : "transparent",
+                color: coachOn ? "var(--accent-text)" : "var(--muted)",
+                borderRadius: 6,
+                padding: "5px 8px",
+                fontSize: 11,
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+            >
+              <Lightbulb size={13} /> Rádce
+            </button>
+            <button
               onClick={toggleMoveRange}
               title="Dosah pohybu: kolem jednotek dvě obrysy - plný pohyb (M) a maximální advance (M + 6″), měřeno od okraje podstavy. Když je něco vybráno nebo taženo, ukáže se jen to; jinak všechny rozmístěné jednotky. Hodnotu M bere z importu (u starších jednotek ji dopiš v knihovně nebo znovu nahraj list)."
               style={{
@@ -13672,6 +13991,32 @@ export default function Wh40kCalculator({ session }) {
                 ))}
               </svg>
             )}
+            {coachData && coachData.targets[0] && (
+              <svg
+                viewBox={`0 0 ${board.widthIn} ${board.heightIn}`}
+                preserveAspectRatio="none"
+                style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none", zIndex: 4 }}
+              >
+                {board.tokens
+                  .filter((t) => coachData.targets[0].tokenIds.includes(t.id))
+                  .map((t) => {
+                    const u = library.find((x) => x.id === t.unitId);
+                    const bm = parseBaseSizeMm(u ? u.baseSize : 32);
+                    return (
+                      <circle
+                        key={t.id}
+                        cx={(t.xPct / 100) * board.widthIn}
+                        cy={(t.yPct / 100) * board.heightIn}
+                        r={(bm.w + bm.h) / 4 / 25.4 + 0.3}
+                        fill="none"
+                        stroke="#f0b840"
+                        strokeWidth={0.18}
+                        strokeDasharray="0.5 0.3"
+                      />
+                    );
+                  })}
+              </svg>
+            )}
             {unitTags.map((g) => (
               <div
                 key={g.key}
@@ -13911,6 +14256,8 @@ export default function Wh40kCalculator({ session }) {
               ? "Klikni na token protihráče pro rychlý výpočet souboje."
               : "Klikni na svůj token, pak na token protihráče, pro rychlý výpočet souboje."}
           </div>
+
+          {coachData && <CoachPanel coach={coachData} />}
 
           {boardMatchup && (
             <div style={{ marginTop: 10, background: "var(--panel)", border: "1px solid var(--accent)", borderRadius: 10, padding: 12 }}>
