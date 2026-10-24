@@ -7683,6 +7683,20 @@ function isHiddenFrom(unit, x, y, r, dist, blockers) {
   if (dist <= 15) return false;
   return blockers.some((bk) => pointOnBlocker(x, y, bk, r));
 }
+// Shortest distance from a point to a polygon's boundary (also when the point is inside).
+function distToPolyEdges(x, y, poly) {
+  let best = Infinity;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [ax, ay] = poly[j];
+    const [bx, by] = poly[i];
+    const dx = bx - ax;
+    const dy = by - ay;
+    const l2 = dx * dx + dy * dy || 1;
+    const t = Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / l2));
+    best = Math.min(best, Math.hypot(x - (ax + t * dx), y - (ay + t * dy)));
+  }
+  return best;
+}
 // Shortest distance from a point to a polygon (0 when inside).
 function distToPoly(x, y, poly) {
   if (pointInPoly(x, y, poly)) return 0;
@@ -8176,7 +8190,7 @@ function pointInPoly(x, y, poly) {
   return inside;
 }
 
-function computeDeployPlan({ tokens, terrain, W, H, mineClips, theirsClips, library, shapeOf, styleKey, turnOrder }) {
+function computeDeployPlan({ tokens, terrain, W, H, mineClips, theirsClips, library, shapeOf, styleKey, turnOrder, side = "mine" }) {
   const libById = new Map(library.map((u) => [u.id, u]));
   const keyOf = (t) => `${t.side}|${t.unitId}|${t.inst || 0}`;
   const radiusOfUnit = (u) => {
@@ -8184,7 +8198,7 @@ function computeDeployPlan({ tokens, terrain, W, H, mineClips, theirsClips, libr
     return (bm.w + bm.h) / 4 / 25.4;
   };
   const mineGroups = new Map();
-  tokens.filter((t) => t.side === "mine").forEach((t) => {
+  tokens.filter((t) => t.side === side).forEach((t) => {
     const k = keyOf(t);
     if (!mineGroups.has(k)) mineGroups.set(k, []);
     mineGroups.get(k).push(t);
@@ -8194,6 +8208,8 @@ function computeDeployPlan({ tokens, terrain, W, H, mineClips, theirsClips, libr
   const mineZone = mineClips.map((c) => clipToPoly(c, W, H));
   const theirsZone = theirsClips.map((c) => clipToPoly(c, W, H));
   const inMine = (x, y) => mineZone.some((poly) => pointInPoly(x, y, poly));
+  // the WHOLE base has to stand inside the deployment zone, not only its centre
+  const baseInZone = (x, y, r) => mineZone.some((poly) => pointInPoly(x, y, poly) && distToPolyEdges(x, y, poly) >= r);
   const blockers = sightBlockers(terrain, W, H, shapeOf);
   const standsOn = (x, y, r) => blockers.map((bk) => pointOnBlocker(x, y, bk, r));
   const sees = (ax, ay, aOn, bx, by, bOn) => {
@@ -8205,7 +8221,7 @@ function computeDeployPlan({ tokens, terrain, W, H, mineClips, theirsClips, libr
   };
 
   // --- the enemy: real tokens when they're on the board, otherwise samples of their zone
-  const enemyTokens = tokens.filter((t) => t.side !== "mine");
+  const enemyTokens = tokens.filter((t) => t.side !== side);
   const enemyKnown = enemyTokens.length > 0;
   const GENERIC = DEPLOY_GENERIC;
   const enemies = [];
@@ -8328,7 +8344,8 @@ function computeDeployPlan({ tokens, terrain, W, H, mineClips, theirsClips, libr
     // turn: the spot that matters (sight, threats) is where it ENDS, so candidates reach
     // up to X" beyond the zone, but never within 9" of an enemy model.
     const inBoard = (x, y) => offsets.every((o) => x + o.x > 0.5 && x + o.x < W - 0.5 && y + o.y > 0.5 && y + o.y < H - 0.5);
-    const fitsZone = (x, y) => inBoard(x, y) && offsets.every((o) => inMine(x + o.x, y + o.y));
+    const rMax = Math.max(bm.w, bm.h) / 2 / 25.4;
+    const fitsZone = (x, y) => inBoard(x, y) && offsets.every((o) => baseInZone(x + o.x, y + o.y, rMax));
     const validP = [];
     if (unit.scout > 0) {
       for (let x = Math.min(...zxs); x <= Math.max(...zxs); x += stepIn) {
@@ -8499,7 +8516,7 @@ function computeDeployPlan({ tokens, terrain, W, H, mineClips, theirsClips, libr
   return { plans, enemyKnown, style: styleKey, notes };
 }
 
-function DeployPanel({ plan, styleKey, onStyle, autoStyle, factionInfo, factionName, isAuto, turnOrder, onTurn, armies, armyId, onArmy, onPlaceIdeal, canPlaceIdeal, onRun, onApplyAll, onApplyOne, onClose }) {
+function DeployPanel({ plan, styleKey, onStyle, autoStyle, factionInfo, factionName, isAuto, turnOrder, onTurn, armies, armyId, onArmy, onPlaceIdeal, canPlaceIdeal, planOpp, oppArmyId, onOppArmy, canPlaceOpp, onPlaceOpp, onPlaceBoth, onRun, onApplyAll, onApplyOne, onClose }) {
   const box = { background: "var(--panel)", border: "1px solid var(--accent)", borderRadius: 10, padding: 12, marginTop: 10 };
   const sel = (active) => ({
     border: `1px solid ${active ? "var(--accent)" : "var(--field-border)"}`,
@@ -8513,6 +8530,42 @@ function DeployPanel({ plan, styleKey, onStyle, autoStyle, factionInfo, factionN
   });
   const st = DEPLOY_STYLES[styleKey] || DEPLOY_STYLES.balanced;
   const roleChip = { shooter: ["střelba", "#2e9e5b"], melee: ["blízký boj", "#b4443a"], hybrid: ["univerzální", "#46699a"], screen: ["screen", "#c28a1d"] };
+  const PlanList = ({ pl, title }) => {
+    if (!pl) return null;
+    return (
+      <>
+        {title && <div style={{ fontSize: 10.5, fontWeight: 800, color: "var(--label)", textTransform: "uppercase", letterSpacing: 0.6, marginTop: 12 }}>{title}</div>}
+        {pl.notes && pl.notes.map((n, i) => (
+          <div key={i} style={{ fontSize: 11, color: "var(--amber)", marginTop: 6, lineHeight: 1.4 }}>{n}</div>
+        ))}
+        {pl.plans && (
+          <div style={{ marginTop: 10 }}>
+            {pl.plans.map((p) => (
+              <div key={p.key} style={{ padding: "6px 8px", marginBottom: 5, borderRadius: 6, background: "var(--field-bg)", border: "1px solid var(--field-border)" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ width: 20, height: 20, borderRadius: "50%", background: "var(--accent)", color: "#fff", fontSize: 11, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{p.order}</span>
+                  <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: 700, color: "var(--text)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</span>
+                  <span style={{ fontSize: 10.5, fontWeight: 700, color: "#fff", background: roleChip[p.role][1], borderRadius: 4, padding: "1px 6px" }}>{roleChip[p.role][0]}</span>
+                  {!p.failed && !pl.applied && pl === plan && (
+                    <button onClick={() => onApplyOne(p)} style={{ ...sel(false), padding: "2px 8px", fontSize: 11 }}>Přijmout</button>
+                  )}
+                </div>
+                {p.failed ? (
+                  <div style={{ fontSize: 11, color: "var(--amber)", marginTop: 3 }}>Nenašlo se volné místo v zóně (celá základna se musí vejít).</div>
+                ) : (
+                  <ul style={{ margin: "4px 0 0", paddingLeft: 18, fontSize: 11.5, color: "var(--muted)", lineHeight: 1.45 }}>
+                    {p.reasons.map((r, i) => (
+                      <li key={i}>{r}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </>
+    );
+  };
   return (
     <div style={box}>
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -8575,6 +8628,37 @@ function DeployPanel({ plan, styleKey, onStyle, autoStyle, factionInfo, factionN
           Rozmístit armádu ideálně
         </button>
       </div>
+      <div style={{ fontSize: 10.5, fontWeight: 800, color: "var(--label)", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 4 }}>Soupeřova armáda</div>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+        <select
+          value={oppArmyId}
+          onChange={(e) => onOppArmy(e.target.value)}
+          style={{ flex: 1, minWidth: 140, background: "var(--field-bg)", color: "var(--text)", border: "1px solid var(--field-border)", borderRadius: 6, padding: "5px 6px", fontSize: 12 }}
+        >
+          <option value="">— vyber uloženou armádu —</option>
+          {[...armies].sort((x, y) => x.name.localeCompare(y.name)).map((a) => (
+            <option key={a.id} value={a.id}>{a.name} ({a.unitIds.length})</option>
+          ))}
+        </select>
+        <button
+          onClick={onPlaceOpp}
+          disabled={!canPlaceOpp}
+          className="wh40k-btn"
+          title="Rozmístí soupeře ve své zóně podle stejné logiky (styl podle tvé armády, v 1. kole nevidět)."
+          style={{ ...sel(false), padding: "7px 12px", fontSize: 12.5, opacity: canPlaceOpp ? 1 : 0.5, cursor: canPlaceOpp ? "pointer" : "not-allowed" }}
+        >
+          Rozmístit soupeře ideálně
+        </button>
+        <button
+          onClick={onPlaceBoth}
+          disabled={!canPlaceIdeal || !canPlaceOpp}
+          className="wh40k-btn"
+          title="Nejdřív rozmístí tvoji armádu, pak soupeře proti ní."
+          style={{ ...sel(true), padding: "7px 12px", fontSize: 12.5, opacity: canPlaceIdeal && canPlaceOpp ? 1 : 0.5, cursor: canPlaceIdeal && canPlaceOpp ? "pointer" : "not-allowed" }}
+        >
+          Rozmístit obě armády
+        </button>
+      </div>
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
         <button onClick={onRun} className="wh40k-btn" style={{ ...sel(false), padding: "7px 14px", fontSize: 12.5 }}>Jen navrhnout (už rozmístěná)</button>
         {plan && plan.plans && !plan.applied && plan.plans.some((p) => !p.failed) && (
@@ -8587,36 +8671,12 @@ function DeployPanel({ plan, styleKey, onStyle, autoStyle, factionInfo, factionN
       {plan && plan.applied && (
         <div style={{ fontSize: 12, color: "var(--accent-text)", marginTop: 8 }}>Armáda je rozmístěná na desce. Kdyžtak si vedle přečti, proč je která jednotka kde, a jednotky si dál přetáhni.</div>
       )}
-      {plan && plan.notes && plan.notes.map((n, i) => (
-        <div key={i} style={{ fontSize: 11, color: "var(--amber)", marginTop: 6, lineHeight: 1.4 }}>{n}</div>
-      ))}
-      {plan && plan.plans && (
-        <div style={{ marginTop: 10 }}>
-          {plan.plans.map((p) => (
-            <div key={p.key} style={{ padding: "6px 8px", marginBottom: 5, borderRadius: 6, background: "var(--field-bg)", border: "1px solid var(--field-border)" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ width: 20, height: 20, borderRadius: "50%", background: "var(--accent)", color: "#fff", fontSize: 11, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{p.order}</span>
-                <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: 700, color: "var(--text)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</span>
-                <span style={{ fontSize: 10.5, fontWeight: 700, color: "#fff", background: roleChip[p.role][1], borderRadius: 4, padding: "1px 6px" }}>{roleChip[p.role][0]}</span>
-                {!p.failed && !plan.applied && (
-                  <button onClick={() => onApplyOne(p)} style={{ ...sel(false), padding: "2px 8px", fontSize: 11 }}>Přijmout</button>
-                )}
-              </div>
-              {p.failed ? (
-                <div style={{ fontSize: 11, color: "var(--amber)", marginTop: 3 }}>Nenašlo se volné místo v zóně.</div>
-              ) : (
-                <ul style={{ margin: "4px 0 0", paddingLeft: 18, fontSize: 11.5, color: "var(--muted)", lineHeight: 1.45 }}>
-                  {p.reasons.map((r, i) => (
-                    <li key={i}>{r}</li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
+      <PlanList pl={plan} title={null} />
+      {planOpp && planOpp.empty && <div style={{ fontSize: 12, color: "var(--amber)", marginTop: 8 }}>Soupeřovy jednotky se nepodařilo rozmístit (chybí zóna nebo armáda).</div>}
+      {planOpp && planOpp.applied && <div style={{ fontSize: 12, color: "var(--accent-text)", marginTop: 8 }}>Soupeř je rozmístěný na desce (jeho důvody jsou níž).</div>}
+      {planOpp && <PlanList pl={planOpp} title="Soupeř" />}
       <div style={{ fontSize: 10.5, color: "var(--muted)", marginTop: 8, lineHeight: 1.45 }}>
-        Zásady vychází z běžných turnajových rad (Goonhammer: Surviving Turn Zero): nestát v dosahu hrozeb soupeře, střelci s výhledy z krytu, boj zblízka skrytý, ale v dosahu chargu, levné jednotky dopředu jako screen a na objektivy. Hlavní cíl: aby jednotky nebyly v 1. kole vidět (soupeř se před střelbou může pohnout, tak se výhled testuje i z míst, kam dojde). Pravidla (Scouts, Infiltrators, Hidden, Ingress, charge, engagement range 2″) jsou podle Core Rules 11. edice z Wahapedie; k tomu obecné turnajové zásady. Je to heuristika, ne záruka.
+        Zásady vychází z běžných turnajových rad (Goonhammer: Surviving Turn Zero): nestát v dosahu hrozeb soupeře, střelci s výhledy z krytu, boj zblízka skrytý, ale v dosahu chargu, levné jednotky dopředu jako screen a na objektivy. Celá základna každého modelu musí být uvnitř zóny nasazení. Hlavní cíl: aby jednotky nebyly v 1. kole vidět (soupeř se před střelbou může pohnout, tak se výhled testuje i z míst, kam dojde). Pravidla (Scouts, Infiltrators, Hidden, Ingress, charge, engagement range 2″) jsou podle Core Rules 11. edice z Wahapedie; k tomu obecné turnajové zásady. Je to heuristika, ne záruka.
       </div>
     </div>
   );
@@ -10752,6 +10812,8 @@ export default function Wh40kCalculator({ session }) {
   const [deployOpen, setDeployOpen] = useState(false);
   const [deployStyle, setDeployStyle] = useState(null);
   const [deployArmySel, setDeployArmySel] = useState("");
+  const [deployOppArmySel, setDeployOppArmySel] = useState("");
+  const [deployPlanOpp, setDeployPlanOpp] = useState(null);
   const [deployTurn, setDeployTurn] = useState("unknown");
   const [deployPlan, setDeployPlan] = useState(null);
   const [dragIds, setDragIds] = useState([]);
@@ -11483,45 +11545,92 @@ export default function Wh40kCalculator({ session }) {
   }, [deployOpponentUnits, deployDetectedStyle]);
   const deployStyleKey = deployStyle || deployAuto.style;
   const deployArmyId = deployArmySel || boardArmySel.mine || "";
-  const buildDeployPlan = (tokens) => {
+  const deployOppArmyId = deployOppArmySel || boardArmySel.theirs || "";
+  // The style the OPPONENT should use: vs my army (or its own faction when I'm not placed yet).
+  const unitsOfSide = (tokens, side, armyId) => {
+    const ids = [];
+    const seen = new Set();
+    tokens.filter((t) => t.side === side).forEach((t) => {
+      const k = `${t.unitId}|${t.inst || 0}`;
+      if (!seen.has(k)) {
+        seen.add(k);
+        ids.push(t.unitId);
+      }
+    });
+    if (ids.length === 0) {
+      const army = armies.find((a) => a.id === armyId);
+      if (army) army.unitIds.forEach((id) => ids.push(id));
+    }
+    return ids.map((id) => library.find((u) => u.id === id)).filter(Boolean);
+  };
+  const styleFor = (side, tokens) => {
+    if (side === "mine") return deployStyleKey;
+    const own = unitsOfSide(tokens, "theirs", deployOppArmyId);
+    const fallback = deployStyleForFaction(own[0] ? own[0].faction : "");
+    const vs = deployStyleVsOpponent(unitsOfSide(tokens, "mine", deployArmyId), fallback);
+    return vs ? vs.style : fallback;
+  };
+  const buildDeployPlan = (tokens, side = "mine") => {
     const layout = allLayouts.find((l) => l.id === board.layoutId) || allLayouts[0];
+    // On the board the "theirs" zone is drawn in the blue of my tokens (and the "mine"
+    // zone in the red of the opponent's), so my deployment area is the "theirs" clip.
+    const myClips = resolveZoneClips(board.customZones?.theirs, layout.theirsClip);
+    const oppClips = resolveZoneClips(board.customZones?.mine, layout.mineClip);
     return computeDeployPlan({
       tokens,
       terrain: board.terrain,
       W: board.widthIn,
       H: board.heightIn,
-      // On the board the "theirs" zone is drawn in the blue of my tokens (and the "mine"
-      // zone in the red of the opponent's), so my deployment area is the "theirs" clip.
-      mineClips: resolveZoneClips(board.customZones?.theirs, layout.theirsClip),
-      theirsClips: resolveZoneClips(board.customZones?.mine, layout.mineClip),
+      mineClips: side === "mine" ? myClips : oppClips,
+      theirsClips: side === "mine" ? oppClips : myClips,
       library,
       shapeOf: pieceShape,
-      styleKey: deployStyleKey,
-      turnOrder: deployTurn,
+      styleKey: styleFor(side, tokens),
+      turnOrder: side === "mine" ? deployTurn : deployTurn === "first" ? "second" : deployTurn === "second" ? "first" : "unknown",
+      side,
     });
   };
   const runDeployAdvisor = () => setDeployPlan(buildDeployPlan(board.tokens));
-  // Put the picked army on the board and place it by the advisor in one go.
-  const placeArmyIdeally = () => {
-    const army = armies.find((a) => a.id === deployArmyId);
-    if (!army) return;
-    const entries = boardEntriesFor(army.unitIds.filter((id) => library.some((u) => u.id === id)), "mine");
-    const tokens = [...board.tokens, ...(entries.length ? layoutUnitTokens(entries, "mine", board.tokens) : [])];
-    const plan = buildDeployPlan(tokens);
-    if (!plan.plans) {
-      setDeployPlan(plan);
-      return;
-    }
+  // Put an army on the board for one side and place it by the advisor. Returns the new
+  // token list (nothing is saved here) and the plan.
+  const placeSideIdeally = (side, armyId, baseTokens) => {
+    const army = armies.find((a) => a.id === armyId);
+    if (!army) return null;
+    const entries = boardEntriesFor(army.unitIds.filter((id) => library.some((u) => u.id === id)), side);
+    const tokens = [...baseTokens, ...(entries.length ? layoutUnitTokens(entries, side, baseTokens) : [])];
+    const plan = buildDeployPlan(tokens, side);
+    if (!plan.plans) return { tokens, plan };
     const move = new Map();
     plan.plans.forEach((p) => p.models && p.models.forEach((m) => move.set(m.id, m)));
-    persistBoard({
-      ...board,
+    return {
+      plan,
       tokens: tokens.map((t) => {
         const m = move.get(t.id);
         return m ? { ...t, xPct: Math.max(1, Math.min(99, (m.x / board.widthIn) * 100)), yPct: Math.max(1, Math.min(99, (m.y / board.heightIn) * 100)) } : t;
       }),
-    });
-    setDeployPlan({ ...plan, applied: true });
+    };
+  };
+  const placeArmyIdeally = () => {
+    const r = placeSideIdeally("mine", deployArmyId, board.tokens);
+    if (!r) return;
+    if (r.plan.plans) persistBoard({ ...board, tokens: r.tokens });
+    setDeployPlan(r.plan.plans ? { ...r.plan, applied: true } : r.plan);
+  };
+  const placeOppIdeally = () => {
+    const r = placeSideIdeally("theirs", deployOppArmyId, board.tokens);
+    if (!r) return;
+    if (r.plan.plans) persistBoard({ ...board, tokens: r.tokens });
+    setDeployPlanOpp(r.plan.plans ? { ...r.plan, applied: true } : r.plan);
+  };
+  // Both armies in one go: mine first, then the opponent against my deployed positions.
+  const placeBothIdeally = () => {
+    const a1 = placeSideIdeally("mine", deployArmyId, board.tokens);
+    if (!a1) return;
+    const a2 = placeSideIdeally("theirs", deployOppArmyId, a1.tokens);
+    if (!a2) return;
+    persistBoard({ ...board, tokens: a2.tokens });
+    setDeployPlan(a1.plan.plans ? { ...a1.plan, applied: true } : a1.plan);
+    setDeployPlanOpp(a2.plan.plans ? { ...a2.plan, applied: true } : a2.plan);
   };
   const applyDeployPlans = (list) => {
     const move = new Map();
@@ -15133,6 +15242,12 @@ export default function Wh40kCalculator({ session }) {
               onArmy={setDeployArmySel}
               canPlaceIdeal={!!armies.find((a) => a.id === deployArmyId)}
               onPlaceIdeal={placeArmyIdeally}
+              planOpp={deployPlanOpp}
+              oppArmyId={deployOppArmyId}
+              onOppArmy={setDeployOppArmySel}
+              canPlaceOpp={!!armies.find((a) => a.id === deployOppArmyId)}
+              onPlaceOpp={placeOppIdeally}
+              onPlaceBoth={placeBothIdeally}
               turnOrder={deployTurn}
               onTurn={(k) => {
                 setDeployTurn(k);
@@ -15144,6 +15259,7 @@ export default function Wh40kCalculator({ session }) {
               onClose={() => {
                 setDeployOpen(false);
                 setDeployPlan(null);
+                setDeployPlanOpp(null);
               }}
             />
           )}
