@@ -8228,7 +8228,7 @@ function computeDeployPlan({ tokens, terrain, W, H, mineClips, theirsClips, libr
       (eu.members || []).forEach((m) => (m.weapons || []).forEach((w) => w.type !== "melee" && (maxRange = Math.max(maxRange, weaponReachIn(w) ?? 24))));
       const mv = eu.move > 0 ? eu.move : 6;
       const esc = eu.scout > 0 ? eu.scout : 0; // its Scout move happens before turn 1
-      enemies.push({ unit: eu, reps, pts: parseInt(eu.points, 10) || 100, shootReach: maxRange + mv + esc, meleeReach: mv + 9 + esc, scout: esc });
+      enemies.push({ unit: eu, reps, pts: parseInt(eu.points, 10) || 100, shootReach: maxRange + mv + esc, meleeReach: mv + 9 + esc, scout: esc, maxRange, moveRad: mv + esc });
     });
   } else {
     const xs = theirsZone.flat().map((p) => p[0]);
@@ -8236,11 +8236,25 @@ function computeDeployPlan({ tokens, terrain, W, H, mineClips, theirsClips, libr
     if (xs.length) {
       for (let x = Math.min(...xs) + 3; x < Math.max(...xs); x += 6) {
         for (let y = Math.min(...ys) + 3; y < Math.max(...ys); y += 6) {
-          if (theirsZone.some((poly) => pointInPoly(x, y, poly))) enemies.push({ unit: null, reps: [{ x, y, on: standsOn(x, y, 0.8) }], pts: 100, shootReach: 30, meleeReach: 15 });
+          if (theirsZone.some((poly) => pointInPoly(x, y, poly))) enemies.push({ unit: null, reps: [{ x, y, on: standsOn(x, y, 0.8) }], pts: 100, shootReach: 30, meleeReach: 15, maxRange: 30, moveRad: 8 });
         }
       }
     }
   }
+  // Round 1: before the enemy shoots it can MOVE (M + Scout). Sight is therefore tested from
+  // its current positions AND from points on a ring at that distance around its models.
+  enemies.forEach((e) => {
+    const samples = [];
+    e.reps.forEach((rp) => {
+      for (let k = 0; k < 6; k++) {
+        const a = (k / 6) * Math.PI * 2;
+        const sx = Math.max(0.5, Math.min(W - 0.5, rp.x + Math.cos(a) * e.moveRad));
+        const sy = Math.max(0.5, Math.min(H - 0.5, rp.y + Math.sin(a) * e.moveRad));
+        samples.push({ x: sx, y: sy, on: standsOn(sx, sy, 0.8) });
+      }
+    });
+    e.samples = samples;
+  });
   const ecx = enemies.length ? enemies.reduce((a, e) => a + e.reps[0].x, 0) / enemies.length : W / 2;
   const ecy = enemies.length ? enemies.reduce((a, e) => a + e.reps[0].y, 0) / enemies.length : H / 2;
   const pseudoW = enemies.length ? 0.6 / Math.max(1, enemies.length / 3) : 0;
@@ -8357,15 +8371,28 @@ function computeDeployPlan({ tokens, terrain, W, H, mineClips, theirsClips, libr
         let exposure = 0;
         let offense = 0;
         let seenBy = 0;
+        let seenNowBy = 0;
         let topTarget = null;
         enemies.forEach((e) => {
-          let seen = false;
+          let seenNow = false;
+          let seenMove = false;
           let dmin = Infinity;
           e.reps.forEach((rp) => {
             const d = Math.hypot(rp.x - x, rp.y - y);
             if (d < dmin) dmin = d;
-            if (!seen && d <= e.shootReach + 2 && sees(x, y, on, rp.x, rp.y, rp.on) && !isHiddenFrom(unit.u, x, y, unit.r, d, blockers)) seen = true;
+            if (!seenNow && d <= e.maxRange + 1 && sees(x, y, on, rp.x, rp.y, rp.on) && !isHiddenFrom(unit.u, x, y, unit.r, d, blockers)) seenNow = true;
           });
+          if (!seenNow) {
+            for (const sp of e.samples) {
+              const d = Math.hypot(sp.x - x, sp.y - y);
+              if (d <= e.maxRange + 1 && sees(x, y, on, sp.x, sp.y, sp.on) && !isHiddenFrom(unit.u, x, y, unit.r, d, blockers)) {
+                seenMove = true;
+                break;
+              }
+            }
+          }
+          const seen = seenNow || seenMove;
+          if (seenNow) seenNowBy += 1;
           const shootW = e.unit ? dmgOn(e.unit, unit.u, false) : pseudoW;
           const chargeW = e.unit ? dmgOn(e.unit, unit.u, true) * 0.7 : 0;
           if (seen) {
@@ -8377,7 +8404,7 @@ function computeDeployPlan({ tokens, terrain, W, H, mineClips, theirsClips, libr
           const wantShoot = unit.role !== "melee";
           const wantMelee = unit.role !== "shooter";
           let o = 0;
-          if (wantShoot && seen && dmin <= unit.shootReach) o = Math.max(o, e.unit ? dmgOn(unit.u, e.unit, false) * (e.pts / 100) : pseudoW);
+          if (wantShoot && seenNow && dmin <= unit.shootReach) o = Math.max(o, e.unit ? dmgOn(unit.u, e.unit, false) * (e.pts / 100) : pseudoW);
           if (wantMelee && dmin <= unit.meleeReach) o = Math.max(o, e.unit ? dmgOn(unit.u, e.unit, true) * (e.pts / 100) : pseudoW * 0.8);
           if (o > 0) {
             offense += o;
@@ -8413,7 +8440,10 @@ function computeDeployPlan({ tokens, terrain, W, H, mineClips, theirsClips, libr
         } else {
           score = oW * offense * 0.9 - eWe * expEff * 1.2 + cW * cover * 0.45 + fW * fw * 0.4 * (seenBy === 0 ? 1 : 0.3) + objBonus * 0.4;
         }
-        if (!best || score > best.score) best = { x, y, score, exposure, offense, seenBy, cover, topTarget, nearObj, dFront };
+        // the main goal: nobody sees the unit in round 1 (even after the enemy moves)
+        score -= (unit.role === "screen" ? 1.2 : 3.5) * seenBy;
+        if (seenBy === 0 && unit.role !== "screen") score += 1.5;
+        if (!best || score > best.score) best = { x, y, score, exposure, offense, seenBy, seenNowBy, cover, topTarget, nearObj, dFront };
       }
     }
     if (!best) {
@@ -8436,7 +8466,7 @@ function computeDeployPlan({ tokens, terrain, W, H, mineClips, theirsClips, libr
     reasons.push(roleText + ".");
     if (unit.role === "screen") reasons.push("Jde dopředu před drahé jednotky, aby je blokovala před chargem.");
     if (best.cover) reasons.push("Stojí v oblasti terénu (kryt, skrz její okraj ji viditelnost nezasáhne).");
-    if (enemyKnown) reasons.push(best.seenBy === 0 ? "Na startu ji žádná nepřátelská jednotka nevidí." : `Vidí ji ${best.seenBy} ${best.seenBy === 1 ? "nepřátelská jednotka" : best.seenBy < 5 ? "nepřátelské jednotky" : "nepřátelských jednotek"}, hrozba ≈ ${Math.round(Math.min(best.exposure, 3) * 100)} % jednotky.`);
+    if (enemyKnown) reasons.push(best.seenBy === 0 ? "V 1. kole ji soupeř nevidí: ani ze své pozice, ani po pohybu (M + Scout)." : best.seenNowBy === 0 ? `Na startu ji nevidí nikdo, ale po pohybu na ni uvidí ${best.seenBy} ${best.seenBy === 1 ? "jednotka" : best.seenBy < 5 ? "jednotky" : "jednotek"}. Úplně schovat se tu nedá.` : `Vidí ji ${best.seenBy} ${best.seenBy === 1 ? "nepřátelská jednotka" : best.seenBy < 5 ? "nepřátelské jednotky" : "nepřátelských jednotek"}, hrozba ≈ ${Math.round(Math.min(best.exposure, 3) * 100)} % jednotky.`);
     else reasons.push(best.seenBy === 0 ? "Z nepřátelské zóny na ni neprochází výhled (počítáno vzorkově)." : "Počítáno proti vzorkům nepřátelské zóny (soupeř ještě není rozmístěn).");
     if (best.topTarget && unit.role !== "screen") reasons.push(`Odsud dosáhne na ${best.topTarget.name}.`);
     if (best.nearObj <= 6 && Number.isFinite(best.nearObj)) reasons.push(`Je u objektivu (${best.nearObj.toFixed(1)}″).`);
@@ -8586,7 +8616,7 @@ function DeployPanel({ plan, styleKey, onStyle, autoStyle, factionInfo, factionN
         </div>
       )}
       <div style={{ fontSize: 10.5, color: "var(--muted)", marginTop: 8, lineHeight: 1.45 }}>
-        Zásady vychází z běžných turnajových rad (Goonhammer: Surviving Turn Zero): nestát v dosahu hrozeb soupeře, střelci s výhledy z krytu, boj zblízka skrytý, ale v dosahu chargu, levné jednotky dopředu jako screen a na objektivy. Pravidla (Scouts, Infiltrators, Hidden, Ingress, charge, engagement range 2″) jsou podle Core Rules 11. edice z Wahapedie; k tomu obecné turnajové zásady. Je to heuristika, ne záruka.
+        Zásady vychází z běžných turnajových rad (Goonhammer: Surviving Turn Zero): nestát v dosahu hrozeb soupeře, střelci s výhledy z krytu, boj zblízka skrytý, ale v dosahu chargu, levné jednotky dopředu jako screen a na objektivy. Hlavní cíl: aby jednotky nebyly v 1. kole vidět (soupeř se před střelbou může pohnout, tak se výhled testuje i z míst, kam dojde). Pravidla (Scouts, Infiltrators, Hidden, Ingress, charge, engagement range 2″) jsou podle Core Rules 11. edice z Wahapedie; k tomu obecné turnajové zásady. Je to heuristika, ne záruka.
       </div>
     </div>
   );
