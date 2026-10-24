@@ -8107,13 +8107,32 @@ const DEPLOY_STYLES = {
   balanced: { label: "Vyvážená", exposure: 1.0, offense: 1.0, forward: 0.3, cover: 0.8, note: "Kompromis: kryt, výhledy a objektivy." },
 };
 // Very rough army archetypes by faction name (general knowledge, not an official rule).
-function deployStyleForFaction(faction) {
+// Per-faction deployment style + a short tip. "src" marks tips that come from 11th-edition
+// previews / reviews I read (BoLS, Spikey Bits, Sprues & Brews); the rest is general
+// competitive knowledge about the archetype, NOT checked against the 11th-edition codexes.
+const FACTION_DEPLOY = [
+  { match: ["grey knights"], style: "elite", tip: "Elitní, málo modelů. V detachmentu Immaterial Interdiction Interceptory po střelbě skočí (Echojump D6+1″) a rovnou nabíjejí, takže je drž za krytem mimo výhledy a nech je vyskočit. Jednotky s teleportem / Deep Strike zvaž do rezervy.", src: true },
+  { match: ["custodes"], style: "elite", tip: "Velmi elitní (i pod 15 modelů) a bez dost střelby na přestřelku: tlač dopředu a čisti soupeře u objektivů, ale po cestě se kryj za terénem.", src: true },
+  { match: ["votann"], style: "gunline", tip: "Odolná střelecká armáda. Detachment Armoured Trailblazers dává Sagitaurům Scouts 6″: posuň je po nasazení dopředu na objektiv a pěchotu drž v krytu za nimi.", src: true },
+  { match: ["astra militarum", "imperial guard"], style: "gunline", tip: "Spousta levných těl: gunline za screenem. Detachment Designation Force dává Scoutům a Sentinelům Infiltrators / dlouhý Scout, takže je pošli dopředu na objektivy; pěchotu hlídej v terénu (Hidden).", src: true },
+  { match: ["emperor's children", "emperors children"], style: "horde", tip: "Blízký boj, který chce být rychle v kontaktu. Drž drahé jednotky mimo palbu, dokud nejdou nabíjet.", src: true },
+  { match: ["world eaters"], style: "horde", tip: "Agresivní blízký boj (Berzerker Warband je hlavní stroj na zabíjení). Postav screen a drahé jednotky nech skryté, pak jdi dopředu najednou.", src: true },
+  { match: ["heldrake", "chaos space marines", "traitor", "legions"], style: "balanced", tip: "Vyvážená armáda. Heldrake už není AIRCRAFT a má menší pohyb, takže ho nasaď jako běžné vozidlo.", src: true },
+  { match: ["grey knights", "deathwatch"], style: "elite", tip: "Elitní, málo modelů: drahé modely za terénem, levný screen vpředu.", src: false },
+  { match: ["space marines", "adeptus astartes", "ultramarines", "blood angels", "dark angels", "space wolves", "black templars", "imperial fists", "salamanders", "raven guard", "iron hands", "white scars"], style: "balanced", tip: "Univerzální armáda. Střelce za krytem s výhledem, boj zblízka skrytý a v dosahu chargu, Scout / Infiltrator jednotky jako screen a na objektivy. Detachmenty dávají bonusy celé armádě, takže drž jednotky pohromadě.", src: false },
+  { match: ["ork", "tyranid", "genestealer", "death guard", "chaos daemons", "daemons"], style: "horde", tip: "Mnoho modelů a blízký boj: tlač dopředu a ztráty vepředu nevadí. Levné jednotky jako screen před drahými, drahé držet z dohledu do chargu. Pěchota v terénu je Hidden (vidět jen do 15″).", src: false },
+  { match: ["t'au", "tau", "thousand sons", "necron", "mechanicus", "imperial agents", "agents of the imperium"], style: "gunline", tip: "Střelecká armáda: výhledy z krytu na střed a objektivy, před nimi screen. Neukazuj se soupeři na 15″+ (Hidden) a nestůj mimo kryt.", src: false },
+  { match: ["aeldari", "drukhari", "harlequin", "ynnari"], style: "elite", tip: "Rychlá a křehká armáda: schovej drahé jednotky do transportů nebo za terén a udeř na prvním tahu, využij mobilitu místo robustnosti.", src: false },
+  { match: ["imperial knights", "chaos knights", "knights"], style: "elite", tip: "Velké základny, málo modelů: potřebují místo na pohyb a obscuring podložky jim kazí výhledy. Postav je tam, kde mají čáry palby, a nech screen před nimi, aby je neblokovali.", src: false },
+  { match: ["sororitas", "adepta sororitas"], style: "balanced", tip: "Vyvážená armáda s dobrým krytím v terénu: pěchotu dej do ruin (Hidden), vozidla za ni.", src: false },
+];
+function factionDeployInfo(faction) {
   const f = String(faction || "").toLowerCase();
-  const has = (...w) => w.some((x) => f.includes(x));
-  if (has("grey knights", "custodes", "knights", "aeldari", "drukhari", "harlequin", "deathwatch")) return "elite";
-  if (has("ork", "tyranid", "genestealer", "death guard", "world eaters", "daemons", "chaos daemons")) return "horde";
-  if (has("t'au", "tau", "astra militarum", "guard", "votann", "thousand sons", "necron")) return "gunline";
-  return "balanced";
+  return FACTION_DEPLOY.find((e) => e.match.some((m) => f.includes(m))) || null;
+}
+function deployStyleForFaction(faction) {
+  const e = factionDeployInfo(faction);
+  return e ? e.style : "balanced";
 }
 
 const DEPLOY_GENERIC = { toughness: 4, save: 3, invul: 0, wounds: 2, fnp: 0, woundDebuff: false, damageReduction: 0, keywords: {}, members: [{ id: "g", name: "g", count: 10, weapons: [] }], modelCount: 10 };
@@ -8450,7 +8469,7 @@ function computeDeployPlan({ tokens, terrain, W, H, mineClips, theirsClips, libr
   return { plans, enemyKnown, style: styleKey, notes };
 }
 
-function DeployPanel({ plan, styleKey, onStyle, autoStyle, isAuto, turnOrder, onTurn, armies, armyId, onArmy, onPlaceIdeal, canPlaceIdeal, onRun, onApplyAll, onApplyOne, onClose }) {
+function DeployPanel({ plan, styleKey, onStyle, autoStyle, factionInfo, factionName, isAuto, turnOrder, onTurn, armies, armyId, onArmy, onPlaceIdeal, canPlaceIdeal, onRun, onApplyAll, onApplyOne, onClose }) {
   const box = { background: "var(--panel)", border: "1px solid var(--accent)", borderRadius: 10, padding: 12, marginTop: 10 };
   const sel = (active) => ({
     border: `1px solid ${active ? "var(--accent)" : "var(--field-border)"}`,
@@ -8488,6 +8507,12 @@ function DeployPanel({ plan, styleKey, onStyle, autoStyle, isAuto, turnOrder, on
         {isAuto ? <b style={{ color: "var(--text)" }}>Auto: {st.label}. </b> : null}
         {isAuto ? autoStyle.why : ""} {st.note}
       </div>
+      {factionInfo && (
+        <div style={{ fontSize: 11, color: "var(--text)", background: "var(--field-bg)", border: "1px solid var(--field-border)", borderRadius: 6, padding: "6px 8px", margin: "0 0 8px", lineHeight: 1.45 }}>
+          <b>{factionName}:</b> {factionInfo.tip}
+          <div style={{ fontSize: 10, color: "var(--muted)", marginTop: 2 }}>{factionInfo.src ? "Zdroj: náhledy a recenze 11. edice (BoLS, Spikey Bits, Sprues & Brews)." : "Obecná rada pro tenhle typ armády, není ověřená proti kodexu 11. edice."}</div>
+        </div>
+      )}
       <div style={{ fontSize: 10.5, fontWeight: 800, color: "var(--label)", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 4 }}>Kdo začíná</div>
       <div style={{ display: "flex", gap: 5, marginBottom: 10 }}>
         {[
@@ -11382,6 +11407,27 @@ export default function Wh40kCalculator({ session }) {
     });
     return deployStyleForFaction(top);
   }, [board.tokens, library]);
+  const deployMyFaction = useMemo(() => {
+    const tally = new Map();
+    const ids = board.tokens.filter((t) => t.side === "mine").map((t) => t.unitId);
+    if (ids.length === 0) {
+      const army = armies.find((a) => a.id === (deployArmySel || boardArmySel.mine));
+      if (army) army.unitIds.forEach((id) => ids.push(id));
+    }
+    ids.forEach((id) => {
+      const u = library.find((x) => x.id === id);
+      if (u) tally.set(u.faction, (tally.get(u.faction) || 0) + 1);
+    });
+    let top = "";
+    let n = -1;
+    tally.forEach((v, k) => {
+      if (v > n) {
+        n = v;
+        top = k;
+      }
+    });
+    return top;
+  }, [board.tokens, armies, library, deployArmySel, boardArmySel.mine]);
   // Opponent = the units on the board for the other side, or - before they are placed - the
   // army picked for that side in the sidebar.
   const deployOpponentUnits = useMemo(() => {
@@ -15049,6 +15095,8 @@ export default function Wh40kCalculator({ session }) {
                 setDeployPlan(null);
               }}
               autoStyle={deployAuto}
+              factionInfo={factionDeployInfo(deployMyFaction)}
+              factionName={deployMyFaction}
               isAuto={!deployStyle}
               armies={armies}
               armyId={deployArmyId}
