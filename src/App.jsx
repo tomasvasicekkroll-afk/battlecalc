@@ -4329,7 +4329,7 @@ function totalModels(unit) {
 // generated ids and fields that can legitimately differ between imports of the
 // same unit without it being a different unit (points cost, favorite flag) — so
 // re-importing the same unit from a different list doesn't create a duplicate.
-const SIGNATURE_IGNORE_KEYS = new Set(["id", "points", "isFavorite", "baseSize", "modelCount", "move"]);
+const SIGNATURE_IGNORE_KEYS = new Set(["id", "points", "isFavorite", "baseSize", "modelCount", "move", "scout", "deepStrike"]);
 function stripIds(value) {
   if (Array.isArray(value)) return value.map(stripIds);
   if (value && typeof value === "object") {
@@ -5257,6 +5257,25 @@ function detectOffensiveRerollAbilities(topSel) {
   return result;
 }
 
+// Deployment-related special rules from a unit's rule / ability names: Scouts X" (a move
+// made after deployment, before the first turn) and Deep Strike (arrives from reserve).
+function detectDeploymentAbilities(topSel) {
+  let scout = 0;
+  let deepStrike = false;
+  const check = (name) => {
+    const sm = String(name || "").match(/^\s*scouts?\s+(\d+)/i);
+    if (sm) scout = Math.max(scout, parseInt(sm[1], 10) || 0);
+    if (/deep strike/i.test(String(name || ""))) deepStrike = true;
+  };
+  const scan = (node) => {
+    (node.rules || []).forEach((r) => check(r.name));
+    (node.profiles || []).forEach((pr) => check(pr.name));
+    (node.selections || []).forEach(scan);
+  };
+  scan(topSel);
+  return { scout, deepStrike };
+}
+
 function extractUnitChars(up) {
   const uc = {};
   (up.characteristics || []).forEach((c) => {
@@ -5377,6 +5396,7 @@ function parseBattleScribeJSON(text) {
       const ptsCost = (topSel.costs || []).find((c) => c.name === "pts");
       const points = ptsCost ? String(ptsCost.value) : "";
       const defensiveAbilities = detectDefensiveAbilities(topSel);
+      const deployAbilities = detectDeploymentAbilities(topSel);
 
       const offensiveRerolls = detectOffensiveRerollAbilities(topSel);
       members.forEach((m) => {
@@ -5407,6 +5427,8 @@ function parseBattleScribeJSON(text) {
         keywords,
         fnp: defensiveAbilities.fnp,
         damageReduction: defensiveAbilities.damageReduction,
+        scout: deployAbilities.scout,
+        deepStrike: deployAbilities.deepStrike,
       });
     }
   }
@@ -5485,6 +5507,8 @@ function parseBattleScribeJSON(text) {
         points: u.points,
         baseSize,
         move,
+        scout: u.scout || 0,
+        deepStrike: !!u.deepStrike,
         toughness: weightedPick("toughness"),
         save: weightedPick("save"),
         invul: weightedPick("invul"),
@@ -7584,6 +7608,69 @@ function segmentHitsBlocker(x1, y1, x2, y2, b) {
   return clip(-dx, lx1 + b.hw) && clip(dx, b.hw - lx1) && clip(-dy, ly1 + b.hh) && clip(dy, b.hh - ly1);
 }
 
+// Theoretical fire line: from a model, rays in every direction run until the first
+// terrain area that blocks sight (areas the model itself stands in don't block). The lit
+// polygon is where the model can see; behind terrain it is covered. Used while dragging /
+// picking a unit with the fire line switched on, so you see how the terrain covers you.
+function rayHitBlocker(ox, oy, dx, dy, b) {
+  const cos = Math.cos(b.ang);
+  const sin = Math.sin(b.ang);
+  const lx = (ox - b.cx) * cos + (oy - b.cy) * sin;
+  const ly = -(ox - b.cx) * sin + (oy - b.cy) * cos;
+  const ldx = dx * cos + dy * sin;
+  const ldy = -dx * sin + dy * cos;
+  let t0 = 0;
+  let t1 = Infinity;
+  const slab = (o, d, h) => {
+    if (Math.abs(d) < 1e-9) return o >= -h && o <= h;
+    let a = (-h - o) / d;
+    let c = (h - o) / d;
+    if (a > c) [a, c] = [c, a];
+    t0 = Math.max(t0, a);
+    t1 = Math.min(t1, c);
+    return t0 <= t1;
+  };
+  if (!slab(lx, ldx, b.hw) || !slab(ly, ldy, b.hh)) return Infinity;
+  return t0 > 0 ? t0 : Infinity;
+}
+function computeSightFan({ tokens, terrain, W, H, groupIds, libById, shapeOf, range = 36, steps = 120, maxModels = 6 }) {
+  const group = tokens.filter((t) => groupIds.includes(t.id));
+  if (group.length === 0) return [];
+  const blockers = sightBlockers(terrain, W, H, shapeOf);
+  const picks = [];
+  const n = Math.min(maxModels, group.length);
+  for (let i = 0; i < n; i++) picks.push(group[Math.floor((i * (group.length - 1)) / Math.max(1, n - 1))]);
+  return [...new Set(picks)].map((t) => {
+    const u = libById.get(t.unitId);
+    const bm = parseBaseSizeMm(u ? u.baseSize : 32);
+    const r = (bm.w + bm.h) / 4 / 25.4;
+    const ox = (t.xPct / 100) * W;
+    const oy = (t.yPct / 100) * H;
+    const active = blockers.filter((b) => !pointOnBlocker(ox, oy, b, r));
+    const pts = [];
+    const spokes = [];
+    for (let i = 0; i < steps; i++) {
+      const a = (i / steps) * Math.PI * 2;
+      const dx = Math.cos(a);
+      const dy = Math.sin(a);
+      let tmin = range;
+      let hit = false;
+      for (let k = 0; k < active.length; k++) {
+        const tt = rayHitBlocker(ox, oy, dx, dy, active[k]);
+        if (tt < tmin) {
+          tmin = tt;
+          hit = true;
+        }
+      }
+      const px = Math.max(0, Math.min(W, ox + dx * tmin));
+      const py = Math.max(0, Math.min(H, oy + dy * tmin));
+      pts.push([px, py]);
+      if (i % 4 === 0) spokes.push({ x: px, y: py, hit });
+    }
+    return { ox, oy, pts, spokes };
+  });
+}
+
 // Can model a see model b? Any of 3x3 sample rays between the two bases that
 // no blocker cuts counts as a clear line of sight.
 function modelsSeeEachOther(a, b, allBlockers) {
@@ -8093,7 +8180,8 @@ function computeDeployPlan({ tokens, terrain, W, H, mineClips, theirsClips, libr
       let maxRange = 0;
       (eu.members || []).forEach((m) => (m.weapons || []).forEach((w) => w.type !== "melee" && (maxRange = Math.max(maxRange, weaponReachIn(w) ?? 24))));
       const mv = eu.move > 0 ? eu.move : 6;
-      enemies.push({ unit: eu, reps, pts: parseInt(eu.points, 10) || 100, shootReach: maxRange + mv, meleeReach: mv + 9 });
+      const esc = eu.scout > 0 ? eu.scout : 0; // its Scout move happens before turn 1
+      enemies.push({ unit: eu, reps, pts: parseInt(eu.points, 10) || 100, shootReach: maxRange + mv + esc, meleeReach: mv + 9 + esc, scout: esc });
     });
   } else {
     const xs = theirsZone.flat().map((p) => p[0]);
@@ -8138,11 +8226,15 @@ function computeDeployPlan({ tokens, terrain, W, H, mineClips, theirsClips, libr
     let maxRange = 0;
     (u.members || []).forEach((m) => (m.weapons || []).forEach((w) => w.type !== "melee" && (maxRange = Math.max(maxRange, weaponReachIn(w) ?? 24))));
     const mv = u.move > 0 ? u.move : 6;
-    return { key: k, members, u, pts, role, shootReach: maxRange + mv, meleeReach: mv + 9, mv, r: radiusOfUnit(u) };
+    const scout = u.scout > 0 ? u.scout : 0;
+    return { key: k, members, u, pts, role, shootReach: maxRange + mv + scout, meleeReach: mv + 9 + scout, mv, scout, deepStrike: !!u.deepStrike, r: radiusOfUnit(u) };
   });
   units.sort((a, b) => (a.role === "screen") - (b.role === "screen") || b.pts - a.pts);
+  const avgPts = units.reduce((a, u) => a + u.pts, 0) / (units.length || 1) || 100;
+  const enemyScouts = enemies.filter((e) => e.scout > 0).map((e) => `${e.unit.name} (Scout ${e.scout}″)`);
 
   const placed = [];
+  const placedDeploy = [];
   const plans = [];
   const stepIn = 1.5;
   const zxs = mineZone.flat().map((p) => p[0]);
@@ -8171,10 +8263,42 @@ function computeDeployPlan({ tokens, terrain, W, H, mineClips, theirsClips, libr
     const vcx = valuables.length ? valuables.reduce((a, q) => a + q.x, 0) / valuables.length : null;
     const vcy = valuables.length ? valuables.reduce((a, q) => a + q.y, 0) / valuables.length : null;
 
+    // A unit with Scouts X" is deployed in the zone, then moves up to X" before the first
+    // turn: the spot that matters (sight, threats) is where it ENDS, so candidates reach
+    // up to X" beyond the zone, but never within 9" of an enemy model.
+    const inBoard = (x, y) => offsets.every((o) => x + o.x > 0.5 && x + o.x < W - 0.5 && y + o.y > 0.5 && y + o.y < H - 0.5);
+    const fitsZone = (x, y) => inBoard(x, y) && offsets.every((o) => inMine(x + o.x, y + o.y));
+    const validP = [];
+    if (unit.scout > 0) {
+      for (let x = Math.min(...zxs); x <= Math.max(...zxs); x += stepIn) {
+        for (let y = Math.min(...zys); y <= Math.max(...zys); y += stepIn) {
+          if (fitsZone(x, y) && !placedDeploy.some((q) => Math.hypot(q.x - x, q.y - y) < q.footR + footR)) validP.push({ x, y });
+        }
+      }
+    }
+    const useScout = unit.scout > 0 && validP.length > 0;
+    const pad = useScout ? unit.scout : 0;
+    const vf = unit.pts > 0 ? Math.min(2.5, Math.max(0.6, unit.pts / avgPts)) : 1;
+    const eWe = unit.role === "screen" ? eW : vf > 1.2 ? Math.max(eW, 0.9) : eW;
+
     let best = null;
-    for (let x = Math.min(...zxs); x <= Math.max(...zxs); x += stepIn) {
-      for (let y = Math.min(...zys); y <= Math.max(...zys); y += stepIn) {
-        if (!offsets.every((o) => inMine(x + o.x, y + o.y) && x + o.x > 0.5 && x + o.x < W - 0.5 && y + o.y > 0.5 && y + o.y < H - 0.5)) continue;
+    for (let x = Math.min(...zxs) - pad; x <= Math.max(...zxs) + pad; x += stepIn) {
+      for (let y = Math.min(...zys) - pad; y <= Math.max(...zys) + pad; y += stepIn) {
+        if (useScout) {
+          if (!inBoard(x, y)) continue;
+          let near = false;
+          for (const q of validP) {
+            if (Math.hypot(q.x - x, q.y - y) <= unit.scout) {
+              near = true;
+              break;
+            }
+          }
+          if (!near) continue;
+          if (enemyKnown && enemies.some((e) => e.reps.some((rp) => Math.hypot(rp.x - x, rp.y - y) - unit.r - 0.8 <= 9))) continue;
+        } else {
+          if (!fitsZone(x, y)) continue;
+          if (placedDeploy.some((q) => Math.hypot(q.x - x, q.y - y) < q.footR + footR)) continue;
+        }
         if (placed.some((q) => Math.hypot(q.x - x, q.y - y) < q.footR + footR)) continue;
         const on = standsOn(x, y, unit.r);
         let exposure = 0;
@@ -8214,6 +8338,9 @@ function computeDeployPlan({ tokens, terrain, W, H, mineClips, theirsClips, libr
         objectives.forEach((o) => (nearObj = Math.min(nearObj, Math.hypot(o.x - x, o.y - y))));
         const objBonus = nearObj <= 6 ? 1 : nearObj <= 12 ? 0.4 : 0;
 
+        // what the unit can lose on the opponent's turn - heavier for expensive units, and
+        // a unit that would be mostly dead is punished extra
+        const expEff = exposure * vf + Math.max(0, exposure - 0.5) * 2;
         let score;
         if (unit.role === "screen") {
           score = fW * fw * 2 + objBonus * 1.5 - 0.2 * exposure + 0.5 * offense;
@@ -8227,11 +8354,11 @@ function computeDeployPlan({ tokens, terrain, W, H, mineClips, theirsClips, libr
             if (t > 3 && perp < 8) score += 1.2;
           }
         } else if (unit.role === "melee") {
-          score = oW * offense - eW * exposure * 1.3 + cW * cover * 0.4 + fW * fw * 0.8 + (seenBy === 0 && offense > 0 ? 0.6 : 0) + objBonus * 0.3;
+          score = oW * offense - eWe * expEff * 1.3 + cW * cover * 0.4 + fW * fw * 0.8 * (seenBy === 0 ? 1 : 0.2) + (seenBy === 0 && offense > 0 ? 0.6 : 0) + objBonus * 0.3;
         } else if (unit.role === "shooter") {
-          score = oW * offense - eW * exposure * 1.2 + cW * cover * 0.5 + objBonus * 0.3;
+          score = oW * offense - eWe * expEff * 1.2 + cW * cover * 0.5 + objBonus * 0.3;
         } else {
-          score = oW * offense * 0.9 - eW * exposure * 1.2 + cW * cover * 0.45 + fW * fw * 0.4 + objBonus * 0.4;
+          score = oW * offense * 0.9 - eWe * expEff * 1.2 + cW * cover * 0.45 + fW * fw * 0.4 * (seenBy === 0 ? 1 : 0.3) + objBonus * 0.4;
         }
         if (!best || score > best.score) best = { x, y, score, exposure, offense, seenBy, cover, topTarget, nearObj, dFront };
       }
@@ -8240,7 +8367,17 @@ function computeDeployPlan({ tokens, terrain, W, H, mineClips, theirsClips, libr
       plans.push({ key: unit.key, name: unit.u.name, role: unit.role, failed: true, order: order + 1 });
       return;
     }
+    // where the models are physically set up (a scouting unit starts inside the zone)
+    let P = { x: best.x, y: best.y };
+    if (useScout) {
+      const free = validP
+        .filter((q) => Math.hypot(q.x - best.x, q.y - best.y) <= unit.scout && !placedDeploy.some((d) => Math.hypot(d.x - q.x, d.y - q.y) < d.footR + footR))
+        .sort((a, b) => Math.hypot(a.x - best.x, a.y - best.y) - Math.hypot(b.x - best.x, b.y - best.y));
+      if (free.length) P = { x: free[0].x, y: free[0].y };
+    }
+    const scoutDist = useScout ? Math.hypot(P.x - best.x, P.y - best.y) : 0;
     placed.push({ x: best.x, y: best.y, footR, role: unit.role });
+    placedDeploy.push({ x: P.x, y: P.y, footR });
     const reasons = [];
     const roleText = { shooter: "Střelecká jednotka", melee: "Jednotka na blízko", hybrid: "Univerzální jednotka", screen: "Levná jednotka (screen / objektiv)" }[unit.role];
     reasons.push(roleText + ".");
@@ -8250,23 +8387,32 @@ function computeDeployPlan({ tokens, terrain, W, H, mineClips, theirsClips, libr
     else reasons.push(best.seenBy === 0 ? "Z nepřátelské zóny na ni neprochází výhled (počítáno vzorkově)." : "Počítáno proti vzorkům nepřátelské zóny (soupeř ještě není rozmístěn).");
     if (best.topTarget && unit.role !== "screen") reasons.push(`Odsud dosáhne na ${best.topTarget.name}.`);
     if (best.nearObj <= 6 && Number.isFinite(best.nearObj)) reasons.push(`Je u objektivu (${best.nearObj.toFixed(1)}″).`);
+    if (useScout) reasons.unshift(scoutDist > 0.3 ? `Scout ${unit.scout}″: rozmísti ji do zóny (plný kroužek) a před prvním tahem ji posuň o ≈ ${scoutDist.toFixed(1)}″ na modrý kroužek. Skutečná poloha po posunu je ta, ze které se počítá výhled a hrozby.` : `Má Scout ${unit.scout}″, ale lepší místo než ve vlastní zóně nenašel.`);
     plans.push({
       key: unit.key,
       name: unit.u.name,
       role: unit.role,
       order: order + 1,
-      cx: best.x,
-      cy: best.y,
+      cx: P.x,
+      cy: P.y,
       reasons,
       r: unit.r,
-      models: unit.members.map((t, i) => ({ id: t.id, x: best.x + offsets[i].x, y: best.y + offsets[i].y })),
+      models: unit.members.map((t, i) => ({ id: t.id, x: P.x + offsets[i].x, y: P.y + offsets[i].y })),
+      scoutModels: useScout && scoutDist > 0.3 ? unit.members.map((t, i) => ({ id: t.id, x: best.x + offsets[i].x, y: best.y + offsets[i].y })) : null,
+      scoutTo: useScout && scoutDist > 0.3 ? { x: best.x, y: best.y } : null,
       from: {
         x: (unit.members.reduce((a, t) => a + t.xPct, 0) / unit.members.length / 100) * W,
         y: (unit.members.reduce((a, t) => a + t.yPct, 0) / unit.members.length / 100) * H,
       },
     });
   });
-  return { plans, enemyKnown, style: styleKey };
+  const notes = [];
+  if (enemyScouts.length) notes.push(`Soupeřovy Scout jednotky mají v dosahu započtený Scout pohyb: ${enemyScouts.join(", ")}.`);
+  const dsUnits = units.filter((u) => u.deepStrike);
+  if (dsUnits.length) notes.push(`Deep Strike má ${dsUnits.length} z tvých jednotek (${[...new Set(dsUnits.map((u) => u.u.name))].join(", ")}): zvaž nechat je v rezervě místo rozmístění, soupeř pak nevidí jejich pozici a nepotřebují krytí.`);
+  const noScoutData = units.some((u) => u.u.scout === undefined);
+  if (noScoutData) notes.push("U některých tvých jednotek chybí údaj o Scoutu a Deep Strike (nahraj list z New Recruit znovu, doplní se).");
+  return { plans, enemyKnown, style: styleKey, notes };
 }
 
 function DeployPanel({ plan, styleKey, onStyle, autoStyle, isAuto, turnOrder, onTurn, armies, armyId, onArmy, onPlaceIdeal, canPlaceIdeal, onRun, onApplyAll, onApplyOne, onClose }) {
@@ -8351,6 +8497,9 @@ function DeployPanel({ plan, styleKey, onStyle, autoStyle, isAuto, turnOrder, on
       {plan && plan.applied && (
         <div style={{ fontSize: 12, color: "var(--accent-text)", marginTop: 8 }}>Armáda je rozmístěná na desce. Kdyžtak si vedle přečti, proč je která jednotka kde, a jednotky si dál přetáhni.</div>
       )}
+      {plan && plan.notes && plan.notes.map((n, i) => (
+        <div key={i} style={{ fontSize: 11, color: "var(--amber)", marginTop: 6, lineHeight: 1.4 }}>{n}</div>
+      ))}
       {plan && plan.plans && (
         <div style={{ marginTop: 10 }}>
           {plan.plans.map((p) => (
@@ -9045,7 +9194,7 @@ function ManualView({ onBack }) {
 
       <ManualSection num="08" title="Herní deska">
         <ManualP>
-          <ManualPath>Herní deska</ManualPath> — vizuální bojiště na míru. Zaškrtni jednotky z knihovny do <b>Moje jednotky</b> nebo <b>Jednotky protihráče</b> — objeví se jako tokeny (jeden na každý model), přetáhni je na místo. Nad seznamem vybereš uloženou armádu (třeba z New Recruit) — seznam se zúží na její jednotky a „Dát celou armádu na desku“ je rozmístí najednou; „Nahrát z New Recruit (JSON)“ nahraje nový export rovnou na tuhle stranu i s base sizy ze sloupce Base. Tažením modelu hýbeš celou jednotkou (tlačítko v liště přepne na jeden model, Alt při tažení přepne na opak; Shift při tažení vezme vždy jen jeden model — třeba když ho chceš nacpat za zeď). Víc modelů označíš tažením myší po prázdné desce (Shift přidává, Shift+klik na model ho přidá/odebere) — pak se všechny označené hýbou spolu. Kolečkem myši nad modelem otočíš celou jednotku (nebo označené modely, nebo jeden model — stejná pravidla jako při tažení); kolečko dolů otáčí po směru hodin, Shift = jemné kroky po 5°. Třetí vzhled „Grimdark“ přidává ocelové a zlaté rámečky, obrázky hrdinů v hlavičce a cheat sheet ve stylu pergamenové tabulky (tisk zůstává černobílý). Taktický vzhled má vlastní sadu ikon (domů, kalkulačka, knihovna, historie, nastavení, koš atd.). Vzhled aplikace přepneš v Nastavení (ozubené kolečko → Vzhled): „Základní“ nebo „Taktický“ (sytě modrý HUD, hexagonové tokeny, texturované podložky, kompas a měřítko na desce). Tlačítko „Nasazení“ (Rádce nasazení): navrhne pro každou rozmístěnou jednotku místo v tvé zóně - střelce na výhledy z krytu, jednotky na blízko skryté, ale v dosahu chargu, levné jednotky dopředu jako screen a na objektivy; styl armády vybere sám podle soupeře (když ho zadáš na desku nebo vybereš jeho armádu; jinak podle frakce), můžeš ho přepsat a zvolit, jestli hraješ první nebo druhý. Tlačítko „Rozmístit armádu ideálně“ dá vybranou armádu na desku a rovnou ji rozmístí. Návrh je na desce zlaté přerušované kroužky s číslem; „Přijmout“ jednotku přesune, „Přijmout vše“ přesune všechny. Je to heuristika podle běžných turnajových rad. Tlačítko „Rádce“: klikni na svůj token a pod deskou se objeví rada pro jeho jednotku - na koho střílet nebo útočit (podle očekávaných bodů, s ohledem na dosah zbraní, viditelnost, pohyb a šanci na charge), kdo ti příští kolo hrozí a kde je nejbližší objektiv. Nejlepší cíl má na desce zlatý přerušovaný kroužek. Odhady jsou orientační. Tlačítko „Dosah pohybu“ kreslí kolem jednotek dva obrysy: tyrkysový = maximální pohyb (M), žlutý = maximální advance (M + 6″), oboje od okraje podstavy; když je něco vybráno nebo taženo, ukáže se jen to, jinak všechny jednotky. M se načítá z importu z New Recruit (u starších jednotek list nahraj znovu nebo M dopiš v knihovně). Tlačítko „Linie palby“ ukazuje, na koho vidí jednotka, kterou táhneš (nebo kterou vybereš klikem jako útočníka): zelená čára = vidí a vzdálenost v palcích; zakryté jednotky se nekreslí; zelený kroužek je kolem nepřátelských modelů, které vidí. Podle pravidel 11. edice zakrývá celá plocha terénu (podložky, ruiny, zdi, lesy; krátery a objektivy ne). Model, jehož podstava se oblasti dotýká, skrz ni vidí. Desku můžeš otočit o 90° tlačítkem „Otočit“ (jen pohled, data zůstávají) a přibližovat tlačítky lupy nebo Ctrl + kolečkem (na touchpadu štípnutím) kolem kurzoru; přiblíženou desku posouváš posuvníky. Podložky jsou standardně zamčené (tlačítko „Terén zamčený“ v liště nad deskou) — táhneš jen modely, terén se nehne; odemknutím ho zase přesouváš a upravuješ. Velikost tokenu vychází z base size jednotky — přímo u jednotky v knihovně je malý rozklikávací seznam se standardními velikostmi (25 až 160mm kulaté, plus běžné oválné jako 90×52mm), není potřeba kvůli tomu otvírat celou editaci.
+          <ManualPath>Herní deska</ManualPath> — vizuální bojiště na míru. Zaškrtni jednotky z knihovny do <b>Moje jednotky</b> nebo <b>Jednotky protihráče</b> — objeví se jako tokeny (jeden na každý model), přetáhni je na místo. Nad seznamem vybereš uloženou armádu (třeba z New Recruit) — seznam se zúží na její jednotky a „Dát celou armádu na desku“ je rozmístí najednou; „Nahrát z New Recruit (JSON)“ nahraje nový export rovnou na tuhle stranu i s base sizy ze sloupce Base. Tažením modelu hýbeš celou jednotkou (tlačítko v liště přepne na jeden model, Alt při tažení přepne na opak; Shift při tažení vezme vždy jen jeden model — třeba když ho chceš nacpat za zeď). Víc modelů označíš tažením myší po prázdné desce (Shift přidává, Shift+klik na model ho přidá/odebere) — pak se všechny označené hýbou spolu. Kolečkem myši nad modelem otočíš celou jednotku (nebo označené modely, nebo jeden model — stejná pravidla jako při tažení); kolečko dolů otáčí po směru hodin, Shift = jemné kroky po 5°. Třetí vzhled „Grimdark“ přidává ocelové a zlaté rámečky, obrázky hrdinů v hlavičce a cheat sheet ve stylu pergamenové tabulky (tisk zůstává černobílý). Taktický vzhled má vlastní sadu ikon (domů, kalkulačka, knihovna, historie, nastavení, koš atd.). Vzhled aplikace přepneš v Nastavení (ozubené kolečko → Vzhled): „Základní“ nebo „Taktický“ (sytě modrý HUD, hexagonové tokeny, texturované podložky, kompas a měřítko na desce). Tlačítko „Nasazení“ (Rádce nasazení): navrhne pro každou rozmístěnou jednotku místo v tvé zóně - střelce na výhledy z krytu, jednotky na blízko skryté, ale v dosahu chargu, levné jednotky dopředu jako screen a na objektivy; styl armády vybere sám podle soupeře (když ho zadáš na desku nebo vybereš jeho armádu; jinak podle frakce), můžeš ho přepsat a zvolit, jestli hraješ první nebo druhý. Tlačítko „Rozmístit armádu ideálně“ dá vybranou armádu na desku a rovnou ji rozmístí. Počítá se Scout pohybem: soupeřovy Scout jednotky mají větší dosah a tvoje Scout jednotky se nasadí do zóny a modrý kroužek ukazuje, kam je před prvním tahem posunout (odtud se počítá výhled a hrozby; Scout nesmí skončit blíž než 9″ od soupeře). Drahé jednotky se víc střeží před palbou, takže se nestaví dopředu na očích. Návrh je na desce zlaté přerušované kroužky s číslem; „Přijmout“ jednotku přesune, „Přijmout vše“ přesune všechny. Je to heuristika podle běžných turnajových rad. Tlačítko „Rádce“: klikni na svůj token a pod deskou se objeví rada pro jeho jednotku - na koho střílet nebo útočit (podle očekávaných bodů, s ohledem na dosah zbraní, viditelnost, pohyb a šanci na charge), kdo ti příští kolo hrozí a kde je nejbližší objektiv. Nejlepší cíl má na desce zlatý přerušovaný kroužek. Odhady jsou orientační. Tlačítko „Dosah pohybu“ kreslí kolem jednotek dva obrysy: tyrkysový = maximální pohyb (M), žlutý = maximální advance (M + 6″), oboje od okraje podstavy; když je něco vybráno nebo taženo, ukáže se jen to, jinak všechny jednotky. M se načítá z importu z New Recruit (u starších jednotek list nahraj znovu nebo M dopiš v knihovně). Tlačítko „Linie palby“ ukazuje, na koho vidí jednotka, kterou táhneš (nebo kterou vybereš klikem jako útočníka): zelená čára = vidí a vzdálenost v palcích; zakryté jednotky se nekreslí; zelený kroužek je kolem nepřátelských modelů, které vidí. Navíc se kolem modelu kreslí teoretický výhled: zelená plocha je, kam model vidí, oranžové paprsky končí na terénu, který ho kryje (za ním je v krytu); při tažení se hýbou s modelem. Podle pravidel 11. edice zakrývá celá plocha terénu (podložky, ruiny, zdi, lesy; krátery a objektivy ne). Model, jehož podstava se oblasti dotýká, skrz ni vidí. Desku můžeš otočit o 90° tlačítkem „Otočit“ (jen pohled, data zůstávají) a přibližovat tlačítky lupy nebo Ctrl + kolečkem (na touchpadu štípnutím) kolem kurzoru; přiblíženou desku posouváš posuvníky. Podložky jsou standardně zamčené (tlačítko „Terén zamčený“ v liště nad deskou) — táhneš jen modely, terén se nehne; odemknutím ho zase přesouváš a upravuješ. Velikost tokenu vychází z base size jednotky — přímo u jednotky v knihovně je malý rozklikávací seznam se standardními velikostmi (25 až 160mm kulaté, plus běžné oválné jako 90×52mm), není potřeba kvůli tomu otvírat celou editaci.
         </ManualP>
         <ManualUl
           items={[
@@ -10208,6 +10357,7 @@ export default function Wh40kCalculator({ session }) {
     const baseFromImport = new Map();
     const modelsFromImport = new Map();
     const moveFromImport = new Map();
+    const deployFromImport = new Map();
     let skipped = 0;
     units.forEach((u) => {
       const sig = unitSignature(u);
@@ -10217,6 +10367,7 @@ export default function Wh40kCalculator({ session }) {
         if (u.baseSize && String(u.baseSize) !== "32") baseFromImport.set(existingSigToId.get(sig), String(u.baseSize));
         if (u.modelCount > 0) modelsFromImport.set(existingSigToId.get(sig), u.modelCount);
         if (u.move > 0) moveFromImport.set(existingSigToId.get(sig), u.move);
+        deployFromImport.set(existingSigToId.get(sig), { scout: u.scout || 0, deepStrike: !!u.deepStrike });
       } else {
         existingSigToId.set(sig, u.id);
         toAdd.push(u);
@@ -10239,6 +10390,11 @@ export default function Wh40kCalculator({ session }) {
           baseUpdated += 1;
           next = fixed;
         }
+      }
+      const dp = deployFromImport.get(x.id);
+      if (dp && x.scout === undefined) {
+        baseUpdated += 1;
+        next = { ...next, scout: dp.scout, deepStrike: dp.deepStrike };
       }
       const mv = moveFromImport.get(x.id);
       if (mv && !(x.move > 0)) {
@@ -11277,15 +11433,18 @@ export default function Wh40kCalculator({ session }) {
       if (at) ids = board.tokens.filter((t) => t.side === at.side && t.unitId === at.unitId && (t.inst || 0) === (at.inst || 0)).map((t) => t.id);
     }
     if (ids.length === 0) return null;
-    return computeFireLines({
+    const libById = new Map(library.map((u) => [u.id, u]));
+    const base = computeFireLines({
       tokens: board.tokens,
       terrain: board.terrain,
       W: board.widthIn,
       H: board.heightIn,
       groupIds: ids,
-      libById: new Map(library.map((u) => [u.id, u])),
+      libById,
       shapeOf: pieceShape,
     });
+    const fan = computeSightFan({ tokens: board.tokens, terrain: board.terrain, W: board.widthIn, H: board.heightIn, groupIds: ids, libById, shapeOf: pieceShape });
+    return { lines: base ? base.lines : [], rings: base ? base.rings : [], fan };
   }, [fireLineOn, view, dragIds, boardAttackerTokenId, board.tokens, board.terrain, board.widthIn, board.heightIn, library]);
 
   const tabBtnStyle = (active) => ({
@@ -14576,6 +14735,25 @@ export default function Wh40kCalculator({ session }) {
                 ))}
               </svg>
             )}
+            {deployOpen && deployPlan && deployPlan.plans && (
+              <svg
+                viewBox={`0 0 ${board.widthIn} ${board.heightIn}`}
+                preserveAspectRatio="none"
+                style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none", zIndex: 4 }}
+              >
+                {deployPlan.plans.filter((p) => p.scoutModels).map((p) => (
+                  <g key={`sc-${p.key}`}>
+                    <line x1={p.cx} y1={p.cy} x2={p.scoutTo.x} y2={p.scoutTo.y} stroke="#4aa3ff" strokeWidth={0.12} strokeDasharray="0.3 0.25" />
+                    {p.scoutModels.map((m) => (
+                      <circle key={m.id} cx={m.x} cy={m.y} r={p.r} fill="rgba(74,163,255,0.28)" stroke="#4aa3ff" strokeWidth={0.12} strokeDasharray="0.35 0.25" />
+                    ))}
+                    <text x={p.scoutTo.x} y={p.scoutTo.y} fontSize={1.2} fontWeight={800} textAnchor="middle" dominantBaseline="central" fill="#fff" stroke="#000" strokeWidth={0.25} paintOrder="stroke" transform={`rotate(${-(viewRot || 0)} ${p.scoutTo.x} ${p.scoutTo.y})`}>
+                      S{p.order}
+                    </text>
+                  </g>
+                ))}
+              </svg>
+            )}
             {unitTags.map((g) => (
               <div
                 key={g.key}
@@ -14607,6 +14785,17 @@ export default function Wh40kCalculator({ session }) {
                 preserveAspectRatio="none"
                 style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none", zIndex: 4 }}
               >
+                {fireData.fan.map((f, i) => (
+                  <g key={`fan${i}`}>
+                    <polygon points={f.pts.map((q) => q.join(",")).join(" ")} fill="rgba(61,220,132,0.10)" stroke="rgba(61,220,132,0.35)" strokeWidth={0.06} />
+                    {f.spokes.map((sp, j) => (
+                      <line key={j} x1={f.ox} y1={f.oy} x2={sp.x} y2={sp.y} stroke={sp.hit ? "rgba(255,170,60,0.55)" : "rgba(61,220,132,0.28)"} strokeWidth={0.05} />
+                    ))}
+                    {f.spokes.filter((sp) => sp.hit).map((sp, j) => (
+                      <circle key={`h${j}`} cx={sp.x} cy={sp.y} r={0.18} fill="#ffaa3c" />
+                    ))}
+                  </g>
+                ))}
                 {fireData.rings.filter((rg) => rg.visible).map((rg, i) => (
                   <circle
                     key={`r${i}`}
