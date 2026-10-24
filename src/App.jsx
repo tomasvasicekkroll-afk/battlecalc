@@ -7988,7 +7988,7 @@ function CoachPanel({ coach }) {
 const DEPLOY_STYLES = {
   gunline: { label: "Střelecká", exposure: 1.0, offense: 1.3, forward: 0.0, cover: 1.2, note: "Střelci za krytem s výhledem na střed; před nimi screen." },
   horde: { label: "Horda / agresivní", exposure: 0.4, offense: 1.0, forward: 0.8, cover: 0.3, note: "Tlač dopředu, ztráty dopředu nevadí; cíl je rychle zasáhnout." },
-  elite: { label: "Elitní / málo modelů", exposure: 1.4, offense: 1.0, forward: 0.1, cover: 1.5, note: "Drahé modely nenech na očích, drž je za terénem v dosahu chargu; levný screen vpředu." },
+  elite: { label: "Krytí / elitní", exposure: 1.4, offense: 1.0, forward: 0.1, cover: 1.5, note: "Drahé modely nenech na očích, drž je za terénem v dosahu chargu; levný screen vpředu." },
   balanced: { label: "Vyvážená", exposure: 1.0, offense: 1.0, forward: 0.3, cover: 0.8, note: "Kompromis: kryt, výhledy a objektivy." },
 };
 // Very rough army archetypes by faction name (general knowledge, not an official rule).
@@ -7999,6 +7999,30 @@ function deployStyleForFaction(faction) {
   if (has("ork", "tyranid", "genestealer", "death guard", "world eaters", "daemons", "chaos daemons")) return "horde";
   if (has("t'au", "tau", "astra militarum", "guard", "votann", "thousand sons", "necron")) return "gunline";
   return "balanced";
+}
+
+const DEPLOY_GENERIC = { toughness: 4, save: 3, invul: 0, wounds: 2, fnp: 0, woundDebuff: false, damageReduction: 0, keywords: {}, members: [{ id: "g", name: "g", count: 10, weapons: [] }], modelCount: 10 };
+
+// Picks my deployment style from what the opponent brings: a melee / horde army is met with
+// shooters behind a screen, a shooting army with cover and denied sight lines; otherwise
+// the style comes from my own army. Returns { style, why }.
+function deployStyleVsOpponent(oppUnits, myFallback) {
+  if (!oppUnits || oppUnits.length === 0) return null;
+  let ranged = 0;
+  let melee = 0;
+  let models = 0;
+  oppUnits.forEach((u) => {
+    ranged += coachEval(u, DEPLOY_GENERIC, (w) => w.type !== "melee").kills;
+    melee += coachEval(u, DEPLOY_GENERIC, (w) => w.type === "melee").kills;
+    models += Math.max(totalModels(u) || 1, u.modelCount || 0);
+  });
+  if (models >= 50 || melee > 1.5 * ranged) {
+    return { style: "gunline", why: `Soupeř tlačí na blízko (${models} modelů, víc blízkého boje než střelby): střelci vzadu a před nimi levný screen, který zablokuje charge.` };
+  }
+  if (ranged > 1.5 * melee) {
+    return { style: "elite", why: "Soupeř hodně střílí: kryj se za terénem, nestůj na jeho výhledech a do boje jdi z krytu." };
+  }
+  return { style: myFallback, why: "Soupeř je vyvážený, proto se styl bere podle tvé armády." };
 }
 
 function clipToPoly(clip, W, H) {
@@ -8049,7 +8073,7 @@ function computeDeployPlan({ tokens, terrain, W, H, mineClips, theirsClips, libr
   // --- the enemy: real tokens when they're on the board, otherwise samples of their zone
   const enemyTokens = tokens.filter((t) => t.side !== "mine");
   const enemyKnown = enemyTokens.length > 0;
-  const GENERIC = { toughness: 4, save: 3, invul: 0, wounds: 2, fnp: 0, woundDebuff: false, damageReduction: 0, keywords: {}, members: [{ id: "g", name: "g", count: 10, weapons: [] }], modelCount: 10 };
+  const GENERIC = DEPLOY_GENERIC;
   const enemies = [];
   if (enemyKnown) {
     const eg = new Map();
@@ -8245,7 +8269,7 @@ function computeDeployPlan({ tokens, terrain, W, H, mineClips, theirsClips, libr
   return { plans, enemyKnown, style: styleKey };
 }
 
-function DeployPanel({ plan, styleKey, onStyle, turnOrder, onTurn, detectedStyle, onRun, onApplyAll, onApplyOne, onClose }) {
+function DeployPanel({ plan, styleKey, onStyle, autoStyle, isAuto, turnOrder, onTurn, armies, armyId, onArmy, onPlaceIdeal, canPlaceIdeal, onRun, onApplyAll, onApplyOne, onClose }) {
   const box = { background: "var(--panel)", border: "1px solid var(--accent)", borderRadius: 10, padding: 12, marginTop: 10 };
   const sel = (active) => ({
     border: `1px solid ${active ? "var(--accent)" : "var(--field-border)"}`,
@@ -8267,18 +8291,22 @@ function DeployPanel({ plan, styleKey, onStyle, turnOrder, onTurn, detectedStyle
         <button onClick={onClose} style={{ border: "none", background: "transparent", color: "var(--muted)", cursor: "pointer", fontSize: 18, lineHeight: 1 }} aria-label="Zavřít">×</button>
       </div>
       <div style={{ fontSize: 11.5, color: "var(--muted)", margin: "6px 0 8px", lineHeight: 1.45 }}>
-        Navrhne místo v tvé zóně pro každou rozmístěnou jednotku. Nejdřív dej armádu na desku („Dát celou armádu na desku“). Pokud je soupeř už rozmístěný, počítá s ním, jinak se bere jeho zóna.
+        Navrhne místo v tvé zóně pro každou jednotku. Můžeš nechat rozmístit celou armádu rovnou ideálně, nebo ji dát na desku sám a návrhy si procházet. Pokud je soupeř zadaný (na desce nebo vybraný v seznamu), počítá s ním, jinak se bere jeho zóna.
       </div>
       <div style={{ fontSize: 10.5, fontWeight: 800, color: "var(--label)", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 4 }}>Styl armády</div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 4 }}>
+        <button onClick={() => onStyle(null)} style={sel(isAuto)}>Auto</button>
         {Object.entries(DEPLOY_STYLES).map(([k, v]) => (
-          <button key={k} onClick={() => onStyle(k)} style={sel(styleKey === k)}>
+          <button key={k} onClick={() => onStyle(k)} style={sel(!isAuto && styleKey === k)}>
             {v.label}
-            {k === detectedStyle ? " ★" : ""}
+            {isAuto && k === styleKey ? " ✓" : ""}
           </button>
         ))}
       </div>
-      <div style={{ fontSize: 10.5, color: "var(--muted)", marginBottom: 8 }}>★ = odhad podle frakce. {st.note}</div>
+      <div style={{ fontSize: 10.5, color: "var(--muted)", marginBottom: 8, lineHeight: 1.45 }}>
+        {isAuto ? <b style={{ color: "var(--text)" }}>Auto: {st.label}. </b> : null}
+        {isAuto ? autoStyle.why : ""} {st.note}
+      </div>
       <div style={{ fontSize: 10.5, fontWeight: 800, color: "var(--label)", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 4 }}>Kdo začíná</div>
       <div style={{ display: "flex", gap: 5, marginBottom: 10 }}>
         {[
@@ -8289,14 +8317,39 @@ function DeployPanel({ plan, styleKey, onStyle, turnOrder, onTurn, detectedStyle
           <button key={k} onClick={() => onTurn(k)} style={sel(turnOrder === k)}>{l}</button>
         ))}
       </div>
+      <div style={{ fontSize: 10.5, fontWeight: 800, color: "var(--label)", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 4 }}>Moje armáda</div>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+        <select
+          value={armyId}
+          onChange={(e) => onArmy(e.target.value)}
+          style={{ flex: 1, minWidth: 140, background: "var(--field-bg)", color: "var(--text)", border: "1px solid var(--field-border)", borderRadius: 6, padding: "5px 6px", fontSize: 12 }}
+        >
+          <option value="">— vyber uloženou armádu —</option>
+          {[...armies].sort((x, y) => x.name.localeCompare(y.name)).map((a) => (
+            <option key={a.id} value={a.id}>{a.name} ({a.unitIds.length})</option>
+          ))}
+        </select>
+        <button
+          onClick={onPlaceIdeal}
+          disabled={!canPlaceIdeal}
+          className="wh40k-btn"
+          title="Dá armádu na desku a rovnou ji rozmístí podle rádce (styl, soupeř, kdo začíná)."
+          style={{ ...sel(true), padding: "7px 12px", fontSize: 12.5, opacity: canPlaceIdeal ? 1 : 0.5, cursor: canPlaceIdeal ? "pointer" : "not-allowed" }}
+        >
+          Rozmístit armádu ideálně
+        </button>
+      </div>
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-        <button onClick={onRun} className="wh40k-btn" style={{ ...sel(true), padding: "7px 14px", fontSize: 12.5 }}>Navrhnout nasazení</button>
-        {plan && plan.plans && plan.plans.some((p) => !p.failed) && (
+        <button onClick={onRun} className="wh40k-btn" style={{ ...sel(false), padding: "7px 14px", fontSize: 12.5 }}>Jen navrhnout (už rozmístěná)</button>
+        {plan && plan.plans && !plan.applied && plan.plans.some((p) => !p.failed) && (
           <button onClick={onApplyAll} className="wh40k-btn" style={{ ...sel(false), padding: "7px 14px", fontSize: 12.5 }}>Přijmout vše</button>
         )}
       </div>
       {plan && plan.empty && (
         <div style={{ fontSize: 12, color: "var(--amber)", marginTop: 8 }}>{plan.noZone ? "Nemáš nastavenou zónu nasazení." : "Na desce nemáš žádné tvoje jednotky. Dej armádu na desku a zkus to znovu."}</div>
+      )}
+      {plan && plan.applied && (
+        <div style={{ fontSize: 12, color: "var(--accent-text)", marginTop: 8 }}>Armáda je rozmístěná na desce. Kdyžtak si vedle přečti, proč je která jednotka kde, a jednotky si dál přetáhni.</div>
       )}
       {plan && plan.plans && (
         <div style={{ marginTop: 10 }}>
@@ -8306,7 +8359,7 @@ function DeployPanel({ plan, styleKey, onStyle, turnOrder, onTurn, detectedStyle
                 <span style={{ width: 20, height: 20, borderRadius: "50%", background: "var(--accent)", color: "#fff", fontSize: 11, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{p.order}</span>
                 <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: 700, color: "var(--text)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</span>
                 <span style={{ fontSize: 10.5, fontWeight: 700, color: "#fff", background: roleChip[p.role][1], borderRadius: 4, padding: "1px 6px" }}>{roleChip[p.role][0]}</span>
-                {!p.failed && (
+                {!p.failed && !plan.applied && (
                   <button onClick={() => onApplyOne(p)} style={{ ...sel(false), padding: "2px 8px", fontSize: 11 }}>Přijmout</button>
                 )}
               </div>
@@ -8992,7 +9045,7 @@ function ManualView({ onBack }) {
 
       <ManualSection num="08" title="Herní deska">
         <ManualP>
-          <ManualPath>Herní deska</ManualPath> — vizuální bojiště na míru. Zaškrtni jednotky z knihovny do <b>Moje jednotky</b> nebo <b>Jednotky protihráče</b> — objeví se jako tokeny (jeden na každý model), přetáhni je na místo. Nad seznamem vybereš uloženou armádu (třeba z New Recruit) — seznam se zúží na její jednotky a „Dát celou armádu na desku“ je rozmístí najednou; „Nahrát z New Recruit (JSON)“ nahraje nový export rovnou na tuhle stranu i s base sizy ze sloupce Base. Tažením modelu hýbeš celou jednotkou (tlačítko v liště přepne na jeden model, Alt při tažení přepne na opak; Shift při tažení vezme vždy jen jeden model — třeba když ho chceš nacpat za zeď). Víc modelů označíš tažením myší po prázdné desce (Shift přidává, Shift+klik na model ho přidá/odebere) — pak se všechny označené hýbou spolu. Kolečkem myši nad modelem otočíš celou jednotku (nebo označené modely, nebo jeden model — stejná pravidla jako při tažení); kolečko dolů otáčí po směru hodin, Shift = jemné kroky po 5°. Třetí vzhled „Grimdark“ přidává ocelové a zlaté rámečky, obrázky hrdinů v hlavičce a cheat sheet ve stylu pergamenové tabulky (tisk zůstává černobílý). Taktický vzhled má vlastní sadu ikon (domů, kalkulačka, knihovna, historie, nastavení, koš atd.). Vzhled aplikace přepneš v Nastavení (ozubené kolečko → Vzhled): „Základní“ nebo „Taktický“ (sytě modrý HUD, hexagonové tokeny, texturované podložky, kompas a měřítko na desce). Tlačítko „Nasazení“ (Rádce nasazení): navrhne pro každou rozmístěnou jednotku místo v tvé zóně - střelce na výhledy z krytu, jednotky na blízko skryté, ale v dosahu chargu, levné jednotky dopředu jako screen a na objektivy; můžeš zvolit styl armády (odhad podle frakce) a jestli hraješ první nebo druhý. Návrh je na desce zlaté přerušované kroužky s číslem; „Přijmout“ jednotku přesune, „Přijmout vše“ přesune všechny. Je to heuristika podle běžných turnajových rad. Tlačítko „Rádce“: klikni na svůj token a pod deskou se objeví rada pro jeho jednotku - na koho střílet nebo útočit (podle očekávaných bodů, s ohledem na dosah zbraní, viditelnost, pohyb a šanci na charge), kdo ti příští kolo hrozí a kde je nejbližší objektiv. Nejlepší cíl má na desce zlatý přerušovaný kroužek. Odhady jsou orientační. Tlačítko „Dosah pohybu“ kreslí kolem jednotek dva obrysy: tyrkysový = maximální pohyb (M), žlutý = maximální advance (M + 6″), oboje od okraje podstavy; když je něco vybráno nebo taženo, ukáže se jen to, jinak všechny jednotky. M se načítá z importu z New Recruit (u starších jednotek list nahraj znovu nebo M dopiš v knihovně). Tlačítko „Linie palby“ ukazuje, na koho vidí jednotka, kterou táhneš (nebo kterou vybereš klikem jako útočníka): zelená čára = vidí a vzdálenost v palcích; zakryté jednotky se nekreslí; zelený kroužek je kolem nepřátelských modelů, které vidí. Podle pravidel 11. edice zakrývá celá plocha terénu (podložky, ruiny, zdi, lesy; krátery a objektivy ne). Model, jehož podstava se oblasti dotýká, skrz ni vidí. Desku můžeš otočit o 90° tlačítkem „Otočit“ (jen pohled, data zůstávají) a přibližovat tlačítky lupy nebo Ctrl + kolečkem (na touchpadu štípnutím) kolem kurzoru; přiblíženou desku posouváš posuvníky. Podložky jsou standardně zamčené (tlačítko „Terén zamčený“ v liště nad deskou) — táhneš jen modely, terén se nehne; odemknutím ho zase přesouváš a upravuješ. Velikost tokenu vychází z base size jednotky — přímo u jednotky v knihovně je malý rozklikávací seznam se standardními velikostmi (25 až 160mm kulaté, plus běžné oválné jako 90×52mm), není potřeba kvůli tomu otvírat celou editaci.
+          <ManualPath>Herní deska</ManualPath> — vizuální bojiště na míru. Zaškrtni jednotky z knihovny do <b>Moje jednotky</b> nebo <b>Jednotky protihráče</b> — objeví se jako tokeny (jeden na každý model), přetáhni je na místo. Nad seznamem vybereš uloženou armádu (třeba z New Recruit) — seznam se zúží na její jednotky a „Dát celou armádu na desku“ je rozmístí najednou; „Nahrát z New Recruit (JSON)“ nahraje nový export rovnou na tuhle stranu i s base sizy ze sloupce Base. Tažením modelu hýbeš celou jednotkou (tlačítko v liště přepne na jeden model, Alt při tažení přepne na opak; Shift při tažení vezme vždy jen jeden model — třeba když ho chceš nacpat za zeď). Víc modelů označíš tažením myší po prázdné desce (Shift přidává, Shift+klik na model ho přidá/odebere) — pak se všechny označené hýbou spolu. Kolečkem myši nad modelem otočíš celou jednotku (nebo označené modely, nebo jeden model — stejná pravidla jako při tažení); kolečko dolů otáčí po směru hodin, Shift = jemné kroky po 5°. Třetí vzhled „Grimdark“ přidává ocelové a zlaté rámečky, obrázky hrdinů v hlavičce a cheat sheet ve stylu pergamenové tabulky (tisk zůstává černobílý). Taktický vzhled má vlastní sadu ikon (domů, kalkulačka, knihovna, historie, nastavení, koš atd.). Vzhled aplikace přepneš v Nastavení (ozubené kolečko → Vzhled): „Základní“ nebo „Taktický“ (sytě modrý HUD, hexagonové tokeny, texturované podložky, kompas a měřítko na desce). Tlačítko „Nasazení“ (Rádce nasazení): navrhne pro každou rozmístěnou jednotku místo v tvé zóně - střelce na výhledy z krytu, jednotky na blízko skryté, ale v dosahu chargu, levné jednotky dopředu jako screen a na objektivy; styl armády vybere sám podle soupeře (když ho zadáš na desku nebo vybereš jeho armádu; jinak podle frakce), můžeš ho přepsat a zvolit, jestli hraješ první nebo druhý. Tlačítko „Rozmístit armádu ideálně“ dá vybranou armádu na desku a rovnou ji rozmístí. Návrh je na desce zlaté přerušované kroužky s číslem; „Přijmout“ jednotku přesune, „Přijmout vše“ přesune všechny. Je to heuristika podle běžných turnajových rad. Tlačítko „Rádce“: klikni na svůj token a pod deskou se objeví rada pro jeho jednotku - na koho střílet nebo útočit (podle očekávaných bodů, s ohledem na dosah zbraní, viditelnost, pohyb a šanci na charge), kdo ti příští kolo hrozí a kde je nejbližší objektiv. Nejlepší cíl má na desce zlatý přerušovaný kroužek. Odhady jsou orientační. Tlačítko „Dosah pohybu“ kreslí kolem jednotek dva obrysy: tyrkysový = maximální pohyb (M), žlutý = maximální advance (M + 6″), oboje od okraje podstavy; když je něco vybráno nebo taženo, ukáže se jen to, jinak všechny jednotky. M se načítá z importu z New Recruit (u starších jednotek list nahraj znovu nebo M dopiš v knihovně). Tlačítko „Linie palby“ ukazuje, na koho vidí jednotka, kterou táhneš (nebo kterou vybereš klikem jako útočníka): zelená čára = vidí a vzdálenost v palcích; zakryté jednotky se nekreslí; zelený kroužek je kolem nepřátelských modelů, které vidí. Podle pravidel 11. edice zakrývá celá plocha terénu (podložky, ruiny, zdi, lesy; krátery a objektivy ne). Model, jehož podstava se oblasti dotýká, skrz ni vidí. Desku můžeš otočit o 90° tlačítkem „Otočit“ (jen pohled, data zůstávají) a přibližovat tlačítky lupy nebo Ctrl + kolečkem (na touchpadu štípnutím) kolem kurzoru; přiblíženou desku posouváš posuvníky. Podložky jsou standardně zamčené (tlačítko „Terén zamčený“ v liště nad deskou) — táhneš jen modely, terén se nehne; odemknutím ho zase přesouváš a upravuješ. Velikost tokenu vychází z base size jednotky — přímo u jednotky v knihovně je malý rozklikávací seznam se standardními velikostmi (25 až 160mm kulaté, plus běžné oválné jako 90×52mm), není potřeba kvůli tomu otvírat celou editaci.
         </ManualP>
         <ManualUl
           items={[
@@ -10452,6 +10505,7 @@ export default function Wh40kCalculator({ session }) {
   // Deployment advisor: panel open, chosen army style / turn order, last plan.
   const [deployOpen, setDeployOpen] = useState(false);
   const [deployStyle, setDeployStyle] = useState(null);
+  const [deployArmySel, setDeployArmySel] = useState("");
   const [deployTurn, setDeployTurn] = useState("unknown");
   const [deployPlan, setDeployPlan] = useState(null);
   const [dragIds, setDragIds] = useState([]);
@@ -11137,25 +11191,70 @@ export default function Wh40kCalculator({ session }) {
     });
     return deployStyleForFaction(top);
   }, [board.tokens, library]);
-  const deployStyleKey = deployStyle || deployDetectedStyle;
-  const runDeployAdvisor = () => {
+  // Opponent = the units on the board for the other side, or - before they are placed - the
+  // army picked for that side in the sidebar.
+  const deployOpponentUnits = useMemo(() => {
+    const ids = [];
+    const seen = new Set();
+    board.tokens.filter((t) => t.side === "theirs").forEach((t) => {
+      const k = `${t.unitId}|${t.inst || 0}`;
+      if (!seen.has(k)) {
+        seen.add(k);
+        ids.push(t.unitId);
+      }
+    });
+    if (ids.length === 0) {
+      const army = armies.find((a) => a.id === boardArmySel.theirs);
+      if (army) army.unitIds.forEach((id) => ids.push(id));
+    }
+    return ids.map((id) => library.find((u) => u.id === id)).filter(Boolean);
+  }, [board.tokens, armies, boardArmySel.theirs, library]);
+  const deployAuto = useMemo(() => {
+    const vs = deployStyleVsOpponent(deployOpponentUnits, deployDetectedStyle);
+    if (vs) return vs;
+    return { style: deployDetectedStyle, why: "Soupeř zatím není zadaný, styl se bere podle frakce tvé armády." };
+  }, [deployOpponentUnits, deployDetectedStyle]);
+  const deployStyleKey = deployStyle || deployAuto.style;
+  const deployArmyId = deployArmySel || boardArmySel.mine || "";
+  const buildDeployPlan = (tokens) => {
     const layout = allLayouts.find((l) => l.id === board.layoutId) || allLayouts[0];
-    setDeployPlan(
-      computeDeployPlan({
-        tokens: board.tokens,
-        terrain: board.terrain,
-        W: board.widthIn,
-        H: board.heightIn,
-        // On the board the "theirs" zone is drawn in the blue of my tokens (and the "mine"
-        // zone in the red of the opponent's), so my deployment area is the "theirs" clip.
-        mineClips: resolveZoneClips(board.customZones?.theirs, layout.theirsClip),
-        theirsClips: resolveZoneClips(board.customZones?.mine, layout.mineClip),
-        library,
-        shapeOf: pieceShape,
-        styleKey: deployStyleKey,
-        turnOrder: deployTurn,
-      })
-    );
+    return computeDeployPlan({
+      tokens,
+      terrain: board.terrain,
+      W: board.widthIn,
+      H: board.heightIn,
+      // On the board the "theirs" zone is drawn in the blue of my tokens (and the "mine"
+      // zone in the red of the opponent's), so my deployment area is the "theirs" clip.
+      mineClips: resolveZoneClips(board.customZones?.theirs, layout.theirsClip),
+      theirsClips: resolveZoneClips(board.customZones?.mine, layout.mineClip),
+      library,
+      shapeOf: pieceShape,
+      styleKey: deployStyleKey,
+      turnOrder: deployTurn,
+    });
+  };
+  const runDeployAdvisor = () => setDeployPlan(buildDeployPlan(board.tokens));
+  // Put the picked army on the board and place it by the advisor in one go.
+  const placeArmyIdeally = () => {
+    const army = armies.find((a) => a.id === deployArmyId);
+    if (!army) return;
+    const entries = boardEntriesFor(army.unitIds.filter((id) => library.some((u) => u.id === id)), "mine");
+    const tokens = [...board.tokens, ...(entries.length ? layoutUnitTokens(entries, "mine", board.tokens) : [])];
+    const plan = buildDeployPlan(tokens);
+    if (!plan.plans) {
+      setDeployPlan(plan);
+      return;
+    }
+    const move = new Map();
+    plan.plans.forEach((p) => p.models && p.models.forEach((m) => move.set(m.id, m)));
+    persistBoard({
+      ...board,
+      tokens: tokens.map((t) => {
+        const m = move.get(t.id);
+        return m ? { ...t, xPct: Math.max(1, Math.min(99, (m.x / board.widthIn) * 100)), yPct: Math.max(1, Math.min(99, (m.y / board.heightIn) * 100)) } : t;
+      }),
+    });
+    setDeployPlan({ ...plan, applied: true });
   };
   const applyDeployPlans = (list) => {
     const move = new Map();
@@ -14446,7 +14545,7 @@ export default function Wh40kCalculator({ session }) {
                   })}
               </svg>
             )}
-            {deployOpen && deployPlan && deployPlan.plans && (
+            {deployOpen && deployPlan && deployPlan.plans && !deployPlan.applied && (
               <svg
                 viewBox={`0 0 ${board.widthIn} ${board.heightIn}`}
                 preserveAspectRatio="none"
@@ -14725,12 +14824,18 @@ export default function Wh40kCalculator({ session }) {
                 setDeployStyle(k);
                 setDeployPlan(null);
               }}
+              autoStyle={deployAuto}
+              isAuto={!deployStyle}
+              armies={armies}
+              armyId={deployArmyId}
+              onArmy={setDeployArmySel}
+              canPlaceIdeal={!!armies.find((a) => a.id === deployArmyId)}
+              onPlaceIdeal={placeArmyIdeally}
               turnOrder={deployTurn}
               onTurn={(k) => {
                 setDeployTurn(k);
                 setDeployPlan(null);
               }}
-              detectedStyle={deployDetectedStyle}
               onRun={runDeployAdvisor}
               onApplyAll={() => deployPlan && deployPlan.plans && applyDeployPlans(deployPlan.plans.filter((p) => !p.failed))}
               onApplyOne={(p) => applyDeployPlans([p])}
