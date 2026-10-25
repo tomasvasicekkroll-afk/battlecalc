@@ -4327,6 +4327,12 @@ function clampNum(v, fallback = 0) {
 function totalModels(unit) {
   return (unit.members || []).reduce((s, m) => s + (clampNum(m.count) || 0), 0);
 }
+// Models a unit really has when it is the TARGET of an attack. A roster export often stores a
+// whole squad as a single member line (count 1) and keeps the real number in modelCount, so
+// the member sum alone would let one kill count as a wiped-out squad.
+function defenderModelTotal(unit) {
+  return Math.max(1, totalModels(unit), (unit && unit.modelCount) || 0);
+}
 
 // Produces a stable signature for a unit's actual content, ignoring randomly
 // generated ids and fields that can legitimately differ between imports of the
@@ -4761,7 +4767,7 @@ function defenderProfile(unit, overrides) {
     saveReroll: o.saveReroll || "none",
     invul: clampSave(unit.invul, 0),
     wounds: Math.max(1, clampNum(unit.wounds, 1)),
-    models: o.models !== undefined && o.models !== null ? Math.max(0, clampNum(o.models, 1)) : totalModels(unit) || 1,
+    models: o.models !== undefined && o.models !== null ? Math.max(0, clampNum(o.models, 1)) : defenderModelTotal(unit),
     fnp: clampSave(o.fnp !== undefined && o.fnp !== null ? o.fnp : unit.fnp, 0),
     psychicFnp: clampSave(unit.psychicFnp, 0),
     woundDebuff: o.woundDebuff !== undefined && o.woundDebuff !== null ? !!o.woundDebuff : !!unit.woundDebuff,
@@ -9079,7 +9085,7 @@ function GrimdarkArt({ height = "100%", opacity = 0.9 }) {
 // One matrix cell of the cheat sheet (S = ranged on top, M = melee below; grey =
 // base, blue = with bonuses). Used by the poster look.
 function CheatCellBody({ c }) {
-  const targetModels = totalModels(c.target) || 1;
+  const targetModels = defenderModelTotal(c.target);
   const frac = (res, type) => killedModelsByType(res, type) / targetModels;
   const pie = (f, color, track) => (
     <div style={{ textAlign: "center", lineHeight: 1 }}>
@@ -11408,7 +11414,7 @@ export default function Wh40kCalculator({ session }) {
 
   useEffect(() => {
     if (restoringFromHistoryRef.current) return;
-    setDefenderModelCount(defenderUnit ? totalModels(defenderUnit) : 0);
+    setDefenderModelCount(defenderUnit ? defenderModelTotal(defenderUnit) : 0);
     const fnp = defenderUnit ? clampNum(defenderUnit.fnp, 0) : 0;
     const debuff = defenderUnit ? !!defenderUnit.woundDebuff : false;
     const dmgReduction = defenderUnit ? clampNum(defenderUnit.damageReduction, 0) : 0;
@@ -11471,7 +11477,7 @@ export default function Wh40kCalculator({ session }) {
     return attackers.map((att) => ({
       attacker: att,
       cells: targets.map((tgt) => {
-        const tgtModels = totalModels(tgt);
+        const tgtModels = defenderModelTotal(tgt);
 
         // Baseline: only whatever the units already have built in (weapon abilities,
         // the defender's own stored FNP / debuff) — no cheat-sheet panel involved.
@@ -13742,7 +13748,7 @@ export default function Wh40kCalculator({ session }) {
                     <th key={c.target.id} style={{ textAlign: "center", padding: "10px 6px", background: "linear-gradient(180deg, #17407f, #0d2650)", color: "#fff", borderRight: "1px solid #3a5f94", borderBottom: "2px solid #7391bd", verticalAlign: "top" }}>
                       <div className="gd-title" style={{ fontSize: 13, fontWeight: 800, lineHeight: 1.15 }}>{c.target.name}</div>
                       <div style={{ fontSize: 10.5, fontWeight: 600, color: "#a9c8ee", marginTop: 4 }}>
-                        T{c.target.toughness} {c.target.save}+{c.target.invul > 0 ? " Inv" + c.target.invul + "+" : ""} · {totalModels(c.target)}× · {c.target.wounds}W
+                        T{c.target.toughness} {c.target.save}+{c.target.invul > 0 ? " Inv" + c.target.invul + "+" : ""} · {defenderModelTotal(c.target)}× · {c.target.wounds}W
                       </div>
                     </th>
                   ))}
@@ -13792,7 +13798,7 @@ export default function Wh40kCalculator({ session }) {
                   <th key={c.target.id} style={{ textAlign: "center", padding: "4px 6px", border: "1px solid #ccc", background: "#f0f0f0" }}>
                     {c.target.name}
                     <div style={{ fontWeight: 400, fontSize: 8.5, color: "#555" }}>
-                      T{c.target.toughness} Sv{c.target.save}+{c.target.invul > 0 ? " Inv" + c.target.invul + "+" : ""} W{c.target.wounds} ({totalModels(c.target)}x)
+                      T{c.target.toughness} Sv{c.target.save}+{c.target.invul > 0 ? " Inv" + c.target.invul + "+" : ""} W{c.target.wounds} ({defenderModelTotal(c.target)}x)
                     </div>
                   </th>
                 ))}
@@ -13803,7 +13809,7 @@ export default function Wh40kCalculator({ session }) {
                 <tr key={row.attacker.id}>
                   <td style={{ padding: "4px 6px", border: "1px solid #ccc", fontWeight: 700 }}>{row.attacker.name}</td>
                   {row.cells.map((c) => {
-                    const targetModels = totalModels(c.target) || 1;
+                    const targetModels = defenderModelTotal(c.target);
                     const rangedBaseFrac = killedModelsByType(c.base.res, "ranged") / targetModels;
                     const rangedBoostedFrac = killedModelsByType(c.boosted.res, "ranged") / targetModels;
                     const meleeBaseFrac = killedModelsByType(c.base.res, "melee") / targetModels;
