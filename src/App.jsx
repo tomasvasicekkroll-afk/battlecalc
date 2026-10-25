@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef, useId } from "react";
 import {
+  BarChart3 as LucideBarChart3,
   Compass,
   Lightbulb,
   Users,
@@ -44,6 +45,7 @@ import {
   Copy as LucideCopy,
 } from "lucide-react";
 import { storage } from "./lib/storage";
+import { META_LISTS } from "./data/metaLists";
 import { supabase } from "./lib/supabaseClient";
 
 // Tactical look: the second design set swaps these icons for the custom icon
@@ -97,6 +99,7 @@ const Upload = themedIcon(LucideUpload, "sync");
 const TrackIcon = themedIcon(LucideClipboardList, "track");
 const BookIcon = themedIcon(LucideBookOpen, "library");
 const AccurateIcon = themedIcon(LucideCrosshair, "accurate");
+const BuilderIcon = themedIcon(LucideBarChart3, "optimize");
 
 const REROLL_OPTIONS = [
   { value: "none", label: "Žádný" },
@@ -5308,8 +5311,14 @@ function parseBattleScribeJSON(text) {
   if (!roster || !Array.isArray(roster.forces)) return null;
 
   const armyUnits = [];
+  const rosterDetachments = [];
+  let rosterDisposition = "";
 
   for (const force of roster.forces) {
+    (force.selections || []).forEach((sel) => {
+      if (/^detachment$/i.test(sel.name || "")) (sel.selections || []).forEach((c) => c.name && rosterDetachments.push(c.name));
+      if (/^force disposition$/i.test(sel.name || "") && !rosterDisposition) (sel.selections || []).forEach((c) => c.name && !rosterDisposition && (rosterDisposition = c.name));
+    });
     const catalogueName = force.catalogueName || "";
     const segs = catalogueName.split("-").map((s) => s.trim()).filter(Boolean);
     const faction = segs[segs.length - 1] || catalogueName || "Neznámá frakce";
@@ -5529,6 +5538,9 @@ function parseBattleScribeJSON(text) {
       };
     });
 
+  // Read by importFromNewRecruit to store the detachment(s) with the saved army.
+  finalUnits.detachments = rosterDetachments;
+  finalUnits.disposition = rosterDisposition;
   return finalUnits;
 }
 
@@ -8682,6 +8694,350 @@ function DeployPanel({ plan, styleKey, onStyle, autoStyle, factionInfo, factionN
   );
 }
 
+// ---- Meta comparison + army builder ("Stavba armády") ----------------------------------------------
+const META_SEC_LABEL = { A: "Vedené jednotky", C: "Postavy", B: "Battleline", T: "Transporty", O: "Ostatní", L: "Spojenci" };
+// Detachments with a rules note I actually read in 11th-edition previews (BoLS / Spikey Bits).
+const DETACH_NOTES = {
+  "immaterial interdiction": "Postavený kolem Interceptorů: po střelbě udělají Echojump (surge D6+1″) a rovnou nabíjejí.",
+  "fires of purgation": "Postavený kolem Purgation Squadů.",
+};
+const metaNorm = (x) => String(x || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+// A library unit can be a merged "Squad (vede Leader)": it is two datasheets in tournament lists.
+function metaUnitNames(u) {
+  const m = String(u.name || "").match(/^(.*?)\s*\(vede (.*)\)\s*$/);
+  return m ? [m[1].trim(), m[2].trim()] : [String(u.name || "").trim()];
+}
+function metaFactionOf(units) {
+  const tally = new Map();
+  units.forEach((u) => u.faction && tally.set(u.faction, (tally.get(u.faction) || 0) + 1));
+  let top = "";
+  let n = -1;
+  tally.forEach((v, k) => {
+    if (v > n) {
+      n = v;
+      top = k;
+    }
+  });
+  return top;
+}
+function metaForFaction(faction) {
+  const f = metaNorm(faction);
+  if (!f) return null;
+  const key = Object.keys(META_LISTS).find((k) => f.includes(metaNorm(k)) || metaNorm(k).includes(f));
+  return key ? { key, meta: META_LISTS[key] } : null;
+}
+// The meta group that uses exactly the same detachment(s) as the army. Lists with a
+// different detachment are never mixed in.
+function metaGroupFor(meta, detachments) {
+  const U = (detachments || []).map(metaNorm).sort();
+  if (!U.length) return null;
+  const entries = Object.entries(meta.groups);
+  const same = (g) => {
+    const G = g.detachments.map(metaNorm).sort();
+    return G.length === U.length && G.every((x, i) => x === U[i]);
+  };
+  const hit = entries.find(([k, g]) => same(g) && !k.startsWith("any:")) || entries.find(([, g]) => same(g));
+  return hit ? hit[0] : null;
+}
+function compareWithMeta(units, group) {
+  const counts = new Map();
+  units.forEach((u) => metaUnitNames(u).forEach((n) => counts.set(n, (counts.get(n) || 0) + 1)));
+  const rows = group.units.filter((r) => r[1] >= 15).map((r) => ({ name: r[0], incl: r[1], typical: r[2], max: r[3], pts: r[4], sec: r[5], have: counts.get(r[0]) || 0 }));
+  const core = group.units.filter((r) => r[1] >= 25);
+  let num = 0;
+  let den = 0;
+  core.forEach((r) => {
+    den += r[1];
+    num += r[1] * Math.min(1, (counts.get(r[0]) || 0) / Math.max(1, r[2]));
+  });
+  const known = new Set(group.units.map((r) => r[0]));
+  const extra = [...counts.entries()].filter(([n]) => !group.units.some((r) => r[0] === n && r[1] >= 10)).map(([n, c]) => ({ name: n, have: c, seen: known.has(n) }));
+  return { coverage: den ? Math.round((num / den) * 100) : 0, rows, extra };
+}
+// Picks units from the user's library the way the meta builds this detachment: most common
+// datasheets first, typical number of copies, up to the point budget.
+function suggestMetaList(group, library, factionKey, budget) {
+  const rowOf = new Map(group.units.map((r) => [r[0], r]));
+  const fk = metaNorm(factionKey);
+  const cands = library
+    .filter((u) => !u.faction || metaNorm(u.faction).includes(fk) || fk.includes(metaNorm(u.faction)))
+    .map((u) => {
+      const names = metaUnitNames(u);
+      const rws = names.map((n) => rowOf.get(n)).filter(Boolean);
+      if (rws.length === 0) return null;
+      const main = rowOf.get(names[0]) || rws[0];
+      return { u, names, score: rws.reduce((a, r) => a + r[1], 0), typical: main[2], max: main[3], pts: parseInt(u.points, 10) || main[4] };
+    })
+    .filter(Boolean)
+    .sort((a, b) => b.score - a.score);
+  const picked = new Map();
+  const used = new Map(); // copies already taken per datasheet name (a bundle uses up both of its names)
+  let total = 0;
+  const add = (c, useMax) => {
+    if (total + c.pts > budget) return false;
+    const ok = c.names.every((n) => {
+      const r = rowOf.get(n);
+      return !r || (used.get(n) || 0) < (useMax ? r[3] : r[2]);
+    });
+    if (!ok) return false;
+    picked.set(c.u.id, (picked.get(c.u.id) || 0) + 1);
+    c.names.forEach((n) => used.set(n, (used.get(n) || 0) + 1));
+    total += c.pts;
+    return true;
+  };
+  cands.forEach((c) => {
+    for (let k = 0; k < c.typical; k++) if (!add(c, false)) break;
+  });
+  cands.forEach((c) => {
+    for (let k = 0; k < c.max; k++) if (!add(c, true)) break;
+  });
+  const have = new Set(cands.flatMap((c) => c.names));
+  const missing = group.units.filter((r) => r[1] >= 40 && !have.has(r[0])).map((r) => r[0]);
+  return { items: cands.filter((c) => picked.has(c.u.id)).map((c) => ({ ...c, copies: picked.get(c.u.id) })), total, missing };
+}
+
+function MetaSmallTable({ rows }) {
+  const th = { textAlign: "right", fontSize: 9.5, color: "var(--muted)", fontWeight: 700, padding: "3px 5px", whiteSpace: "nowrap" };
+  const td = { textAlign: "right", fontSize: 11.5, padding: "3px 5px", fontFamily: "var(--mono)", whiteSpace: "nowrap" };
+  return (
+    <div style={{ overflowX: "auto" }}>
+      <table style={{ borderCollapse: "collapse", width: "100%" }}>
+        <thead>
+          <tr>
+            <th style={{ ...th, textAlign: "left" }}>Jednotka</th>
+            <th style={th}>V metě</th>
+            <th style={th}>Typicky</th>
+            <th style={th}>Máš</th>
+            <th style={th}>Body/ks</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => {
+            const ok = r.have >= r.typical ? "var(--accent-text)" : r.have > 0 ? "var(--amber)" : "#e0594e";
+            return (
+              <tr key={r.name} style={{ borderTop: "1px solid var(--field-border)" }}>
+                <td style={{ ...td, textAlign: "left", fontFamily: "inherit", whiteSpace: "normal" }}>{r.name}</td>
+                <td style={td}>{r.incl} %</td>
+                <td style={td}>{r.typical}×</td>
+                <td style={{ ...td, color: ok, fontWeight: 700 }}>{r.have}×</td>
+                <td style={td}>{r.pts}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// "How the detachment is played" - what the winning lists of THIS detachment look like.
+function MetaGroupSummary({ group }) {
+  const top = group.units.slice(0, 5).map((r) => `${r[2]}× ${r[0]}`).join(", ");
+  const disp = Object.entries(group.disp).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v}×`).join(", ");
+  const note = group.detachments.map((d) => DETACH_NOTES[d.toLowerCase()]).filter(Boolean);
+  return (
+    <div style={{ fontSize: 12, color: "var(--text)", lineHeight: 1.5 }}>
+      <div><b>{group.n}</b> listů ({group.avgUnits} jednotek v průměru), průměrný výsledek <b>{Math.round(group.avgRec * 100)} %</b> vyhraných her (jen lepší než 4-1, tedy nadsazeno).</div>
+      <div style={{ color: "var(--muted)", marginTop: 3 }}>Jádro: {top}.</div>
+      <div style={{ color: "var(--muted)" }}>Dispozice: {disp || "bez údaje"}.</div>
+      {group.enh.length > 0 && <div style={{ color: "var(--muted)" }}>Enhancements: {group.enh.map(([k, v]) => `${k} (${v}×)`).join(", ")}.</div>}
+      {note.map((n, i) => (
+        <div key={i} style={{ color: "var(--accent-text)", marginTop: 3 }}>{n}</div>
+      ))}
+      {group.n < 5 && <div style={{ color: "var(--amber)", marginTop: 3 }}>Malý vzorek ({group.n} listy): bereš to jen jako orientační.</div>}
+    </div>
+  );
+}
+
+// Compare a saved army with the winning lists of the SAME detachment (Armáda).
+function MetaCompareCard({ army, units, onPickDetachments }) {
+  const [pick, setPick] = useState("");
+  const faction = metaFactionOf(units);
+  const f = metaForFaction(faction);
+  const box = { background: "var(--panel)", border: "1px solid var(--field-border)", borderRadius: 10, padding: 10, marginBottom: 14 };
+  const title = <div style={{ fontSize: 11, fontWeight: 700, color: "var(--label)", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 8 }}>Porovnání s metou</div>;
+  if (!f) {
+    return (
+      <>
+        {title}
+        <div style={{ ...box, fontSize: 12, color: "var(--muted)" }}>Pro frakci „{faction || "?"}“ zatím nemám data z turnajů (jsou jen: {Object.keys(META_LISTS).join(", ")}).</div>
+      </>
+    );
+  }
+  const autoKey = metaGroupFor(f.meta, army.detachments);
+  const key = pick || autoKey || "";
+  const group = key ? f.meta.groups[key] : null;
+  const cmp = group ? compareWithMeta(units, group) : null;
+  return (
+    <>
+      {title}
+      <div style={box}>
+        <div style={{ fontSize: 11, color: "var(--muted)", marginBottom: 6 }}>
+          Detachment tvé armády:{" "}
+          <b style={{ color: "var(--text)" }}>{army.detachments && army.detachments.length ? army.detachments.join(" + ") : "neznámý (nahraj list znovu, nebo vyber)"}</b>. Porovnává se jen s listy, které mají stejný detachment; jednotky z listů s jiným detachmentem se nepočítají.
+        </div>
+        <select
+          value={key}
+          onChange={(e) => {
+            setPick(e.target.value);
+            if (e.target.value && onPickDetachments) onPickDetachments(f.meta.groups[e.target.value].detachments);
+          }}
+          style={{ width: "100%", background: "var(--field-bg)", color: "var(--text)", border: "1px solid var(--field-border)", borderRadius: 6, padding: "6px 8px", fontSize: 12, marginBottom: 8 }}
+        >
+          <option value="">— vyber detachment z dat —</option>
+          {Object.entries(f.meta.groups).map(([k, g]) => (
+            <option key={k} value={k}>{g.label} ({g.n} listů)</option>
+          ))}
+        </select>
+        {!group && <div style={{ fontSize: 12, color: "var(--amber)" }}>Vyber detachment, se kterým porovnáváme.</div>}
+        {group && cmp && (
+          <>
+            <MetaGroupSummary group={group} />
+            <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "10px 0 6px" }}>
+              <div style={{ fontSize: 24, fontWeight: 800, color: cmp.coverage >= 70 ? "var(--accent-text)" : cmp.coverage >= 40 ? "var(--amber)" : "#e0594e", fontFamily: "var(--mono)" }}>{cmp.coverage} %</div>
+              <div style={{ fontSize: 11.5, color: "var(--muted)", lineHeight: 1.4 }}>shoda s jádrem meta listu (váženo podle toho, jak často se jednotka hraje, a podle typického počtu kusů)</div>
+            </div>
+            <MetaSmallTable rows={cmp.rows} />
+            {cmp.extra.length > 0 && (
+              <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 8 }}>
+                Mimo meta pro tento detachment (méně než 10 % listů): {cmp.extra.map((e) => `${e.name} (${e.have}×)`).join(", ")}.
+              </div>
+            )}
+            <div style={{ fontSize: 10.5, color: "var(--muted)", marginTop: 8 }}>
+              Zdroj: listhammer.info, stav k {f.meta.capturedAt}, {f.meta.listsUsed} čitelných listů z {f.meta.listsSeen}. Jde o listy, které skončily 4-1 a lépe, ne o obecnou sílu jednotek.
+            </div>
+          </>
+        )}
+      </div>
+    </>
+  );
+}
+
+// "Stavba armády": meta overview + a suggested list built from the user's own library.
+function BuilderView({ library, armies, onSaveArmy, onBack }) {
+  const factions = Object.keys(META_LISTS);
+  const ownFaction = metaForFaction(metaFactionOf(library));
+  const [factionKey, setFactionKey] = useState(ownFaction ? ownFaction.key : factions[0]);
+  const meta = META_LISTS[factionKey];
+  const groupKeys = Object.keys(meta.groups);
+  const [groupKey, setGroupKey] = useState(groupKeys[0]);
+  const [budget, setBudget] = useState(2000);
+  const [saved, setSaved] = useState("");
+  const group = meta.groups[groupKey] || meta.groups[groupKeys[0]];
+  const sugg = useMemo(() => suggestMetaList(group, library, factionKey, Number(budget) || 2000), [group, library, factionKey, budget]);
+  const box = { background: "var(--panel)", border: "1px solid var(--field-border)", borderRadius: 10, padding: 12, marginBottom: 12 };
+  const h = { fontSize: 11, fontWeight: 700, color: "var(--label)", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 8 };
+  const secPts = Object.entries(group.sec).map(([k, v]) => `${META_SEC_LABEL[k] || k} ${v}`).join(" · ");
+  return (
+    <div className="no-print" style={{ padding: "4px 14px 16px" }}>
+      <div className="gd-title" style={{ fontSize: 18, fontWeight: 800, color: "var(--text)", marginBottom: 4 }}>Stavba armády</div>
+      <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 12, lineHeight: 1.5 }}>
+        Co se hraje na turnajích (11. edice) a jak postavit list z tvé knihovny podle toho. Jednotky se berou vždy jen z listů se stejným detachmentem.
+      </div>
+
+      <div style={box}>
+        <div style={h}>Frakce a data</div>
+        <select value={factionKey} onChange={(e) => { setFactionKey(e.target.value); setGroupKey(Object.keys(META_LISTS[e.target.value].groups)[0]); }} style={{ width: "100%", background: "var(--field-bg)", color: "var(--text)", border: "1px solid var(--field-border)", borderRadius: 6, padding: "6px 8px", fontSize: 12.5, marginBottom: 8 }}>
+          {factions.map((k) => (
+            <option key={k} value={k}>{k}</option>
+          ))}
+        </select>
+        <div style={{ fontSize: 12, color: "var(--text)", lineHeight: 1.5 }}>
+          Win rate frakce {meta.siteStats.winRate} % ({meta.siteStats.games} her, {meta.siteStats.players} hráčů, {meta.siteStats.window}). Použito {meta.listsUsed} čitelných listů z {meta.listsSeen}, které skončily 4-1 a lépe, stav k {meta.capturedAt}.
+        </div>
+        <div style={{ fontSize: 10.5, color: "var(--muted)", marginTop: 4 }}>
+          Zdroj: <a href={meta.source} target="_blank" rel="noreferrer" style={{ color: "var(--accent-text)" }}>listhammer.info</a>. Data jsou ručně uložený snímek, ne živé. Zatím jen frakce: {factions.join(", ")}.
+        </div>
+      </div>
+
+      <div style={box}>
+        <div style={h}>Detachmenty (vyber, který tě zajímá)</div>
+        {groupKeys.map((k) => {
+          const g = meta.groups[k];
+          const wr = meta.siteStats.detachmentWR && meta.siteStats.detachmentWR[g.label];
+          return (
+            <button
+              key={k}
+              onClick={() => setGroupKey(k)}
+              className="wh40k-btn"
+              style={{ display: "flex", width: "100%", alignItems: "center", gap: 8, textAlign: "left", padding: "7px 9px", marginBottom: 5, borderRadius: 6, cursor: "pointer", border: `1px solid ${groupKey === k ? "var(--accent)" : "var(--field-border)"}`, background: groupKey === k ? "var(--accent-dim)" : "var(--field-bg)", color: "var(--text)" }}
+            >
+              <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: 700 }}>{g.label}</span>
+              <span style={{ fontSize: 11, color: "var(--muted)", fontFamily: "var(--mono)" }}>{g.n} listů{wr ? ` · WR ${wr.wr} %` : ""}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      <div style={box}>
+        <div style={h}>Jak se hraje: {group.label}</div>
+        <MetaGroupSummary group={group} />
+        <div style={{ fontSize: 11, color: "var(--muted)", margin: "8px 0 6px" }}>Body podle sekcí v průměru: {secPts}.</div>
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ borderCollapse: "collapse", width: "100%" }}>
+            <thead>
+              <tr>
+                {["Jednotka", "V metě", "Typicky", "Max", "Body/ks"].map((t, i) => (
+                  <th key={t} style={{ textAlign: i === 0 ? "left" : "right", fontSize: 9.5, color: "var(--muted)", fontWeight: 700, padding: "3px 5px" }}>{t}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {group.units.map((r) => (
+                <tr key={r[0]} style={{ borderTop: "1px solid var(--field-border)" }}>
+                  <td style={{ fontSize: 11.5, padding: "3px 5px" }}>{r[0]}</td>
+                  <td style={{ fontSize: 11.5, padding: "3px 5px", textAlign: "right", fontFamily: "var(--mono)" }}>{r[1]} %</td>
+                  <td style={{ fontSize: 11.5, padding: "3px 5px", textAlign: "right", fontFamily: "var(--mono)" }}>{r[2]}×</td>
+                  <td style={{ fontSize: 11.5, padding: "3px 5px", textAlign: "right", fontFamily: "var(--mono)" }}>{r[3]}×</td>
+                  <td style={{ fontSize: 11.5, padding: "3px 5px", textAlign: "right", fontFamily: "var(--mono)" }}>{r[4]}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div style={box}>
+        <div style={h}>Návrh listu z tvé knihovny</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+          <span style={{ fontSize: 12, color: "var(--muted)" }}>Body:</span>
+          <input type="number" value={budget} min={500} max={3000} step={50} onChange={(e) => { setBudget(e.target.value); setSaved(""); }} style={{ width: 90, background: "var(--field-bg)", color: "var(--text)", border: "1px solid var(--field-border)", borderRadius: 6, padding: "5px 8px", fontSize: 12.5 }} />
+        </div>
+        {sugg.items.length === 0 ? (
+          <div style={{ fontSize: 12, color: "var(--amber)" }}>V knihovně nemáš žádnou jednotku, kterou by tahle meta hrála. Nahraj armádu z New Recruit v Knihovně.</div>
+        ) : (
+          <>
+            {sugg.items.map((c) => (
+              <div key={c.u.id} style={{ display: "flex", gap: 8, fontSize: 12.5, padding: "3px 0", borderBottom: "1px solid var(--field-border)" }}>
+                <span style={{ flex: 1, minWidth: 0 }}>{c.copies}× {c.u.name}</span>
+                <span style={{ fontFamily: "var(--mono)", color: "var(--muted)" }}>{c.copies * c.pts} b.</span>
+              </div>
+            ))}
+            <div style={{ fontSize: 13, fontWeight: 800, marginTop: 6, fontFamily: "var(--mono)", color: "var(--accent-text)" }}>Celkem {sugg.total} / {budget} b.</div>
+            {sugg.missing.length > 0 && <div style={{ fontSize: 11.5, color: "var(--amber)", marginTop: 6 }}>V knihovně ti chybí časté jednotky této metě: {sugg.missing.join(", ")}.</div>}
+            <div style={{ fontSize: 10.5, color: "var(--muted)", marginTop: 6 }}>Body a počet kusů jsou z tvých jednotek v knihovně; návrh dodržuje typické počty z meta listů a nevybírá enhancements ani výbavu.</div>
+            <button
+              onClick={() => {
+                const ids = [];
+                sugg.items.forEach((c) => {
+                  for (let k = 0; k < c.copies; k++) ids.push(c.u.id);
+                });
+                onSaveArmy({ id: crypto.randomUUID(), name: `Meta: ${group.label} ${budget}b`, unitIds: ids, detachments: group.detachments });
+                setSaved("Uloženo mezi armády.");
+              }}
+              className="wh40k-btn"
+              style={{ marginTop: 8, border: "1px solid var(--accent)", background: "var(--accent)", color: "#fff", borderRadius: 6, padding: "7px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}
+            >
+              Uložit jako armádu
+            </button>
+            {saved && <span style={{ fontSize: 12, color: "var(--accent-text)", marginLeft: 8 }}>{saved}</span>}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // Third visual set ("Grimdark"): the tactical skin dressed in steel and gold -
 // deep royal blue, brushed-metal frames, parchment data cells, a serif display font.
 const GRIMDARK_VARS = {
@@ -9344,7 +9700,7 @@ function ManualView({ onBack }) {
 
       <ManualSection num="08" title="Herní deska">
         <ManualP>
-          <ManualPath>Herní deska</ManualPath> — vizuální bojiště na míru. Zaškrtni jednotky z knihovny do <b>Moje jednotky</b> nebo <b>Jednotky protihráče</b> — objeví se jako tokeny (jeden na každý model), přetáhni je na místo. Nad seznamem vybereš uloženou armádu (třeba z New Recruit) — seznam se zúží na její jednotky a „Dát celou armádu na desku“ je rozmístí najednou; „Nahrát z New Recruit (JSON)“ nahraje nový export rovnou na tuhle stranu i s base sizy ze sloupce Base. Tažením modelu hýbeš celou jednotkou (tlačítko v liště přepne na jeden model, Alt při tažení přepne na opak; Shift při tažení vezme vždy jen jeden model — třeba když ho chceš nacpat za zeď). Víc modelů označíš tažením myší po prázdné desce (Shift přidává, Shift+klik na model ho přidá/odebere) — pak se všechny označené hýbou spolu. Kolečkem myši nad modelem otočíš celou jednotku (nebo označené modely, nebo jeden model — stejná pravidla jako při tažení); kolečko dolů otáčí po směru hodin, Shift = jemné kroky po 5°. Třetí vzhled „Grimdark“ přidává ocelové a zlaté rámečky, obrázky hrdinů v hlavičce a cheat sheet ve stylu pergamenové tabulky (tisk zůstává černobílý). Taktický vzhled má vlastní sadu ikon (domů, kalkulačka, knihovna, historie, nastavení, koš atd.). Vzhled aplikace přepneš v Nastavení (ozubené kolečko → Vzhled): „Základní“ nebo „Taktický“ (sytě modrý HUD, hexagonové tokeny, texturované podložky, kompas a měřítko na desce). Tlačítko „Nasazení“ (Rádce nasazení): navrhne pro každou rozmístěnou jednotku místo v tvé zóně - střelce na výhledy z krytu, jednotky na blízko skryté, ale v dosahu chargu, levné jednotky dopředu jako screen a na objektivy; styl armády vybere sám podle soupeře (když ho zadáš na desku nebo vybereš jeho armádu; jinak podle frakce), můžeš ho přepsat a zvolit, jestli hraješ první nebo druhý. Tlačítko „Rozmístit armádu ideálně“ dá vybranou armádu na desku a rovnou ji rozmístí. Podle Core Rules 11. edice (Wahapedia) počítá: Scout pohyb (musí skončit > 8″ od soupeře), Infiltrators (kamkoli > 8″ od soupeřovy zóny), pravidlo Hidden (pěchota v terénu je vidět jen do 15″) a charge s dosahem 2″ (engagement range). Dál se počítá se Scout pohybem: soupeřovy Scout jednotky mají větší dosah a tvoje Scout jednotky se nasadí do zóny a modrý kroužek ukazuje, kam je před prvním tahem posunout (odtud se počítá výhled a hrozby; Scout nesmí skončit blíž než 8″ od soupeře). Drahé jednotky se víc střeží před palbou, takže se nestaví dopředu na očích. Návrh je na desce zlaté přerušované kroužky s číslem; „Přijmout“ jednotku přesune, „Přijmout vše“ přesune všechny. Je to heuristika podle běžných turnajových rad. Tlačítko „Rádce“: klikni na svůj token a pod deskou se objeví rada pro jeho jednotku - na koho střílet nebo útočit (podle očekávaných bodů, s ohledem na dosah zbraní, viditelnost, pohyb a šanci na charge), kdo ti příští kolo hrozí a kde je nejbližší objektiv. Nejlepší cíl má na desce zlatý přerušovaný kroužek. Odhady jsou orientační. Tlačítko „Dosah pohybu“ kreslí kolem jednotek dva obrysy: tyrkysový = maximální pohyb (M), žlutý = maximální advance (M + 6″), oboje od okraje podstavy; když je něco vybráno nebo taženo, ukáže se jen to, jinak všechny jednotky. M se načítá z importu z New Recruit (u starších jednotek list nahraj znovu nebo M dopiš v knihovně). Tlačítko „Linie palby“ ukazuje, na koho vidí jednotka, kterou táhneš (nebo kterou vybereš klikem jako útočníka): zelená čára = vidí a vzdálenost v palcích; zakryté jednotky se nekreslí; zelený kroužek je kolem nepřátelských modelů, které vidí. Navíc se kolem modelu kreslí teoretický výhled: zelená plocha je, kam model vidí, oranžové paprsky končí na terénu, který ho kryje (za ním je v krytu); při tažení se hýbou s modelem. Podle pravidel 11. edice zakrývá celá plocha terénu (podložky, ruiny, zdi, lesy; krátery a objektivy ne). Model, jehož podstava se oblasti dotýká, skrz ni vidí. Desku můžeš otočit o 90° tlačítkem „Otočit“ (jen pohled, data zůstávají) a přibližovat tlačítky lupy nebo Ctrl + kolečkem (na touchpadu štípnutím) kolem kurzoru; přiblíženou desku posouváš posuvníky. Podložky jsou standardně zamčené (tlačítko „Terén zamčený“ v liště nad deskou) — táhneš jen modely, terén se nehne; odemknutím ho zase přesouváš a upravuješ. Velikost tokenu vychází z base size jednotky — přímo u jednotky v knihovně je malý rozklikávací seznam se standardními velikostmi (25 až 160mm kulaté, plus běžné oválné jako 90×52mm), není potřeba kvůli tomu otvírat celou editaci.
+          <ManualPath>Herní deska</ManualPath> — vizuální bojiště na míru. Zaškrtni jednotky z knihovny do <b>Moje jednotky</b> nebo <b>Jednotky protihráče</b> — objeví se jako tokeny (jeden na každý model), přetáhni je na místo. Nad seznamem vybereš uloženou armádu (třeba z New Recruit) — seznam se zúží na její jednotky a „Dát celou armádu na desku“ je rozmístí najednou; „Nahrát z New Recruit (JSON)“ nahraje nový export rovnou na tuhle stranu i s base sizy ze sloupce Base. Tažením modelu hýbeš celou jednotkou (tlačítko v liště přepne na jeden model, Alt při tažení přepne na opak; Shift při tažení vezme vždy jen jeden model — třeba když ho chceš nacpat za zeď). Víc modelů označíš tažením myší po prázdné desce (Shift přidává, Shift+klik na model ho přidá/odebere) — pak se všechny označené hýbou spolu. Kolečkem myši nad modelem otočíš celou jednotku (nebo označené modely, nebo jeden model — stejná pravidla jako při tažení); kolečko dolů otáčí po směru hodin, Shift = jemné kroky po 5°. Třetí vzhled „Grimdark“ přidává ocelové a zlaté rámečky, obrázky hrdinů v hlavičce a cheat sheet ve stylu pergamenové tabulky (tisk zůstává černobílý). Taktický vzhled má vlastní sadu ikon (domů, kalkulačka, knihovna, historie, nastavení, koš atd.). Vzhled aplikace přepneš v Nastavení (ozubené kolečko → Vzhled): „Základní“ nebo „Taktický“ (sytě modrý HUD, hexagonové tokeny, texturované podložky, kompas a měřítko na desce). Záložka „Stavba“ (Stavba armády): přehled toho, co se hraje na turnajích (zatím Grey Knights, ručně uložený snímek z listhammer.info) - detachmenty, typické jednotky a počty kusů, enhancements - a návrh listu z tvé knihovny na zvolený počet bodů, který můžeš uložit jako armádu. V Armáda je u vybrané armády „Porovnání s metou“: shoda tvého listu s vítěznými listy se stejným detachmentem (jednotky z listů s jiným detachmentem se nepočítají); detachment se čte z importu z New Recruit, jinak ho vybereš. Tlačítko „Nasazení“ (Rádce nasazení): navrhne pro každou rozmístěnou jednotku místo v tvé zóně - střelce na výhledy z krytu, jednotky na blízko skryté, ale v dosahu chargu, levné jednotky dopředu jako screen a na objektivy; styl armády vybere sám podle soupeře (když ho zadáš na desku nebo vybereš jeho armádu; jinak podle frakce), můžeš ho přepsat a zvolit, jestli hraješ první nebo druhý. Tlačítko „Rozmístit armádu ideálně“ dá vybranou armádu na desku a rovnou ji rozmístí. Podle Core Rules 11. edice (Wahapedia) počítá: Scout pohyb (musí skončit > 8″ od soupeře), Infiltrators (kamkoli > 8″ od soupeřovy zóny), pravidlo Hidden (pěchota v terénu je vidět jen do 15″) a charge s dosahem 2″ (engagement range). Dál se počítá se Scout pohybem: soupeřovy Scout jednotky mají větší dosah a tvoje Scout jednotky se nasadí do zóny a modrý kroužek ukazuje, kam je před prvním tahem posunout (odtud se počítá výhled a hrozby; Scout nesmí skončit blíž než 8″ od soupeře). Drahé jednotky se víc střeží před palbou, takže se nestaví dopředu na očích. Návrh je na desce zlaté přerušované kroužky s číslem; „Přijmout“ jednotku přesune, „Přijmout vše“ přesune všechny. Je to heuristika podle běžných turnajových rad. Tlačítko „Rádce“: klikni na svůj token a pod deskou se objeví rada pro jeho jednotku - na koho střílet nebo útočit (podle očekávaných bodů, s ohledem na dosah zbraní, viditelnost, pohyb a šanci na charge), kdo ti příští kolo hrozí a kde je nejbližší objektiv. Nejlepší cíl má na desce zlatý přerušovaný kroužek. Odhady jsou orientační. Tlačítko „Dosah pohybu“ kreslí kolem jednotek dva obrysy: tyrkysový = maximální pohyb (M), žlutý = maximální advance (M + 6″), oboje od okraje podstavy; když je něco vybráno nebo taženo, ukáže se jen to, jinak všechny jednotky. M se načítá z importu z New Recruit (u starších jednotek list nahraj znovu nebo M dopiš v knihovně). Tlačítko „Linie palby“ ukazuje, na koho vidí jednotka, kterou táhneš (nebo kterou vybereš klikem jako útočníka): zelená čára = vidí a vzdálenost v palcích; zakryté jednotky se nekreslí; zelený kroužek je kolem nepřátelských modelů, které vidí. Navíc se kolem modelu kreslí teoretický výhled: zelená plocha je, kam model vidí, oranžové paprsky končí na terénu, který ho kryje (za ním je v krytu); při tažení se hýbou s modelem. Podle pravidel 11. edice zakrývá celá plocha terénu (podložky, ruiny, zdi, lesy; krátery a objektivy ne). Model, jehož podstava se oblasti dotýká, skrz ni vidí. Desku můžeš otočit o 90° tlačítkem „Otočit“ (jen pohled, data zůstávají) a přibližovat tlačítky lupy nebo Ctrl + kolečkem (na touchpadu štípnutím) kolem kurzoru; přiblíženou desku posouváš posuvníky. Podložky jsou standardně zamčené (tlačítko „Terén zamčený“ v liště nad deskou) — táhneš jen modely, terén se nehne; odemknutím ho zase přesouváš a upravuješ. Velikost tokenu vychází z base size jednotky — přímo u jednotky v knihovně je malý rozklikávací seznam se standardními velikostmi (25 až 160mm kulaté, plus běžné oválné jako 90×52mm), není potřeba kvůli tomu otvírat celou editaci.
         </ManualP>
         <ManualUl
           items={[
@@ -10580,10 +10936,10 @@ export default function Wh40kCalculator({ session }) {
         new Set([...oldCnt.keys(), ...newCnt.keys()]).forEach((id) => {
           for (let k = 0; k < Math.max(oldCnt.get(id) || 0, newCnt.get(id) || 0); k++) mergedIds.push(id);
         });
-        persistArmies(armies.map((a) => (a.id === existingArmy.id ? { ...a, unitIds: mergedIds } : a)));
+        persistArmies(armies.map((a) => (a.id === existingArmy.id ? { ...a, unitIds: mergedIds, ...(units.detachments && units.detachments.length ? { detachments: units.detachments, disposition: units.disposition || a.disposition || "" } : {}) } : a)));
       } else {
         armyId = crypto.randomUUID();
-        persistArmies([...armies, { id: armyId, name, unitIds: allIds }]);
+        persistArmies([...armies, { id: armyId, name, unitIds: allIds, ...(units.detachments && units.detachments.length ? { detachments: units.detachments, disposition: units.disposition || "" } : {}) }]);
       }
     }
 
@@ -12031,6 +12387,7 @@ export default function Wh40kCalculator({ session }) {
         {[
           ["home", Home, "Domů"],
           ["calculator", Crosshair, "Kalkulačka"],
+          ["builder", BuilderIcon, "Stavba"],
           ["board", MapIcon, "Herní deska"],
           ["library", UnitsNavIcon, "Knihovna"],
           ["history", Clock, "Historie"],
@@ -12194,6 +12551,15 @@ export default function Wh40kCalculator({ session }) {
         </div>
       )}
 
+      {/* ARMY BUILDER (meta) */}
+      {view === "builder" && (
+        <BuilderView
+          library={library}
+          armies={armies}
+          onSaveArmy={(a) => persistArmies([...armies, a])}
+        />
+      )}
+
       {/* ARMY HUB */}
       {view === "army" && (() => {
         const army = armies.find((a) => a.id === armyViewId) || armies[0] || null;
@@ -12287,6 +12653,13 @@ export default function Wh40kCalculator({ session }) {
                 <div style={{ fontSize: 11.5, color: "var(--muted)", marginBottom: 12 }}>
                   {factions.join(", ") || "bez frakce"} · {tot.units} jednotek · {tot.models} modelů · {tot.pts} bodů
                 </div>
+
+                <MetaCompareCard
+                  key={army.id}
+                  army={army}
+                  units={myUnits}
+                  onPickDetachments={(d) => persistArmies(armies.map((a) => (a.id === army.id ? { ...a, detachments: d } : a)))}
+                />
 
                 <div style={{ fontSize: 11, fontWeight: 700, color: "var(--label)", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 8 }}>Statistiky</div>
                 <div style={{ background: "var(--panel)", border: "1px solid var(--field-border)", borderRadius: 10, padding: 10, marginBottom: 14 }}>
