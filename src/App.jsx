@@ -8938,10 +8938,11 @@ function BuilderView({ library, armies, onSaveArmy, onBack }) {
   const [saved, setSaved] = useState("");
   // Ideal list (last 2 months): disposition + detachment combination picked here.
   const [idealDisp, setIdealDisp] = useState("");
-  const [idealCombo, setIdealCombo] = useState("");
+  const [idealDets, setIdealDets] = useState(null);
+  const [idealExact, setIdealExact] = useState(true);
   const [showRep, setShowRep] = useState(false);
   const [copied, setCopied] = useState("");
-  const ideal = useMemo(() => idealList(factionKey, idealDisp, idealCombo, Number(budget) || 2000), [factionKey, idealDisp, idealCombo, budget]);
+  const ideal = useMemo(() => idealList(factionKey, idealDisp, idealDets, idealExact, Number(budget) || 2000), [factionKey, idealDisp, idealDets, idealExact, budget]);
   const libHave = useMemo(() => {
     const m = new Map();
     library.forEach((u) => metaUnitNames(u).forEach((nm) => m.set(nm, (m.get(nm) || 0) + 1)));
@@ -8961,7 +8962,7 @@ function BuilderView({ library, armies, onSaveArmy, onBack }) {
 
       <div style={box}>
         <div style={h}>Frakce a data</div>
-        <select value={factionKey} onChange={(e) => { setFactionKey(e.target.value); setGroupKey(Object.keys(META_LISTS[e.target.value].groups)[0]); setIdealCombo(""); setCopied(""); }} style={{ width: "100%", background: "var(--field-bg)", color: "var(--text)", border: "1px solid var(--field-border)", borderRadius: 6, padding: "6px 8px", fontSize: 12.5, marginBottom: 8 }}>
+        <select value={factionKey} onChange={(e) => { setFactionKey(e.target.value); setGroupKey(Object.keys(META_LISTS[e.target.value].groups)[0]); setIdealDets(null); setCopied(""); }} style={{ width: "100%", background: "var(--field-bg)", color: "var(--text)", border: "1px solid var(--field-border)", borderRadius: 6, padding: "6px 8px", fontSize: 12.5, marginBottom: 8 }}>
           {factions.map((k) => (
             <option key={k} value={k}>{k}</option>
           ))}
@@ -8977,11 +8978,11 @@ function BuilderView({ library, armies, onSaveArmy, onBack }) {
       <div style={{ ...box, borderColor: "var(--accent)" }}>
         <div style={h}>Ideální list (posledních {META_PERIOD.days} dní)</div>
         <div style={{ fontSize: 11.5, color: "var(--muted)", marginBottom: 8, lineHeight: 1.45 }}>
-          Vyber frakci (nahoře) a dispozici. Appka vezme turnajové listy 4-1 a lépe od {META_PERIOD.from} do {META_PERIOD.to}, které hrály stejné detachmenty, a poskládá z nich list do zvolených bodů.
+          Vyber frakci (nahoře), dispozici a zaškrtni detachmenty, které chceš hrát (nebo nech nejčastější kombinaci). Appka vezme turnajové listy 4-1 a lépe od {META_PERIOD.from} do {META_PERIOD.to}, které hrály tyto detachmenty, a poskládá z nich list do zvolených bodů.
         </div>
         <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, marginBottom: 8 }}>
           <span style={{ fontSize: 12, color: "var(--muted)" }}>Dispozice:</span>
-          <select value={idealDisp} onChange={(e) => { setIdealDisp(e.target.value); setIdealCombo(""); setCopied(""); }} style={{ background: "var(--field-bg)", color: "var(--text)", border: "1px solid var(--field-border)", borderRadius: 6, padding: "5px 8px", fontSize: 12.5 }}>
+          <select value={idealDisp} onChange={(e) => { setIdealDisp(e.target.value); setIdealDets(null); setCopied(""); }} style={{ background: "var(--field-bg)", color: "var(--text)", border: "1px solid var(--field-border)", borderRadius: 6, padding: "5px 8px", fontSize: 12.5 }}>
             <option value="">Všechny dispozice</option>
             {["Purge the Foe", "Take and Hold", "Priority Assets", "Disruption", "Reconnaissance"].map((d) => (
               <option key={d} value={d}>{d}</option>
@@ -8991,15 +8992,63 @@ function BuilderView({ library, armies, onSaveArmy, onBack }) {
           <input type="number" value={budget} min={500} max={3000} step={50} onChange={(e) => { setBudget(e.target.value); setSaved(""); setCopied(""); }} style={{ width: 80, background: "var(--field-bg)", color: "var(--text)", border: "1px solid var(--field-border)", borderRadius: 6, padding: "5px 8px", fontSize: 12.5 }} />
         </div>
         {ideal.opts.fellBack && <div style={{ fontSize: 11.5, color: "var(--amber)", marginBottom: 6 }}>Pro dispozici {idealDisp} je za toto období méně než 3 listy, proto počítám ze všech dispozic.</div>}
-        {ideal.empty ? (
-          <div style={{ fontSize: 12, color: "var(--amber)" }}>Pro tuhle frakci nemám za poslední dva měsíce žádné čitelné listy.</div>
-        ) : (
+          <div style={{ fontSize: 11, fontWeight: 700, color: "var(--label)", textTransform: "uppercase", letterSpacing: 0.6, margin: "4px 0 5px" }}>Zaškrtni detachmenty, které chceš (1 až 3)</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 6 }}>
+            {ideal.opts.detachments.map((d) => {
+              const on = !!idealDets && idealDets.some((x) => x.toLowerCase() === d.name.toLowerCase());
+              const sel = idealDets ? on : !!ideal.combo && ideal.combo.detachments.some((x) => x.toLowerCase() === d.name.toLowerCase());
+              return (
+                <label
+                  key={d.name}
+                  className="wh40k-btn"
+                  style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 9px", borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 600, border: `1px solid ${sel ? "var(--accent)" : "var(--field-border)"}`, background: sel ? "var(--accent-dim)" : "var(--field-bg)", color: "var(--text)" }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={sel}
+                    onChange={() => {
+                      const cur = idealDets || (ideal.combo ? ideal.combo.detachments : []);
+                      const next = sel ? cur.filter((x) => x.toLowerCase() !== d.name.toLowerCase()) : cur.length >= 3 ? [...cur.slice(1), d.name] : [...cur, d.name];
+                      setIdealDets(next);
+                      setCopied("");
+                    }}
+                  />
+                  {d.name}
+                  <span style={{ fontSize: 10.5, color: "var(--muted)", fontFamily: "var(--mono)" }}>{d.n}</span>
+                </label>
+              );
+            })}
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10, marginBottom: 8, fontSize: 12 }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 5, cursor: "pointer" }}>
+              <input type="radio" name="idealExact" checked={idealExact} onChange={() => setIdealExact(true)} /> jen přesně tyto
+            </label>
+            <label style={{ display: "flex", alignItems: "center", gap: 5, cursor: "pointer" }}>
+              <input type="radio" name="idealExact" checked={!idealExact} onChange={() => setIdealExact(false)} /> aspoň tyto (mohou mít i další)
+            </label>
+            {idealDets && (
+              <button onClick={() => setIdealDets(null)} className="wh40k-btn" style={{ border: "1px solid var(--field-border)", background: "transparent", color: "var(--muted)", borderRadius: 6, padding: "3px 9px", fontSize: 11.5, cursor: "pointer" }}>
+                Zrušit výběr
+              </button>
+            )}
+          </div>
+          {ideal.fellBackContains && <div style={{ fontSize: 11.5, color: "var(--amber)", marginBottom: 6 }}>Přesně tuhle kombinaci nehrál žádný list, proto beru listy, které tyto detachmenty používají (a mají i další).</div>}
+        {ideal.empty && ideal.noMatch && (
           <>
-            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--label)", textTransform: "uppercase", letterSpacing: 0.6, margin: "4px 0 5px" }}>Detachment (nejčastější nahoře)</div>
+            <div style={{ fontSize: 12, color: "var(--amber)", marginBottom: 6 }}>Žádný list za poslední dva měsíce nehrál {ideal.selected.join(" + ")}{idealDisp ? ` v dispozici ${idealDisp}` : ""}. Zkus jiné detachmenty, „aspoň tyto“ nebo všechny dispozice.</div>
+            <button onClick={() => setIdealDets(null)} className="wh40k-btn" style={{ border: "1px solid var(--field-border)", background: "transparent", color: "var(--text)", borderRadius: 6, padding: "4px 10px", fontSize: 12, cursor: "pointer" }}>Zrušit výběr</button>
+          </>
+        )}
+        {ideal.empty && ideal.needPick && <div style={{ fontSize: 12, color: "var(--amber)" }}>Zaškrtni aspoň jeden detachment (nebo dej „Zrušit výběr“ pro nejčastější kombinaci).</div>}
+        {ideal.empty && !ideal.noMatch && !ideal.needPick ? (
+          <div style={{ fontSize: 12, color: "var(--amber)" }}>Pro tuhle frakci nemám za poslední dva měsíce žádné čitelné listy.</div>
+        ) : ideal.empty ? null : (
+          <>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--label)", textTransform: "uppercase", letterSpacing: 0.6, margin: "4px 0 5px" }}>Nejčastější kombinace (klikni pro výběr)</div>
             {ideal.opts.combos.slice(0, 8).map((c) => (
               <button
                 key={c.key}
-                onClick={() => { setIdealCombo(c.key); setCopied(""); }}
+                onClick={() => { setIdealDets(c.detachments); setIdealExact(true); setCopied(""); }}
                 className="wh40k-btn"
                 style={{ display: "flex", width: "100%", alignItems: "center", gap: 8, textAlign: "left", padding: "6px 9px", marginBottom: 4, borderRadius: 6, cursor: "pointer", border: `1px solid ${ideal.combo.key === c.key ? "var(--accent)" : "var(--field-border)"}`, background: ideal.combo.key === c.key ? "var(--accent-dim)" : "var(--field-bg)", color: "var(--text)" }}
               >

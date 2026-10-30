@@ -157,18 +157,41 @@ export function idealOptions(faction, disp) {
     n: c.lists.length,
     avgRec: Math.round((c.lists.reduce((a, L) => a + L.rec, 0) / c.lists.length) * 100) / 100,
   }));
-  return { combos, total: pool.length, fellBack: !!disp && !usedDisp, usedDisp };
+  const counts = new Map();
+  pool.forEach((L) => L.dets.forEach((d) => counts.set(d, (counts.get(d) || 0) + 1)));
+  const detachments = [...counts.entries()].map(([name, n]) => ({ name, n })).sort((a, b) => b.n - a.n || a.name.localeCompare(b.name, "en"));
+  return { combos, detachments, total: pool.length, fellBack: !!disp && !usedDisp, usedDisp };
 }
 
 // The ideal list: consensus of the lists that use this exact detachment combination in this
 // disposition, cut to the points budget, plus the real list that matches the consensus best.
-export function idealList(faction, disp, comboKey, budget) {
+// `dets` = the detachments the user ticked (empty = the most common combination); `exact` = only
+// lists with exactly these detachments (otherwise lists that use at least these).
+export function idealList(faction, disp, dets, exact, budget) {
   const opts = idealOptions(faction, disp);
   const all = decodeFaction(faction);
   const pool = opts.usedDisp ? all.filter((L) => L.disp === opts.usedDisp) : all;
-  const combo = combosOf(pool).find((c) => c.key === comboKey) || combosOf(pool)[0];
-  if (!combo) return { opts, empty: true };
-  const lists = combo.lists;
+  let lists;
+  let combo;
+  let fellBackContains = false;
+  if (dets && dets.length) {
+    const want = dets.map((d) => d.toLowerCase());
+    const matches = (L, strict) => want.every((w) => L.dets.some((d) => d.toLowerCase() === w)) && (!strict || L.dets.length === want.length);
+    lists = pool.filter((L) => matches(L, exact));
+    if (!lists.length && exact) {
+      lists = pool.filter((L) => matches(L, false));
+      fellBackContains = lists.length > 0;
+    }
+    if (!lists.length) return { opts, empty: true, noMatch: true, selected: dets };
+    combo = { key: detKey(dets), dets };
+  } else if (dets) {
+    return { opts, empty: true, needPick: true };
+  } else {
+    const top = combosOf(pool)[0];
+    if (!top) return { opts, empty: true };
+    lists = top.lists;
+    combo = { key: top.key, dets: top.dets };
+  }
   const n = lists.length;
   const stats = new Map();
   lists.forEach((L) => {
@@ -244,6 +267,7 @@ export function idealList(faction, disp, comboKey, budget) {
     opts,
     empty: false,
     combo: { key: combo.key, label: combo.dets.join(" + "), detachments: combo.dets, n },
+    fellBackContains,
     avgRec: Math.round((lists.reduce((a, L) => a + L.rec, 0) / n) * 100) / 100,
     items,
     total,
