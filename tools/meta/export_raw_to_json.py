@@ -11,5 +11,5 @@ except Exception:
     data=json.loads(json.loads('"'+body+'"'))
 print(len(data),'factions')
 for h,v in data.items():
-    print(h, v['listsUsed'],'/',v['listsSeen'], len(v['groups']), 'groups')
-json.dump(data,open('export3.json','w',encoding='utf-8'),ensure_ascii=False)
+    print(h, len(v['lists']), 'lists')
+json.dump(data,open('raw_export.json','w',encoding='utf-8'),ensure_ascii=False)

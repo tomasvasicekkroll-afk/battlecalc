@@ -8,7 +8,8 @@ const DISP = ["Purge the Foe", "Take and Hold", "Priority Assets", "Disruption",
 const SECMAP = { "ATTACHED UNITS": "A", "CHARACTERS": "C", "BATTLELINE": "B", "DEDICATED TRANSPORTS": "T", "OTHER DATASHEETS": "O", "ALLIED UNITS": "L" };
 const MON = { Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5, Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11 };
 const NOW = new Date();
-const CUTOFF = new Date(NOW.getTime() - 30 * 86400000);
+const DAYS = window.__DAYS || 30;
+const CUTOFF = new Date(NOW.getTime() - DAYS * 86400000);
 const dlg = () => document.querySelector("[role=dialog], .p-dialog");
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const norm = (x) => String(x || "").toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -174,7 +175,7 @@ async function runFaction(href) {
   await closeDialog();
   stats = pageStats();
   const agg = aggregate(raw);
-  return { stats, ...agg, rawCount: raw.length };
+  return { stats, ...agg, rawCount: raw.length, lists: raw.map(parseList).filter(Boolean) };
 }
 const CUT = CUTOFF.toISOString().slice(0, 10);
 const TODAY = NOW.toISOString().slice(0, 10);
@@ -196,7 +197,31 @@ function compact(href) {
   });
   return { source: "https://listhammer.info" + href, capturedAt: TODAY, period: CUT + " – " + TODAY, siteStats: { window: r.stats.window, winRate: r.stats.winRate, games: r.stats.games, players: r.stats.players, detachmentWR: wr }, listsSeen: r.listsSeen, listsUsed: r.listsUsed, groups };
 }
+// Raw per-list export (used by the app to build "ideal lists" for any disposition): dictionary
+// encoded so the file stays small. Day = days since 2026-01-01.
+function exportRaw(hrefs) {
+  const out = {};
+  hrefs.forEach((href) => {
+    const r = window.__OUT[href];
+    if (!r || !r.lists || !r.lists.length) return;
+    const names = [], dets = [], enhs = [];
+    const idx = (arr, v) => { let i = arr.indexOf(v); if (i < 0) { arr.push(v); i = arr.length - 1; } return i; };
+    const disps = ["", ...DISP];
+    const lists = r.lists.map((L) => [
+      Math.round((new Date(L.date + "T12:00:00Z") - Date.UTC(2026, 0, 1)) / 86400000),
+      Math.round(L.rec * 100),
+      disps.indexOf(L.disp),
+      L.dets.map((d) => idx(dets, d)),
+      L.units.map(([n, p, s]) => [idx(names, n), p, "ACBTOL".indexOf(s)]),
+      L.enh.map((e) => idx(enhs, e)),
+    ]);
+    const detWR = {};
+    Object.values(r.stats.detWR || {}).forEach((d) => { detWR[d.names.join(" + ")] = { field: d.field, wr: d.wr }; });
+    out[href] = { name: r.name, source: "https://listhammer.info" + href, siteStats: { window: r.stats.window, winRate: r.stats.winRate, games: r.stats.games, players: r.stats.players, detachmentWR: detWR }, listsSeen: r.listsSeen, names, dets, enhs, lists };
+  });
+  return out;
+}
 window.__OUT = window.__OUT || {};
-window.__LH = { parseList, aggregate, collectOpen, pageStats, factions, runFaction, compact, dlg, dateOf, CUTOFF };
+window.__LH = { parseList, aggregate, collectOpen, pageStats, factions, runFaction, compact, exportRaw, dlg, dateOf, CUTOFF };
 return { now: NOW.toISOString(), cutoff: CUTOFF.toISOString(), factions: factions().length };
 })()

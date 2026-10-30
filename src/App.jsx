@@ -45,9 +45,7 @@ import {
   Copy as LucideCopy,
 } from "lucide-react";
 import { storage } from "./lib/storage";
-import { META_LISTS_AUTO } from "./data/metaListsAuto";
-// Generated snapshot of the last 30 days of tournament lists; factions listed alphabetically.
-const META_LISTS = Object.fromEntries(Object.entries(META_LISTS_AUTO).sort(([a], [b]) => a.localeCompare(b, "en")));
+import { META_LISTS_30 as META_LISTS, idealList, META_PERIOD } from "./data/metaLogic";
 import { supabase } from "./lib/supabaseClient";
 
 // Tactical look: the second design set swaps these icons for the custom icon
@@ -8919,7 +8917,7 @@ function MetaCompareCard({ army, units, onPickDetachments }) {
               </div>
             )}
             <div style={{ fontSize: 10.5, color: "var(--muted)", marginTop: 8 }}>
-              Zdroj: listhammer.info, stav k {f.meta.capturedAt}, {f.meta.listsUsed} čitelných listů z {f.meta.listsSeen}. Jde o listy, které skončily 4-1 a lépe, ne o obecnou sílu jednotek.
+              Zdroj: listhammer.info, stav k {f.meta.capturedAt}, {f.meta.listsUsed} čitelných listů z posledních 30 dní. Jde o listy, které skončily 4-1 a lépe, ne o obecnou sílu jednotek.
             </div>
           </>
         )}
@@ -8938,6 +8936,17 @@ function BuilderView({ library, armies, onSaveArmy, onBack }) {
   const [groupKey, setGroupKey] = useState(groupKeys[0]);
   const [budget, setBudget] = useState(2000);
   const [saved, setSaved] = useState("");
+  // Ideal list (last 2 months): disposition + detachment combination picked here.
+  const [idealDisp, setIdealDisp] = useState("");
+  const [idealCombo, setIdealCombo] = useState("");
+  const [showRep, setShowRep] = useState(false);
+  const [copied, setCopied] = useState("");
+  const ideal = useMemo(() => idealList(factionKey, idealDisp, idealCombo, Number(budget) || 2000), [factionKey, idealDisp, idealCombo, budget]);
+  const libHave = useMemo(() => {
+    const m = new Map();
+    library.forEach((u) => metaUnitNames(u).forEach((nm) => m.set(nm, (m.get(nm) || 0) + 1)));
+    return m;
+  }, [library]);
   const group = meta.groups[groupKey] || meta.groups[groupKeys[0]];
   const sugg = useMemo(() => suggestMetaList(group, library, factionKey, Number(budget) || 2000), [group, library, factionKey, budget]);
   const box = { background: "var(--panel)", border: "1px solid var(--field-border)", borderRadius: 10, padding: 12, marginBottom: 12 };
@@ -8952,17 +8961,125 @@ function BuilderView({ library, armies, onSaveArmy, onBack }) {
 
       <div style={box}>
         <div style={h}>Frakce a data</div>
-        <select value={factionKey} onChange={(e) => { setFactionKey(e.target.value); setGroupKey(Object.keys(META_LISTS[e.target.value].groups)[0]); }} style={{ width: "100%", background: "var(--field-bg)", color: "var(--text)", border: "1px solid var(--field-border)", borderRadius: 6, padding: "6px 8px", fontSize: 12.5, marginBottom: 8 }}>
+        <select value={factionKey} onChange={(e) => { setFactionKey(e.target.value); setGroupKey(Object.keys(META_LISTS[e.target.value].groups)[0]); setIdealCombo(""); setCopied(""); }} style={{ width: "100%", background: "var(--field-bg)", color: "var(--text)", border: "1px solid var(--field-border)", borderRadius: 6, padding: "6px 8px", fontSize: 12.5, marginBottom: 8 }}>
           {factions.map((k) => (
             <option key={k} value={k}>{k}</option>
           ))}
         </select>
         <div style={{ fontSize: 12, color: "var(--text)", lineHeight: 1.5 }}>
-          Win rate frakce {meta.siteStats.winRate} % ({meta.siteStats.games} her, {meta.siteStats.players} hráčů, {meta.siteStats.window}). Použito {meta.listsUsed} čitelných listů z {meta.listsSeen}, které skončily 4-1 a lépe, stav k {meta.capturedAt}.
+          Win rate frakce {meta.siteStats.winRate} % ({meta.siteStats.games} her, {meta.siteStats.players} hráčů, {meta.siteStats.window}). Použito {meta.listsUsed} čitelných listů z posledních 30 dní, které skončily 4-1 a lépe, stav k {meta.capturedAt}.
         </div>
         <div style={{ fontSize: 10.5, color: "var(--muted)", marginTop: 4 }}>
           Zdroj: <a href={meta.source} target="_blank" rel="noreferrer" style={{ color: "var(--accent-text)" }}>listhammer.info</a>. Data jsou uložený snímek posledních 30 dní{meta.period ? ` (${meta.period})` : ""}, ne živé; až zestárnou, je potřeba je znovu stáhnout. Frakce bez čitelných listů tu nejsou.
         </div>
+      </div>
+
+      <div style={{ ...box, borderColor: "var(--accent)" }}>
+        <div style={h}>Ideální list (posledních {META_PERIOD.days} dní)</div>
+        <div style={{ fontSize: 11.5, color: "var(--muted)", marginBottom: 8, lineHeight: 1.45 }}>
+          Vyber frakci (nahoře) a dispozici. Appka vezme turnajové listy 4-1 a lépe od {META_PERIOD.from} do {META_PERIOD.to}, které hrály stejné detachmenty, a poskládá z nich list do zvolených bodů.
+        </div>
+        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, marginBottom: 8 }}>
+          <span style={{ fontSize: 12, color: "var(--muted)" }}>Dispozice:</span>
+          <select value={idealDisp} onChange={(e) => { setIdealDisp(e.target.value); setIdealCombo(""); setCopied(""); }} style={{ background: "var(--field-bg)", color: "var(--text)", border: "1px solid var(--field-border)", borderRadius: 6, padding: "5px 8px", fontSize: 12.5 }}>
+            <option value="">Všechny dispozice</option>
+            {["Purge the Foe", "Take and Hold", "Priority Assets", "Disruption", "Reconnaissance"].map((d) => (
+              <option key={d} value={d}>{d}</option>
+            ))}
+          </select>
+          <span style={{ fontSize: 12, color: "var(--muted)" }}>Body:</span>
+          <input type="number" value={budget} min={500} max={3000} step={50} onChange={(e) => { setBudget(e.target.value); setSaved(""); setCopied(""); }} style={{ width: 80, background: "var(--field-bg)", color: "var(--text)", border: "1px solid var(--field-border)", borderRadius: 6, padding: "5px 8px", fontSize: 12.5 }} />
+        </div>
+        {ideal.opts.fellBack && <div style={{ fontSize: 11.5, color: "var(--amber)", marginBottom: 6 }}>Pro dispozici {idealDisp} je za toto období méně než 3 listy, proto počítám ze všech dispozic.</div>}
+        {ideal.empty ? (
+          <div style={{ fontSize: 12, color: "var(--amber)" }}>Pro tuhle frakci nemám za poslední dva měsíce žádné čitelné listy.</div>
+        ) : (
+          <>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--label)", textTransform: "uppercase", letterSpacing: 0.6, margin: "4px 0 5px" }}>Detachment (nejčastější nahoře)</div>
+            {ideal.opts.combos.slice(0, 8).map((c) => (
+              <button
+                key={c.key}
+                onClick={() => { setIdealCombo(c.key); setCopied(""); }}
+                className="wh40k-btn"
+                style={{ display: "flex", width: "100%", alignItems: "center", gap: 8, textAlign: "left", padding: "6px 9px", marginBottom: 4, borderRadius: 6, cursor: "pointer", border: `1px solid ${ideal.combo.key === c.key ? "var(--accent)" : "var(--field-border)"}`, background: ideal.combo.key === c.key ? "var(--accent-dim)" : "var(--field-bg)", color: "var(--text)" }}
+              >
+                <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: 700 }}>{c.label}</span>
+                <span style={{ fontSize: 11, color: "var(--muted)", fontFamily: "var(--mono)" }}>{c.n} listů · výsledek {Math.round(c.avgRec * 100)} %</span>
+              </button>
+            ))}
+            <div style={{ fontSize: 13, fontWeight: 800, margin: "10px 0 6px", color: "var(--text)" }}>
+              {ideal.combo.label}: {ideal.combo.n} {ideal.combo.n === 1 ? "list" : ideal.combo.n < 5 ? "listy" : "listů"}, průměrný výsledek {Math.round(ideal.avgRec * 100)} % vyhraných her
+            </div>
+            {ideal.combo.n < 5 && <div style={{ fontSize: 11.5, color: "var(--amber)", marginBottom: 6 }}>Malý vzorek ({ideal.combo.n} listy): bereš to jen orientačně.</div>}
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ borderCollapse: "collapse", width: "100%" }}>
+                <thead>
+                  <tr>
+                    {["Ks", "Jednotka", "Typ", "V metě", "Body/ks", "Máš"].map((t, i) => (
+                      <th key={t} style={{ textAlign: i === 1 || i === 2 ? "left" : "right", fontSize: 9.5, color: "var(--muted)", fontWeight: 700, padding: "3px 5px" }}>{t}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {ideal.items.map((r) => {
+                    const have = libHave.get(r.name) || 0;
+                    const col = have >= r.copies ? "var(--accent-text)" : have > 0 ? "var(--amber)" : "#e0594e";
+                    return (
+                      <tr key={r.name} style={{ borderTop: "1px solid var(--field-border)" }}>
+                        <td style={{ fontSize: 12, padding: "3px 5px", textAlign: "right", fontFamily: "var(--mono)", fontWeight: 700 }}>{r.copies}×</td>
+                        <td style={{ fontSize: 12, padding: "3px 5px" }}>{r.name}</td>
+                        <td style={{ fontSize: 10.5, padding: "3px 5px", color: "var(--muted)" }}>{META_SEC_LABEL[r.sec] || r.sec}</td>
+                        <td style={{ fontSize: 11.5, padding: "3px 5px", textAlign: "right", fontFamily: "var(--mono)" }}>{Math.round(r.p * 100)} %</td>
+                        <td style={{ fontSize: 11.5, padding: "3px 5px", textAlign: "right", fontFamily: "var(--mono)" }}>{r.pts}</td>
+                        <td style={{ fontSize: 11.5, padding: "3px 5px", textAlign: "right", fontFamily: "var(--mono)", color: col, fontWeight: 700 }}>{have}×</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <div style={{ fontSize: 13, fontWeight: 800, marginTop: 6, fontFamily: "var(--mono)", color: "var(--accent-text)" }}>Celkem {ideal.total} / {ideal.budget} b. (podle průměrných cen z turnajových listů)</div>
+            {ideal.enh.length > 0 && <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 6 }}>Nejčastější enhancements: {ideal.enh.map(([k, v]) => `${k} (${v}×)`).join(", ")}.</div>}
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8 }}>
+              <button
+                onClick={() => {
+                  const txt = `${factionKey} - ${ideal.combo.label}${idealDisp ? ` (${idealDisp})` : ""} - ${ideal.total} b.\n` + ideal.items.map((r) => `${r.copies}x ${r.name} (${r.pts} b.)`).join("\n");
+                  try {
+                    navigator.clipboard.writeText(txt);
+                    setCopied("Zkopírováno.");
+                  } catch (e) {
+                    setCopied("Kopírování se nepovedlo.");
+                  }
+                }}
+                className="wh40k-btn"
+                style={{ border: "1px solid var(--accent)", background: "var(--accent)", color: "#fff", borderRadius: 6, padding: "6px 12px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}
+              >
+                Zkopírovat list
+              </button>
+              <button onClick={() => setShowRep((x) => !x)} className="wh40k-btn" style={{ border: "1px solid var(--field-border)", background: "transparent", color: "var(--text)", borderRadius: 6, padding: "6px 12px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>
+                {showRep ? "Skrýt skutečný list" : "Ukázat nejpodobnější skutečný list"}
+              </button>
+              {copied && <span style={{ fontSize: 12, color: "var(--accent-text)", alignSelf: "center" }}>{copied}</span>}
+            </div>
+            {showRep && ideal.rep && (
+              <div style={{ marginTop: 8, padding: 8, borderRadius: 6, background: "var(--field-bg)", border: "1px solid var(--field-border)" }}>
+                <div style={{ fontSize: 11.5, color: "var(--muted)", marginBottom: 4 }}>
+                  Skutečný list z {ideal.rep.date}{ideal.rep.disp ? `, ${ideal.rep.disp}` : ""}, výsledek {Math.round(ideal.rep.rec * 100)} %, {ideal.rep.total} b. (vybrán podle shody s konsenzem a výsledku).
+                </div>
+                {ideal.rep.units.map((u) => (
+                  <div key={u.name} style={{ display: "flex", gap: 8, fontSize: 12, padding: "2px 0" }}>
+                    <span style={{ flex: 1, minWidth: 0 }}>{u.copies}× {u.name}</span>
+                    <span style={{ fontFamily: "var(--mono)", color: "var(--muted)" }}>{u.pts} b.</span>
+                  </div>
+                ))}
+                {ideal.rep.enh.length > 0 && <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 4 }}>Enhancements: {ideal.rep.enh.join(", ")}.</div>}
+              </div>
+            )}
+            <div style={{ fontSize: 10.5, color: "var(--muted)", marginTop: 8, lineHeight: 1.45 }}>
+              Postup: jádro (jednotky v aspoň polovině listů) v typickém počtu, pak časté jednotky, pak další kusy, dokud se vejdou do bodů. Výbavu a enhancements nevybírá; jde o průměr vítězných listů, ne o záruku, že bude fungovat na tvého soupeře. Sloupec Máš ukazuje, kolik takových jednotek máš v knihovně.
+            </div>
+          </>
+        )}
       </div>
 
       <div style={box}>
@@ -9715,7 +9832,7 @@ function ManualView({ onBack }) {
 
       <ManualSection num="08" title="Herní deska">
         <ManualP>
-          <ManualPath>Herní deska</ManualPath> — vizuální bojiště na míru. Zaškrtni jednotky z knihovny do <b>Moje jednotky</b> nebo <b>Jednotky protihráče</b> — objeví se jako tokeny (jeden na každý model), přetáhni je na místo. Nad seznamem vybereš uloženou armádu (třeba z New Recruit) — seznam se zúží na její jednotky a „Dát celou armádu na desku“ je rozmístí najednou; „Nahrát z New Recruit (JSON)“ nahraje nový export rovnou na tuhle stranu i s base sizy ze sloupce Base. Tažením modelu hýbeš celou jednotkou (tlačítko v liště přepne na jeden model, Alt při tažení přepne na opak; Shift při tažení vezme vždy jen jeden model — třeba když ho chceš nacpat za zeď). Víc modelů označíš tažením myší po prázdné desce (Shift přidává, Shift+klik na model ho přidá/odebere) — pak se všechny označené hýbou spolu. Kolečkem myši nad modelem otočíš celou jednotku (nebo označené modely, nebo jeden model — stejná pravidla jako při tažení); kolečko dolů otáčí po směru hodin, Shift = jemné kroky po 5°. Třetí vzhled „Grimdark“ přidává ocelové a zlaté rámečky, obrázky hrdinů v hlavičce a cheat sheet ve stylu pergamenové tabulky (tisk zůstává černobílý). Taktický vzhled má vlastní sadu ikon (domů, kalkulačka, knihovna, historie, nastavení, koš atd.). Vzhled aplikace přepneš v Nastavení (ozubené kolečko → Vzhled): „Základní“ nebo „Taktický“ (sytě modrý HUD, hexagonové tokeny, texturované podložky, kompas a měřítko na desce). Záložka „Stavba“ (Stavba armády): přehled toho, co se hraje na turnajích (snímek z listhammer.info za posledních 30 dní (ke dni 26. 10. 2026) pro všechny frakce 40k, kde jsou čitelné listy) - detachmenty, typické jednotky a počty kusů, enhancements - a návrh listu z tvé knihovny na zvolený počet bodů, který můžeš uložit jako armádu. V Armáda je u vybrané armády „Porovnání s metou“: shoda tvého listu s vítěznými listy se stejným detachmentem (jednotky z listů s jiným detachmentem se nepočítají); detachment se čte z importu z New Recruit, jinak ho vybereš. Tlačítko „Nasazení“ (Rádce nasazení): navrhne pro každou rozmístěnou jednotku místo v tvé zóně - střelce na výhledy z krytu, jednotky na blízko skryté, ale v dosahu chargu, levné jednotky dopředu jako screen a na objektivy; styl armády vybere sám podle soupeře (když ho zadáš na desku nebo vybereš jeho armádu; jinak podle frakce), můžeš ho přepsat a zvolit, jestli hraješ první nebo druhý. Tlačítko „Rozmístit armádu ideálně“ dá vybranou armádu na desku a rovnou ji rozmístí. Podle Core Rules 11. edice (Wahapedia) počítá: Scout pohyb (musí skončit > 8″ od soupeře), Infiltrators (kamkoli > 8″ od soupeřovy zóny), pravidlo Hidden (pěchota v terénu je vidět jen do 15″) a charge s dosahem 2″ (engagement range). Dál se počítá se Scout pohybem: soupeřovy Scout jednotky mají větší dosah a tvoje Scout jednotky se nasadí do zóny a modrý kroužek ukazuje, kam je před prvním tahem posunout (odtud se počítá výhled a hrozby; Scout nesmí skončit blíž než 8″ od soupeře). Drahé jednotky se víc střeží před palbou, takže se nestaví dopředu na očích. Návrh je na desce zlaté přerušované kroužky s číslem; „Přijmout“ jednotku přesune, „Přijmout vše“ přesune všechny. Je to heuristika podle běžných turnajových rad. Tlačítko „Rádce“: klikni na svůj token a pod deskou se objeví rada pro jeho jednotku - na koho střílet nebo útočit (podle očekávaných bodů, s ohledem na dosah zbraní, viditelnost, pohyb a šanci na charge), kdo ti příští kolo hrozí a kde je nejbližší objektiv. Nejlepší cíl má na desce zlatý přerušovaný kroužek. Odhady jsou orientační. Tlačítko „Dosah pohybu“ kreslí kolem jednotek dva obrysy: tyrkysový = maximální pohyb (M), žlutý = maximální advance (M + 6″), oboje od okraje podstavy; když je něco vybráno nebo taženo, ukáže se jen to, jinak všechny jednotky. M se načítá z importu z New Recruit (u starších jednotek list nahraj znovu nebo M dopiš v knihovně). Tlačítko „Linie palby“ ukazuje, na koho vidí jednotka, kterou táhneš (nebo kterou vybereš klikem jako útočníka): zelená čára = vidí a vzdálenost v palcích; zakryté jednotky se nekreslí; zelený kroužek je kolem nepřátelských modelů, které vidí. Navíc se kolem modelu kreslí teoretický výhled: zelená plocha je, kam model vidí, oranžové paprsky končí na terénu, který ho kryje (za ním je v krytu); při tažení se hýbou s modelem. Podle pravidel 11. edice zakrývá celá plocha terénu (podložky, ruiny, zdi, lesy; krátery a objektivy ne). Model, jehož podstava se oblasti dotýká, skrz ni vidí. Desku můžeš otočit o 90° tlačítkem „Otočit“ (jen pohled, data zůstávají) a přibližovat tlačítky lupy nebo Ctrl + kolečkem (na touchpadu štípnutím) kolem kurzoru; přiblíženou desku posouváš posuvníky. Podložky jsou standardně zamčené (tlačítko „Terén zamčený“ v liště nad deskou) — táhneš jen modely, terén se nehne; odemknutím ho zase přesouváš a upravuješ. Velikost tokenu vychází z base size jednotky — přímo u jednotky v knihovně je malý rozklikávací seznam se standardními velikostmi (25 až 160mm kulaté, plus běžné oválné jako 90×52mm), není potřeba kvůli tomu otvírat celou editaci.
+          <ManualPath>Herní deska</ManualPath> — vizuální bojiště na míru. Zaškrtni jednotky z knihovny do <b>Moje jednotky</b> nebo <b>Jednotky protihráče</b> — objeví se jako tokeny (jeden na každý model), přetáhni je na místo. Nad seznamem vybereš uloženou armádu (třeba z New Recruit) — seznam se zúží na její jednotky a „Dát celou armádu na desku“ je rozmístí najednou; „Nahrát z New Recruit (JSON)“ nahraje nový export rovnou na tuhle stranu i s base sizy ze sloupce Base. Tažením modelu hýbeš celou jednotkou (tlačítko v liště přepne na jeden model, Alt při tažení přepne na opak; Shift při tažení vezme vždy jen jeden model — třeba když ho chceš nacpat za zeď). Víc modelů označíš tažením myší po prázdné desce (Shift přidává, Shift+klik na model ho přidá/odebere) — pak se všechny označené hýbou spolu. Kolečkem myši nad modelem otočíš celou jednotku (nebo označené modely, nebo jeden model — stejná pravidla jako při tažení); kolečko dolů otáčí po směru hodin, Shift = jemné kroky po 5°. Třetí vzhled „Grimdark“ přidává ocelové a zlaté rámečky, obrázky hrdinů v hlavičce a cheat sheet ve stylu pergamenové tabulky (tisk zůstává černobílý). Taktický vzhled má vlastní sadu ikon (domů, kalkulačka, knihovna, historie, nastavení, koš atd.). Vzhled aplikace přepneš v Nastavení (ozubené kolečko → Vzhled): „Základní“ nebo „Taktický“ (sytě modrý HUD, hexagonové tokeny, texturované podložky, kompas a měřítko na desce). Záložka „Stavba“ (Stavba armády): nahoře „Ideální list“ - vybereš frakci, dispozici a body a appka z turnajových listů 4-1 a lépe za poslední dva měsíce (se stejnými detachmenty) poskládá konsenzuální list, ukáže nejčastější detachmenty, enhancements a nejpodobnější skutečný list, a ve sloupci Máš porovná s tvou knihovnou. Dál přehled toho, co se hraje na turnajích (snímek z listhammer.info za posledních 30 dní (ke dni 26. 10. 2026) pro všechny frakce 40k, kde jsou čitelné listy) - detachmenty, typické jednotky a počty kusů, enhancements - a návrh listu z tvé knihovny na zvolený počet bodů, který můžeš uložit jako armádu. V Armáda je u vybrané armády „Porovnání s metou“: shoda tvého listu s vítěznými listy se stejným detachmentem (jednotky z listů s jiným detachmentem se nepočítají); detachment se čte z importu z New Recruit, jinak ho vybereš. Tlačítko „Nasazení“ (Rádce nasazení): navrhne pro každou rozmístěnou jednotku místo v tvé zóně - střelce na výhledy z krytu, jednotky na blízko skryté, ale v dosahu chargu, levné jednotky dopředu jako screen a na objektivy; styl armády vybere sám podle soupeře (když ho zadáš na desku nebo vybereš jeho armádu; jinak podle frakce), můžeš ho přepsat a zvolit, jestli hraješ první nebo druhý. Tlačítko „Rozmístit armádu ideálně“ dá vybranou armádu na desku a rovnou ji rozmístí. Podle Core Rules 11. edice (Wahapedia) počítá: Scout pohyb (musí skončit > 8″ od soupeře), Infiltrators (kamkoli > 8″ od soupeřovy zóny), pravidlo Hidden (pěchota v terénu je vidět jen do 15″) a charge s dosahem 2″ (engagement range). Dál se počítá se Scout pohybem: soupeřovy Scout jednotky mají větší dosah a tvoje Scout jednotky se nasadí do zóny a modrý kroužek ukazuje, kam je před prvním tahem posunout (odtud se počítá výhled a hrozby; Scout nesmí skončit blíž než 8″ od soupeře). Drahé jednotky se víc střeží před palbou, takže se nestaví dopředu na očích. Návrh je na desce zlaté přerušované kroužky s číslem; „Přijmout“ jednotku přesune, „Přijmout vše“ přesune všechny. Je to heuristika podle běžných turnajových rad. Tlačítko „Rádce“: klikni na svůj token a pod deskou se objeví rada pro jeho jednotku - na koho střílet nebo útočit (podle očekávaných bodů, s ohledem na dosah zbraní, viditelnost, pohyb a šanci na charge), kdo ti příští kolo hrozí a kde je nejbližší objektiv. Nejlepší cíl má na desce zlatý přerušovaný kroužek. Odhady jsou orientační. Tlačítko „Dosah pohybu“ kreslí kolem jednotek dva obrysy: tyrkysový = maximální pohyb (M), žlutý = maximální advance (M + 6″), oboje od okraje podstavy; když je něco vybráno nebo taženo, ukáže se jen to, jinak všechny jednotky. M se načítá z importu z New Recruit (u starších jednotek list nahraj znovu nebo M dopiš v knihovně). Tlačítko „Linie palby“ ukazuje, na koho vidí jednotka, kterou táhneš (nebo kterou vybereš klikem jako útočníka): zelená čára = vidí a vzdálenost v palcích; zakryté jednotky se nekreslí; zelený kroužek je kolem nepřátelských modelů, které vidí. Navíc se kolem modelu kreslí teoretický výhled: zelená plocha je, kam model vidí, oranžové paprsky končí na terénu, který ho kryje (za ním je v krytu); při tažení se hýbou s modelem. Podle pravidel 11. edice zakrývá celá plocha terénu (podložky, ruiny, zdi, lesy; krátery a objektivy ne). Model, jehož podstava se oblasti dotýká, skrz ni vidí. Desku můžeš otočit o 90° tlačítkem „Otočit“ (jen pohled, data zůstávají) a přibližovat tlačítky lupy nebo Ctrl + kolečkem (na touchpadu štípnutím) kolem kurzoru; přiblíženou desku posouváš posuvníky. Podložky jsou standardně zamčené (tlačítko „Terén zamčený“ v liště nad deskou) — táhneš jen modely, terén se nehne; odemknutím ho zase přesouváš a upravuješ. Velikost tokenu vychází z base size jednotky — přímo u jednotky v knihovně je malý rozklikávací seznam se standardními velikostmi (25 až 160mm kulaté, plus běžné oválné jako 90×52mm), není potřeba kvůli tomu otvírat celou editaci.
         </ManualP>
         <ManualUl
           items={[
