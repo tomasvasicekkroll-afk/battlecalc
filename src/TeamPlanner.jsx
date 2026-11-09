@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { MATCH_FACTIONS, MATCH_DISPOSITIONS, MATCH_PERIOD_PRESETS, MATCH_MAX_DAYS, MATCH_CAPTURED, periodText, planTeam } from "./data/matchLogic";
+import { MATCH_FACTIONS, MATCH_DISPOSITIONS, MATCH_PERIOD_PRESETS, MATCH_MAX_DAYS, MATCH_CAPTURED, MATCH_MIN_DATE, MATCH_MAX_DATE, matchDateToDay, periodText, planTeam } from "./data/matchLogic";
 
 const STORE_KEY = "team_plan_v1";
 const EMPTY = { mine: Array.from({ length: 5 }, () => ({ faction: "", disp: "" })), opp: Array.from({ length: 5 }, () => ({ faction: "", disp: "" })), preset: "l92", custom: 45, minGames: 8, calibrate: true, noDisp: false };
@@ -35,14 +35,17 @@ export default function TeamPlanner() {
     }
   };
   const preset = MATCH_PERIOD_PRESETS.find((p) => p.id === st.preset) || null;
-  const basePeriod = st.preset === "custom" ? { source: "lists", days: Math.max(1, Math.min(MATCH_MAX_DAYS, Number(st.custom) || 30)) } : (preset || MATCH_PERIOD_PRESETS[3]).period;
+  const rangeFrom = st.from || MATCH_MIN_DATE;
+  const rangeTo = st.to || MATCH_MAX_DATE;
+  const [dayA, dayB] = [matchDateToDay(rangeFrom), matchDateToDay(rangeTo)].sort((a, b) => a - b);
+  const basePeriod = st.preset === "range" ? { source: "lists", fromDay: dayA, toDay: dayB } : st.preset === "custom" ? { source: "lists", days: Math.max(1, Math.min(MATCH_MAX_DAYS, Number(st.custom) || 30)) } : (preset || MATCH_PERIOD_PRESETS[3]).period;
   const period = basePeriod.source === "lists" ? { ...basePeriod, calibrate: st.calibrate !== false } : basePeriod;
   const mine = st.mine.map((m, i) => ({ ...m, i })).filter((m) => m.faction);
   const opp = st.opp.map((o, j) => ({ faction: o.faction, disp: o.disp, j })).filter((o) => o.faction);
   const plan = useMemo(
     () => (mine.length && opp.length ? planTeam(period, mine.map((m) => ({ faction: m.faction, disp: m.disp })), opp.map((o) => ({ faction: o.faction, disp: o.disp })), Number(st.minGames) || 8, !!st.noDisp) : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [JSON.stringify(st), period.source, period.days]
+    [JSON.stringify(st), JSON.stringify(period)]
   );
 
   const box = { background: "var(--panel)", border: "1px solid var(--field-border)", borderRadius: 10, padding: 12, marginBottom: 12 };
@@ -77,7 +80,16 @@ export default function TeamPlanner() {
                 <option key={p.id} value={p.id}>{p.label}</option>
               ))}
               <option value="custom">Vítězné listy: vlastní počet dní…</option>
+              <option value="range">Vítězné listy: časový úsek od – do…</option>
             </select>
+            {st.preset === "range" && (
+              <>
+                <input type="date" min={MATCH_MIN_DATE} max={MATCH_MAX_DATE} value={rangeFrom} onChange={(e) => update({ ...st, from: e.target.value })} style={{ ...selStyle, width: 140 }} />
+                <span style={{ fontSize: 12, color: "var(--muted)" }}>až</span>
+                <input type="date" min={MATCH_MIN_DATE} max={MATCH_MAX_DATE} value={rangeTo} onChange={(e) => update({ ...st, to: e.target.value })} style={{ ...selStyle, width: 140 }} />
+                <span style={{ fontSize: 11.5, color: "var(--muted)" }}>(data jsou od {MATCH_MIN_DATE} do {MATCH_MAX_DATE})</span>
+              </>
+            )}
             {st.preset === "custom" && (
               <>
                 <input type="number" min={1} max={MATCH_MAX_DAYS} value={st.custom} onChange={(e) => update({ ...st, custom: e.target.value })} style={{ ...selStyle, width: 70 }} />

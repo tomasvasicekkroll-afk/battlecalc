@@ -25,7 +25,17 @@ export const MATCH_PERIOD_PRESETS = [
   { id: "l61", label: "Vítězné listy: poslední 2 měsíce", period: { source: "lists", days: 61 } },
   { id: "l92", label: "Vítězné listy: poslední 3 měsíce", period: { source: "lists", days: 92 } },
 ];
-export const periodText = (p) => (p.source === "site" ? `${MATCH_SITE_LABEL} (všichni hráči)` : `${dayToDate(capDay - p.days)} – ${MATCH_CAPTURED} (vítězné listy)`);
+// A "lists" period is either the last `days` days or a date range { fromDay, toDay } (days since 2026-01-01).
+const windowOf = (p) => (p.fromDay != null ? { from: p.fromDay, to: p.toDay != null ? p.toDay : capDay } : { from: capDay - p.days, to: capDay });
+export const periodText = (p) => {
+  if (p.source === "site") return `${MATCH_SITE_LABEL} (všichni hráči)`;
+  const w = windowOf(p);
+  return `${dayToDate(w.from)} – ${dayToDate(w.to)} (vítězné listy)`;
+};
+export const matchDateToDay = (iso) => Math.round((Date.parse(iso) - Date.UTC(2026, 0, 1)) / 86400000);
+// earliest and latest day with a list in the data (for the date pickers)
+export const MATCH_MIN_DATE = dayToDate(Math.min(...MATCH_RAW.lists.map((l) => l[1])));
+export const MATCH_MAX_DATE = dayToDate(Math.max(...MATCH_RAW.lists.map((l) => l[1])));
 
 const logit = (p) => Math.log(p / (1 - p));
 const sigmoid = (x) => 1 / (1 + Math.exp(-x));
@@ -37,10 +47,11 @@ const K = 4; // shrinkage strength (pseudo-games of the faction's own average)
 const nameIdx = new Map(MATCH_RAW.factions.map((n, i) => [n, i]));
 
 // all rounds of the lists in the window: [myFaction, dispIdx, oppFaction, result]
-function roundsIn(days) {
+function roundsIn(period) {
   const out = [];
+  const w = windowOf(period);
   MATCH_RAW.lists.forEach(([f, day, disp, , rounds]) => {
-    if (day < capDay - days) return;
+    if (day < w.from || day > w.to) return;
     rounds.forEach(([o, r]) => {
       if (o !== f) out.push([f, disp, o, r]);
     });
@@ -48,9 +59,11 @@ function roundsIn(days) {
   return out;
 }
 const roundsCache = new Map();
-function getRounds(days) {
-  if (!roundsCache.has(days)) roundsCache.set(days, roundsIn(days));
-  return roundsCache.get(days);
+function getRounds(period) {
+  const w = windowOf(period);
+  const key = `${w.from}|${w.to}`;
+  if (!roundsCache.has(key)) roundsCache.set(key, roundsIn(period));
+  return roundsCache.get(key);
 }
 
 function factionPrior(rounds, f) {
@@ -80,7 +93,7 @@ export function pairStats(period, myFaction, myDisp, oppFaction) {
     if (row[1] == null) return { wr: null, p: prior, games };
     return { wr: row[1] / 100, p: (row[1] / 100 * games + K * prior) / (games + K), games };
   }
-  const rounds = getRounds(period.days);
+  const rounds = getRounds(period);
   const f = nameIdx.get(myFaction);
   const g = nameIdx.get(oppFaction);
   const d = myDisp ? DISP_ALL.indexOf(myDisp) : 0;
