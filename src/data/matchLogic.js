@@ -148,9 +148,10 @@ export function planTeam(period, mine, opp, minDispGames = 8) {
     opp.map((o) => {
       const eff = dispEffect(m.disp, o.disp);
       const army0 = pairStats(period, m.faction, "", o.faction);
-      const army = eff ? { ...army0, p0: army0.p, p: shift(army0.p, eff) } : army0;
+      // w = the plain win rate (wins / games, shifted by the disposition effect); p = the shrunk estimate used for ranking
+      const army = eff ? { ...army0, p0: army0.p, p: shift(army0.p, eff), w: army0.wr == null ? null : shift(army0.wr, eff) } : { ...army0, w: army0.wr };
       let disp = useDisp && m.disp ? pairStats(period, m.faction, m.disp, o.faction) : null;
-      if (disp && eff) disp = { ...disp, p0: disp.p, p: shift(disp.p, eff) };
+      if (disp) disp = eff ? { ...disp, p0: disp.p, p: shift(disp.p, eff), w: disp.wr == null ? null : shift(disp.wr, eff) } : { ...disp, w: disp.wr };
       const dispOk = !!disp && disp.games >= minDispGames;
       return { army, disp, dispOk, eff };
     })
