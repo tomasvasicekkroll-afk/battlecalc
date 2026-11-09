@@ -27,6 +27,12 @@ export const MATCH_PERIOD_PRESETS = [
 ];
 export const periodText = (p) => (p.source === "site" ? `${MATCH_SITE_LABEL} (všichni hráči)` : `${dayToDate(capDay - p.days)} – ${MATCH_CAPTURED} (vítězné listy)`);
 
+const logit = (p) => Math.log(p / (1 - p));
+const sigmoid = (x) => 1 / (1 + Math.exp(-x));
+const siteWinRate = (name) => {
+  const t = MATCH_RAW.windows["4w"] && MATCH_RAW.windows["4w"].factions[name];
+  return t && t.winRate ? t.winRate / 100 : null;
+};
 const K = 4; // shrinkage strength (pseudo-games of the faction's own average)
 const nameIdx = new Map(MATCH_RAW.factions.map((n, i) => [n, i]));
 
@@ -87,7 +93,12 @@ export function pairStats(period, myFaction, myDisp, oppFaction) {
       n += 1;
     }
   });
-  return { wr: n ? w / n : null, p: (w + K * prior) / (n + K), games: n };
+  // Winners-only rounds inflate every faction's win rate (~80 %). Shift the odds so the faction's average in
+  // these rounds lands on its real win rate (all players, Last 4 Weeks); the differences between opponents stay.
+  const real = period.calibrate === false ? null : siteWinRate(myFaction);
+  const clamp = (x) => Math.min(0.995, Math.max(0.005, x));
+  const cal = (x) => (real && prior > 0.02 && prior < 0.98 ? sigmoid(logit(clamp(x)) - logit(clamp(prior)) + logit(real)) : x);
+  return { wr: n ? cal(w / n) : null, wrRaw: n ? w / n : null, p: cal((w + K * prior) / (n + K)), games: n };
 }
 
 // Best pairing of my armies with the enemy armies (max total win chance); brute force (<= 5 x 5).
@@ -126,8 +137,6 @@ function bestAssignment(P, rows, cols) {
 // my disposition does against theirs than against an average opponent, as a log-odds shift.
 const DISP_WINDOW = DISP_DATA.windows.ds;
 export const DISP_WINDOW_LABEL = DISP_WINDOW.label;
-const logit = (p) => Math.log(p / (1 - p));
-const sigmoid = (x) => 1 / (1 + Math.exp(-x));
 export function dispEffect(myDisp, oppDisp) {
   if (!myDisp || !oppDisp) return null;
   const overall = DISP_WINDOW.overall[myDisp];
@@ -140,17 +149,17 @@ export function dispEffect(myDisp, oppDisp) {
 const shift = (p, eff) => (eff ? sigmoid(logit(Math.min(0.995, Math.max(0.005, p))) + eff.delta) : p);
 
 // mine: [{faction, disp}], opp: [{faction, disp}]; minDispGames: how many games a disposition cell needs.
-export function planTeam(period, mine, opp, minDispGames = 8) {
+export function planTeam(period, mine, opp, minDispGames = 8, noDisp = false) {
   const rows = mine.length;
   const cols = opp.length;
   const useDisp = period.source === "lists";
   const cells = mine.map((m) =>
     opp.map((o) => {
-      const eff = dispEffect(m.disp, o.disp);
+      const eff = noDisp ? null : dispEffect(m.disp, o.disp);
       const army0 = pairStats(period, m.faction, "", o.faction);
       // w = the plain win rate (wins / games, shifted by the disposition effect); p = the shrunk estimate used for ranking
       const army = eff ? { ...army0, p0: army0.p, p: shift(army0.p, eff), w: army0.wr == null ? null : shift(army0.wr, eff) } : { ...army0, w: army0.wr };
-      let disp = useDisp && m.disp ? pairStats(period, m.faction, m.disp, o.faction) : null;
+      let disp = !noDisp && useDisp && m.disp ? pairStats(period, m.faction, m.disp, o.faction) : null;
       if (disp) disp = eff ? { ...disp, p0: disp.p, p: shift(disp.p, eff), w: disp.wr == null ? null : shift(disp.wr, eff) } : { ...disp, w: disp.wr };
       const dispOk = !!disp && disp.games >= minDispGames;
       return { army, disp, dispOk, eff };

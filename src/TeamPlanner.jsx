@@ -2,7 +2,7 @@ import React, { useMemo, useState } from "react";
 import { MATCH_FACTIONS, MATCH_DISPOSITIONS, MATCH_PERIOD_PRESETS, MATCH_MAX_DAYS, MATCH_CAPTURED, periodText, planTeam } from "./data/matchLogic";
 
 const STORE_KEY = "team_plan_v1";
-const EMPTY = { mine: Array.from({ length: 5 }, () => ({ faction: "", disp: "" })), opp: Array.from({ length: 5 }, () => ({ faction: "", disp: "" })), preset: "l92", custom: 45, minGames: 8 };
+const EMPTY = { mine: Array.from({ length: 5 }, () => ({ faction: "", disp: "" })), opp: Array.from({ length: 5 }, () => ({ faction: "", disp: "" })), preset: "l92", custom: 45, minGames: 8, calibrate: true, noDisp: false };
 
 function load() {
   try {
@@ -35,11 +35,12 @@ export default function TeamPlanner() {
     }
   };
   const preset = MATCH_PERIOD_PRESETS.find((p) => p.id === st.preset) || null;
-  const period = st.preset === "custom" ? { source: "lists", days: Math.max(1, Math.min(MATCH_MAX_DAYS, Number(st.custom) || 30)) } : (preset || MATCH_PERIOD_PRESETS[3]).period;
+  const basePeriod = st.preset === "custom" ? { source: "lists", days: Math.max(1, Math.min(MATCH_MAX_DAYS, Number(st.custom) || 30)) } : (preset || MATCH_PERIOD_PRESETS[3]).period;
+  const period = basePeriod.source === "lists" ? { ...basePeriod, calibrate: st.calibrate !== false } : basePeriod;
   const mine = st.mine.map((m, i) => ({ ...m, i })).filter((m) => m.faction);
   const opp = st.opp.map((o, j) => ({ faction: o.faction, disp: o.disp, j })).filter((o) => o.faction);
   const plan = useMemo(
-    () => (mine.length && opp.length ? planTeam(period, mine.map((m) => ({ faction: m.faction, disp: m.disp })), opp.map((o) => ({ faction: o.faction, disp: o.disp })), Number(st.minGames) || 8) : null),
+    () => (mine.length && opp.length ? planTeam(period, mine.map((m) => ({ faction: m.faction, disp: m.disp })), opp.map((o) => ({ faction: o.faction, disp: o.disp })), Number(st.minGames) || 8, !!st.noDisp) : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [JSON.stringify(st), period.source, period.days]
   );
@@ -47,10 +48,10 @@ export default function TeamPlanner() {
   const box = { background: "var(--panel)", border: "1px solid var(--field-border)", borderRadius: 10, padding: 12, marginBottom: 12 };
   const h = { fontSize: 11, fontWeight: 700, color: "var(--label)", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 8 };
   const selStyle = { background: "var(--field-bg)", color: "var(--text)", border: "1px solid var(--field-border)", borderRadius: 6, padding: "5px 6px", fontSize: 12.5, minWidth: 0 };
-  const label = (m) => `${m.faction}${m.disp ? ` (${m.disp})` : ""}`;
+  const label = (m) => `${m.faction}${m.disp && !st.noDisp ? ` (${m.disp})` : ""}`;
   const dpts = (cell, ci) => { const base = ci.viaDisp ? cell.disp.p0 : cell.army.p0; return base == null ? null : Math.round((ci.p - base) * 100); };
 
-  const cellInfo = (c) => (c.dispOk ? { p: c.disp.p, w: c.disp.w, n: c.disp.games, viaDisp: true } : { p: c.army.p, w: c.army.w, n: c.army.games, viaDisp: false });
+  const cellInfo = (c) => (c.dispOk ? { p: c.disp.p, w: c.disp.w, raw: c.disp.wrRaw, n: c.disp.games, viaDisp: true } : { p: c.army.p, w: c.army.w, raw: c.army.wrRaw, n: c.army.games, viaDisp: false });
   const rowAvg = (r) => (plan ? plan.cells[r].reduce((a, c) => a + c.army.p, 0) / plan.cells[r].length : 0.5);
 
   return (
@@ -86,7 +87,19 @@ export default function TeamPlanner() {
           </div>
           <div style={{ fontSize: 11, color: "var(--muted)", marginBottom: 10 }}>
             Použité období: {periodText(period)}; data stažená {MATCH_CAPTURED}.
-            {period.source === "lists" ? " Jsou to jen výsledky hráčů s listem 4-1 a lépe, takže win rate je nadsazený; porovnávej mezi sebou, ne s 50 %." : " Win rate je z tabulky matchupů listhammeru (bez mirrorů)."}
+            {period.source === "lists" ? (period.calibrate ? " Jsou to výsledky hráčů s listem 4-1 a lépe. Ti vyhrávají kolem 80 % her, takže jsem win rate přepočítal na úroveň všech hráčů dané armády (rozdíly mezi soupeři zůstávají). Surové číslo je v bublině po najetí na hodnotu." : " Jsou to jen výsledky hráčů s listem 4-1 a lépe, takže win rate je nadsazený; porovnávej mezi sebou, ne s 50 %.") : " Win rate je z tabulky matchupů listhammeru (bez mirrorů)."}
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 14, marginBottom: 10, fontSize: 12 }}>
+            {period.source === "lists" && (
+              <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+                <input type="checkbox" checked={st.calibrate !== false} onChange={(e) => update({ ...st, calibrate: e.target.checked })} />
+                Přepočítat na win rate všech hráčů (jinak nadsazené)
+              </label>
+            )}
+            <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+              <input type="checkbox" checked={!!st.noDisp} onChange={(e) => update({ ...st, noDisp: e.target.checked })} />
+              Bez dispozic (jen armáda proti armádě)
+            </label>
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1.3fr) minmax(0, 1fr)", gap: 12, marginBottom: 10 }}>
@@ -100,7 +113,7 @@ export default function TeamPlanner() {
                       <option key={f} value={f}>{f}</option>
                     ))}
                   </select>
-                  <select value={m.disp} onChange={(e) => update({ ...st, mine: st.mine.map((x, k) => (k === i ? { ...x, disp: e.target.value } : x)) })} style={{ ...selStyle, width: 120 }}>
+                  <select value={m.disp} onChange={(e) => update({ ...st, mine: st.mine.map((x, k) => (k === i ? { ...x, disp: e.target.value } : x)) })} style={{ ...selStyle, width: 120, opacity: st.noDisp ? 0.4 : 1 }} disabled={!!st.noDisp}>
                     <option value="">dispozice?</option>
                     {MATCH_DISPOSITIONS.map((d) => (
                       <option key={d} value={d}>{d}</option>
@@ -119,7 +132,7 @@ export default function TeamPlanner() {
                       <option key={x} value={x}>{x}</option>
                     ))}
                   </select>
-                  <select value={o.disp} onChange={(e) => update({ ...st, opp: st.opp.map((x, k) => (k === j ? { ...x, disp: e.target.value } : x)) })} style={{ ...selStyle, width: 110 }}>
+                  <select value={o.disp} onChange={(e) => update({ ...st, opp: st.opp.map((x, k) => (k === j ? { ...x, disp: e.target.value } : x)) })} style={{ ...selStyle, width: 110, opacity: st.noDisp ? 0.4 : 1 }} disabled={!!st.noDisp}>
                     <option value="">dispozice?</option>
                     {MATCH_DISPOSITIONS.map((d) => (
                       <option key={d} value={d}>{d}</option>
@@ -148,7 +161,7 @@ export default function TeamPlanner() {
                     <tr>
                       <th style={{ textAlign: "left", fontSize: 10, color: "var(--muted)", padding: "3px 5px" }}>Moje ↓ / soupeř →</th>
                       {opp.map((o) => (
-                        <th key={o.j} style={{ fontSize: 10.5, color: "var(--label)", padding: "3px 5px", textAlign: "center" }}>{o.faction}{o.disp ? <div style={{ fontSize: 9.5, color: "var(--muted)", fontWeight: 400 }}>{o.disp}</div> : null}</th>
+                        <th key={o.j} style={{ fontSize: 10.5, color: "var(--label)", padding: "3px 5px", textAlign: "center" }}>{o.faction}{o.disp && !st.noDisp ? <div style={{ fontSize: 9.5, color: "var(--muted)", fontWeight: 400 }}>{o.disp}</div> : null}</th>
                       ))}
                     </tr>
                   </thead>
@@ -172,7 +185,7 @@ export default function TeamPlanner() {
                           }
                           return (
                             <td key={o.j} style={{ textAlign: "center", padding: "4px 5px", verticalAlign: "top" }}>
-                              <div style={{ fontSize: 13, fontWeight: 800, fontFamily: "var(--mono)", color: few ? "var(--muted)" : col }}>{wrText(ci.w, ci.p)}</div>
+                              <div style={{ fontSize: 13, fontWeight: 800, fontFamily: "var(--mono)", color: few ? "var(--muted)" : col }} title={period.calibrate && ci.raw != null ? `Surově ve vítězných listech: ${pct(ci.raw)}` : undefined}>{wrText(ci.w, ci.p)}</div>
                               <div style={{ fontSize: 10, color: "var(--muted)" }}>{cell.army.games} her{cell.army.games < 5 ? " ⚠" : ""}</div>
                               {cell.eff && (
                                 <div style={{ fontSize: 10, color: "var(--accent-text)" }} title={`${m.disp} proti ${o.disp}: ${cell.eff.wr} % ${cell.eff.same ? "" : `(${cell.eff.games} her)`}`}>
@@ -193,7 +206,7 @@ export default function TeamPlanner() {
                 </table>
               </div>
               <div style={{ fontSize: 10.5, color: "var(--muted)", marginBottom: 10 }}>
-                Číslo je win rate (výhry / hry) bez úprav; ~ před číslem = win rate je skrytý (listhammer ho u méně než 10 her neukazuje) a je to odhad. Pořadí a doporučení se počítají z odhadu staženého k průměru armády, aby pár her nevytvořilo 100 %. Zelená/červená = o 4 body nad/pod průměrem řádku; ⚠ = méně než 5 her. Pod číslem je počet her armády proti armádě{period.source === "lists" ? ", a u zvolené dispozice výsledek jen když je dost her (modře)" : ""}.
+                Číslo je win rate{period.source === "lists" && period.calibrate ? " přepočtený na úroveň všech hráčů" : " (výhry / hry) bez úprav"}; ~ před číslem = win rate je skrytý (listhammer ho u méně než 10 her neukazuje) a je to odhad. Pořadí a doporučení se počítají z odhadu staženého k průměru armády, aby pár her nevytvořilo 100 %. Zelená/červená = o 4 body nad/pod průměrem řádku; ⚠ = méně než 5 her. Pod číslem je počet her armády proti armádě{period.source === "lists" ? ", a u zvolené dispozice výsledek jen když je dost her (modře)" : ""}.
               </div>
 
               <div style={h}>Nejlepší a nejhorší soupeř pro každou moji armádu</div>
