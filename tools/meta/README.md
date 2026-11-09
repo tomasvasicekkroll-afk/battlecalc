@@ -37,3 +37,8 @@ Refresh: paste `listhammer-matchups.js` into one `javascript_tool` call on a lis
 run `__MU.runFaction(href)` for the first 28 faction links in a background loop (name it into
 `__MU_OUT[href]`, ~1.5 hours), return `"JSONSTART" + JSON.stringify(__MU.exportAll()) + "JSONEND"`
 and run `python build_matchups.py <saved tool output file>` in `tools/meta`.
+
+`src/data/dispData.js` (disposition vs disposition win rates) was read by hand from
+listhammer.info/stats: pick a window in the select, expand each disposition row (the arrow button) and
+copy its "Vs" table. Note: the PrimeVue controls there only react to a full mouse event sequence
+(pointerdown, mousedown, pointerup, mouseup, click), a plain `.click()` does nothing.

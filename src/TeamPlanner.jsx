@@ -2,13 +2,15 @@ import React, { useMemo, useState } from "react";
 import { MATCH_FACTIONS, MATCH_DISPOSITIONS, MATCH_PERIOD_PRESETS, MATCH_MAX_DAYS, MATCH_CAPTURED, periodText, planTeam } from "./data/matchLogic";
 
 const STORE_KEY = "team_plan_v1";
-const EMPTY = { mine: Array.from({ length: 5 }, () => ({ faction: "", disp: "" })), opp: Array.from({ length: 5 }, () => ""), preset: "l92", custom: 45, minGames: 8 };
+const EMPTY = { mine: Array.from({ length: 5 }, () => ({ faction: "", disp: "" })), opp: Array.from({ length: 5 }, () => ({ faction: "", disp: "" })), preset: "l92", custom: 45, minGames: 8 };
 
 function load() {
   try {
     const v = JSON.parse(localStorage.getItem(STORE_KEY) || "null");
     if (v && Array.isArray(v.mine) && Array.isArray(v.opp)) {
-      return { ...EMPTY, ...v, mine: [...v.mine, ...EMPTY.mine].slice(0, 5), opp: [...v.opp, ...EMPTY.opp].slice(0, 5) };
+      // older saves stored the enemy as a plain faction string
+      const oppNorm = v.opp.map((o) => (typeof o === "string" ? { faction: o, disp: "" } : o));
+      return { ...EMPTY, ...v, mine: [...v.mine, ...EMPTY.mine].slice(0, 5), opp: [...oppNorm, ...EMPTY.opp].slice(0, 5) };
     }
   } catch (e) {
     /* storage blocked or corrupt: start empty */
@@ -33,9 +35,9 @@ export default function TeamPlanner() {
   const preset = MATCH_PERIOD_PRESETS.find((p) => p.id === st.preset) || null;
   const period = st.preset === "custom" ? { source: "lists", days: Math.max(1, Math.min(MATCH_MAX_DAYS, Number(st.custom) || 30)) } : (preset || MATCH_PERIOD_PRESETS[3]).period;
   const mine = st.mine.map((m, i) => ({ ...m, i })).filter((m) => m.faction);
-  const opp = st.opp.map((f, j) => ({ faction: f, j })).filter((o) => o.faction);
+  const opp = st.opp.map((o, j) => ({ faction: o.faction, disp: o.disp, j })).filter((o) => o.faction);
   const plan = useMemo(
-    () => (mine.length && opp.length ? planTeam(period, mine.map((m) => ({ faction: m.faction, disp: m.disp })), opp.map((o) => o.faction), Number(st.minGames) || 8) : null),
+    () => (mine.length && opp.length ? planTeam(period, mine.map((m) => ({ faction: m.faction, disp: m.disp })), opp.map((o) => ({ faction: o.faction, disp: o.disp })), Number(st.minGames) || 8) : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [JSON.stringify(st), period.source, period.days]
   );
@@ -44,6 +46,7 @@ export default function TeamPlanner() {
   const h = { fontSize: 11, fontWeight: 700, color: "var(--label)", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 8 };
   const selStyle = { background: "var(--field-bg)", color: "var(--text)", border: "1px solid var(--field-border)", borderRadius: 6, padding: "5px 6px", fontSize: 12.5, minWidth: 0 };
   const label = (m) => `${m.faction}${m.disp ? ` (${m.disp})` : ""}`;
+  const dpts = (cell, ci) => { const base = ci.viaDisp ? cell.disp.p0 : cell.army.p0; return base == null ? null : Math.round((ci.p - base) * 100); };
 
   const cellInfo = (c) => (c.dispOk ? { p: c.disp.p, n: c.disp.games, viaDisp: true } : { p: c.army.p, n: c.army.games, viaDisp: false });
   const rowAvg = (r) => (plan ? plan.cells[r].reduce((a, c) => a + c.army.p, 0) / plan.cells[r].length : 0.5);
@@ -95,7 +98,7 @@ export default function TeamPlanner() {
                       <option key={f} value={f}>{f}</option>
                     ))}
                   </select>
-                  <select value={m.disp} onChange={(e) => update({ ...st, mine: st.mine.map((x, k) => (k === i ? { ...x, disp: e.target.value } : x)) })} style={{ ...selStyle, width: 120 }} disabled={period.source === "site"} title={period.source === "site" ? "Dispozice jsou jen ve zdroji „vítězné listy“" : ""}>
+                  <select value={m.disp} onChange={(e) => update({ ...st, mine: st.mine.map((x, k) => (k === i ? { ...x, disp: e.target.value } : x)) })} style={{ ...selStyle, width: 120 }}>
                     <option value="">dispozice?</option>
                     {MATCH_DISPOSITIONS.map((d) => (
                       <option key={d} value={d}>{d}</option>
@@ -106,12 +109,18 @@ export default function TeamPlanner() {
             </div>
             <div>
               <div style={h}>Soupeři</div>
-              {st.opp.map((f, j) => (
-                <div key={j} style={{ marginBottom: 5 }}>
-                  <select value={f} onChange={(e) => update({ ...st, opp: st.opp.map((x, k) => (k === j ? e.target.value : x)) })} style={{ ...selStyle, width: "100%" }}>
+              {st.opp.map((o, j) => (
+                <div key={j} style={{ display: "flex", gap: 6, marginBottom: 5 }}>
+                  <select value={o.faction} onChange={(e) => update({ ...st, opp: st.opp.map((x, k) => (k === j ? { ...x, faction: e.target.value } : x)) })} style={{ ...selStyle, flex: 1 }}>
                     <option value="">— {j + 1}. soupeř —</option>
                     {MATCH_FACTIONS.map((x) => (
                       <option key={x} value={x}>{x}</option>
+                    ))}
+                  </select>
+                  <select value={o.disp} onChange={(e) => update({ ...st, opp: st.opp.map((x, k) => (k === j ? { ...x, disp: e.target.value } : x)) })} style={{ ...selStyle, width: 110 }}>
+                    <option value="">dispozice?</option>
+                    {MATCH_DISPOSITIONS.map((d) => (
+                      <option key={d} value={d}>{d}</option>
                     ))}
                   </select>
                 </div>
@@ -137,7 +146,7 @@ export default function TeamPlanner() {
                     <tr>
                       <th style={{ textAlign: "left", fontSize: 10, color: "var(--muted)", padding: "3px 5px" }}>Moje ↓ / soupeř →</th>
                       {opp.map((o) => (
-                        <th key={o.j} style={{ fontSize: 10.5, color: "var(--label)", padding: "3px 5px", textAlign: "center" }}>{o.faction}</th>
+                        <th key={o.j} style={{ fontSize: 10.5, color: "var(--label)", padding: "3px 5px", textAlign: "center" }}>{o.faction}{o.disp ? <div style={{ fontSize: 9.5, color: "var(--muted)", fontWeight: 400 }}>{o.disp}</div> : null}</th>
                       ))}
                     </tr>
                   </thead>
@@ -154,7 +163,7 @@ export default function TeamPlanner() {
                           if (cell.army.mirror || (cell.army.games === 0 && !cell.dispOk)) {
                             return (
                               <td key={o.j} style={{ textAlign: "center", padding: "4px 5px", verticalAlign: "top" }}>
-                                <div style={{ fontSize: 13, fontWeight: 800, fontFamily: "var(--mono)", color: "var(--muted)" }}>{cell.army.mirror ? "50 %" : "—"}</div>
+                                <div style={{ fontSize: 13, fontWeight: 800, fontFamily: "var(--mono)", color: "var(--muted)" }}>{cell.army.mirror ? pct(cell.army.p) : "—"}</div>
                                 <div style={{ fontSize: 10, color: "var(--muted)" }}>{cell.army.mirror ? "zrcadlo" : "bez dat"}</div>
                               </td>
                             );
@@ -163,6 +172,11 @@ export default function TeamPlanner() {
                             <td key={o.j} style={{ textAlign: "center", padding: "4px 5px", verticalAlign: "top" }}>
                               <div style={{ fontSize: 13, fontWeight: 800, fontFamily: "var(--mono)", color: few ? "var(--muted)" : col }}>{pct(ci.p)}</div>
                               <div style={{ fontSize: 10, color: "var(--muted)" }}>{cell.army.games} her{cell.army.games < 5 ? " ⚠" : ""}</div>
+                              {cell.eff && (
+                                <div style={{ fontSize: 10, color: "var(--accent-text)" }} title={`${m.disp} proti ${o.disp}: ${cell.eff.wr} % ${cell.eff.same ? "" : `(${cell.eff.games} her)`}`}>
+                                  {m.disp} vs {o.disp}: {dpts(cell, ci) > 0 ? "+" : ""}{dpts(cell, ci)} pp
+                                </div>
+                              )}
                               {cell.disp && (
                                 <div style={{ fontSize: 10, color: cell.dispOk ? "var(--accent-text)" : "var(--muted)" }}>
                                   {m.disp}: {cell.dispOk ? `${pct(cell.disp.p)} (${cell.disp.games})` : `málo dat (${cell.disp.games})`}
@@ -210,7 +224,7 @@ export default function TeamPlanner() {
                 <div style={{ fontSize: 12.5 }}>
                   {plan.armyPlan.pairs.map(([r, c]) => (
                     <div key={r} style={{ marginBottom: 2 }}>
-                      {label(mine[r])} <span style={{ color: "var(--accent-text)" }}>→</span> {opp[c].faction} <span style={{ fontFamily: "var(--mono)", color: "var(--muted)" }}>({pct(plan.cells[r][c].army.p)})</span>
+                      {label(mine[r])} <span style={{ color: "var(--accent-text)" }}>→</span> {label(opp[c])} <span style={{ fontFamily: "var(--mono)", color: "var(--muted)" }}>({pct(plan.cells[r][c].army.p)})</span>
                     </div>
                   ))}
                   <div style={{ color: "var(--muted)", marginTop: 3 }}>{period.source === "lists" ? `Součet šancí ${plan.armyPlan.total.toFixed(2)} z ${plan.armyPlan.pairs.length} (z vítězných listů, skutečné výsledky budou nižší; hlavně jde o pořadí).` : `Očekávaně ${plan.armyPlan.total.toFixed(2)} výher z ${plan.armyPlan.pairs.length}.`}</div>
@@ -224,7 +238,7 @@ export default function TeamPlanner() {
                       const ci = cellInfo(plan.cells[r][c]);
                       return (
                         <div key={r} style={{ marginBottom: 2 }}>
-                          {label(mine[r])} <span style={{ color: "var(--accent-text)" }}>→</span> {opp[c].faction} <span style={{ fontFamily: "var(--mono)", color: "var(--muted)" }}>({pct(ci.p)}{ci.viaDisp ? ", podle dispozice" : ", jen armáda"})</span>
+                          {label(mine[r])} <span style={{ color: "var(--accent-text)" }}>→</span> {label(opp[c])} <span style={{ fontFamily: "var(--mono)", color: "var(--muted)" }}>({pct(ci.p)}{ci.viaDisp ? ", podle dispozice" : ", jen armáda"})</span>
                         </div>
                       );
                     })}
@@ -233,7 +247,7 @@ export default function TeamPlanner() {
                 </>
               )}
               <div style={{ fontSize: 10.5, color: "var(--muted)", marginTop: 8, lineHeight: 1.45 }}>
-                Přiřazení maximalizuje součet šancí a nepočítá s tím, kdo si vybírá první ani s tím, jak se vybírá v týmovém formátu (pick/ban). Hráči se liší, takže je to jen jeden z podkladů. Dispozice soupeře nejsou ve zdrojích známé, počítá se jen s tou tvou.
+                Přiřazení maximalizuje součet šancí a nepočítá s tím, kdo si vybírá první ani s tím, jak se vybírá v týmovém formátu (pick/ban). Hráči se liší, takže je to jen jeden z podkladů. Dispozice soupeře se do výpočtu dostane jen jako úprava podle tabulky „dispozice proti dispozici“ (všichni hráči, od Dataslate): ukazuje, o kolik bodů je tvoje dispozice proti jeho lepší nebo horší než proti průměrnému soupeři. Počítá se, že dispozice a frakce působí nezávisle, a rozdíly bývají malé (kolem 0-3 bodů, výrazný je jen Disruption proti Priority Assets). Výsledky konkrétních párů frakce + dispozice proti frakce + dispozice na to není dost her.
               </div>
             </>
           )}

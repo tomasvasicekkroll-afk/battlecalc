@@ -3,6 +3,7 @@
 //  - "lists": round-by-round results of the 4-1-or-better lists in the chosen period: also by the player's
 //    disposition, but these are winners only, so win rates are inflated (compare, don't take them literally).
 import { MATCH_RAW } from "./matchData";
+import { DISP_DATA } from "./dispData";
 
 export const MATCH_DISPOSITIONS = ["Purge the Foe", "Take and Hold", "Priority Assets", "Disruption", "Reconnaissance"];
 const DISP_ALL = ["", ...MATCH_DISPOSITIONS];
@@ -121,17 +122,37 @@ function bestAssignment(P, rows, cols) {
   return best;
 }
 
-// mine: [{faction, disp}], opp: [faction]; minDispGames: how many games a disposition cell needs.
+// Disposition against disposition (all players, since the Dataslate): how much better or worse
+// my disposition does against theirs than against an average opponent, as a log-odds shift.
+const DISP_WINDOW = DISP_DATA.windows.ds;
+export const DISP_WINDOW_LABEL = DISP_WINDOW.label;
+const logit = (p) => Math.log(p / (1 - p));
+const sigmoid = (x) => 1 / (1 + Math.exp(-x));
+export function dispEffect(myDisp, oppDisp) {
+  if (!myDisp || !oppDisp) return null;
+  const overall = DISP_WINDOW.overall[myDisp];
+  if (!overall) return null;
+  if (myDisp === oppDisp) return { delta: logit(0.5) - logit(overall[0] / 100), wr: 50, games: 0, same: true };
+  const v = DISP_WINDOW.vs[myDisp] && DISP_WINDOW.vs[myDisp][oppDisp];
+  if (!v) return null;
+  return { delta: logit(v[0] / 100) - logit(overall[0] / 100), wr: v[0], games: v[1] };
+}
+const shift = (p, eff) => (eff ? sigmoid(logit(Math.min(0.995, Math.max(0.005, p))) + eff.delta) : p);
+
+// mine: [{faction, disp}], opp: [{faction, disp}]; minDispGames: how many games a disposition cell needs.
 export function planTeam(period, mine, opp, minDispGames = 8) {
   const rows = mine.length;
   const cols = opp.length;
   const useDisp = period.source === "lists";
   const cells = mine.map((m) =>
     opp.map((o) => {
-      const army = pairStats(period, m.faction, "", o);
-      const disp = useDisp && m.disp ? pairStats(period, m.faction, m.disp, o) : null;
+      const eff = dispEffect(m.disp, o.disp);
+      const army0 = pairStats(period, m.faction, "", o.faction);
+      const army = eff ? { ...army0, p0: army0.p, p: shift(army0.p, eff) } : army0;
+      let disp = useDisp && m.disp ? pairStats(period, m.faction, m.disp, o.faction) : null;
+      if (disp && eff) disp = { ...disp, p0: disp.p, p: shift(disp.p, eff) };
       const dispOk = !!disp && disp.games >= minDispGames;
-      return { army, disp, dispOk };
+      return { army, disp, dispOk, eff };
     })
   );
   const Parmy = cells.map((r) => r.map((c) => c.army.p));
