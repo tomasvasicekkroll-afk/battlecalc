@@ -24,3 +24,16 @@ How it is made (done in the Claude Code browser pane, the site has no export):
 5. In `tools/meta`: `python export_raw_to_json.py <that file>` then
    `python build_raw.py raw_export.json 62` (rewrites `src/data/metaRaw.js`). Do not commit
    `raw_export.json`. Run `npm run build`, commit `src/data/metaRaw.js`, push.
+
+## Matchup data ("Týmovka: kdo proti komu")
+
+`src/data/matchData.js` holds (1) the site's own "Matchups" table of every faction for "Last 4 Weeks"
+(all players; the faction page cannot select "Since Dataslate", it ignores that option) and
+(2) round-by-round results (opponent faction, win/loss) of the 4-1-or-better lists of the last
+~92 days, with the player's disposition. `src/data/matchLogic.js` turns it into pair statistics;
+`src/TeamPlanner.jsx` is the UI.
+
+Refresh: paste `listhammer-matchups.js` into one `javascript_tool` call on a listhammer.info page,
+run `__MU.runFaction(href)` for the first 28 faction links in a background loop (name it into
+`__MU_OUT[href]`, ~1.5 hours), return `"JSONSTART" + JSON.stringify(__MU.exportAll()) + "JSONEND"`
+and run `python build_matchups.py <saved tool output file>` in `tools/meta`.
