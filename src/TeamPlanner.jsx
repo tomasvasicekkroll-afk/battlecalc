@@ -84,9 +84,9 @@ export default function TeamPlanner() {
             </select>
             {st.preset === "range" && (
               <>
-                <input type="date" min={MATCH_MIN_DATE} max={MATCH_MAX_DATE} value={rangeFrom} onChange={(e) => update({ ...st, from: e.target.value })} style={{ ...selStyle, width: 140 }} />
+                <input type="date" min={MATCH_MIN_DATE} max={MATCH_MAX_DATE} value={st.from ?? MATCH_MIN_DATE} onChange={(e) => update({ ...st, from: e.target.value })} style={{ ...selStyle, width: 140 }} />
                 <span style={{ fontSize: 12, color: "var(--muted)" }}>až</span>
-                <input type="date" min={MATCH_MIN_DATE} max={MATCH_MAX_DATE} value={rangeTo} onChange={(e) => update({ ...st, to: e.target.value })} style={{ ...selStyle, width: 140 }} />
+                <input type="date" min={MATCH_MIN_DATE} max={MATCH_MAX_DATE} value={st.to ?? MATCH_MAX_DATE} onChange={(e) => update({ ...st, to: e.target.value })} style={{ ...selStyle, width: 140 }} />
                 <span style={{ fontSize: 11.5, color: "var(--muted)" }}>(data jsou od {MATCH_MIN_DATE} do {MATCH_MAX_DATE})</span>
               </>
             )}
