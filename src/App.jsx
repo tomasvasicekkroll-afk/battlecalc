@@ -4373,6 +4373,9 @@ function emptyBonus() {
     devastatingWounds: false,
     // Critical Wound threshold for Devastating Wounds (unmodified wound roll of X+; 6 normally).
     critWoundOn: 6,
+    // Names (comma separated) of the weapons the modifier's Devastating Wounds applies to;
+    // empty = every weapon of that type.
+    devastatingOnly: "",
     sustained: 0,
     rerollHit: "none",
     rerollWound: "none",
@@ -4425,6 +4428,13 @@ function autoDetectBonus(unit) {
 // ---------------------------------------------------------------------------
 // Core probability math for a single weapon profile vs a defender profile
 // ---------------------------------------------------------------------------
+// Does a weapon name contain one of the comma-separated fragments? (empty filter = yes)
+function weaponNameMatches(name, filter) {
+  const parts = String(filter || "").split(/[,;]/).map((x) => x.trim().toLowerCase()).filter(Boolean);
+  if (parts.length === 0) return true;
+  const n = String(name || "").toLowerCase();
+  return parts.some((x) => n.includes(x));
+}
 function computeWeapon(weapon, modelCount, def, bonus) {
   const b = bonus || emptyBonus();
   // Some units (e.g. GMNDK) can re-roll all hit and wound rolls specifically
@@ -4449,6 +4459,8 @@ function computeWeapon(weapon, modelCount, def, bonus) {
       rerollDamageBonus = expectedValueWithOneReroll(dist) - baseMean;
     }
   }
+  // Devastating Wounds from the modifier panel, optionally only for named weapons.
+  const bonusDevastating = !!b.devastatingWounds && weaponNameMatches(weapon.name, b.devastatingOnly);
   const att = {
     models: modelCount * (weapon.copies || 1),
     attacks: weapon.attacks,
@@ -4462,8 +4474,8 @@ function computeWeapon(weapon, modelCount, def, bonus) {
     // abilities lower it (e.g. "Critical Hits on 5+"). A lower number is
     // "better" (easier), so an unset weapon field just falls back to 6.
     critHitsOn: Math.max(2, Math.min(6, weapon.critHitsOn || 6)),
-    critWoundOn: Math.max(2, Math.min(6, Math.min(weapon.critWoundOn || 6, b.critWoundOn || 6))),
-    devastatingWounds: !!weapon.devastatingWounds || !!b.devastatingWounds,
+    critWoundOn: Math.max(2, Math.min(6, Math.min(weapon.critWoundOn || 6, bonusDevastating ? b.critWoundOn || 6 : 6))),
+    devastatingWounds: !!weapon.devastatingWounds || bonusDevastating,
     antiKeyword: weapon.antiKeyword || "none",
     antiValue: weapon.antiValue || 0,
     rerollHit: betterReroll(betterReroll(weapon.rerollHit || "none", b.rerollHit), rerollKeywordActive ? "all" : "none"),
@@ -9480,6 +9492,17 @@ function BonusFieldsGroup({ bonus, setBonus, isRanged }) {
           small
         />
       </Row>
+      {bonus.devastatingWounds && (
+        <Row cols={1}>
+          <TextField
+            label="Devastating jen u zbraní (části názvů, čárkou; prázdné = u všech)"
+            value={bonus.devastatingOnly || ""}
+            onChange={(v) => setBonus((s) => ({ ...s, devastatingOnly: v }))}
+            placeholder="např. lascannon, melta"
+            small
+          />
+        </Row>
+      )}
       {isRanged && (
         <Row cols={2}>
           <ToggleField
