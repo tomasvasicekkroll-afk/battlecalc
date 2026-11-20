@@ -9484,7 +9484,20 @@ function PickerRow({ icon: Icon, label, count, onClick }) {
   );
 }
 
-function BonusFieldsGroup({ bonus, setBonus, isRanged }) {
+// Unique weapon names of some units for one weapon type, without a "2x " copy prefix.
+function unitsWeaponNames(units, type) {
+  const out = new Set();
+  (units || []).forEach((u) =>
+    (u.members || []).forEach((m) =>
+      (m.weapons || []).forEach((w) => {
+        if ((w.type === "melee") === (type === "melee")) out.add(String(w.name || "").replace(/^\d+x\s+/i, "").trim());
+      })
+    )
+  );
+  return [...out].filter(Boolean).sort((a, b) => a.localeCompare(b));
+}
+
+function BonusFieldsGroup({ bonus, setBonus, isRanged, weaponNames }) {
   return (
     <>
       <Row cols={2}>
@@ -9501,7 +9514,43 @@ function BonusFieldsGroup({ bonus, setBonus, isRanged }) {
           small
         />
       </Row>
-      {bonus.devastatingWounds && (
+      {bonus.devastatingWounds && weaponNames && weaponNames.length > 0 && (() => {
+        const picked = String(bonus.devastatingOnly || "").split(/[,;]/).map((x) => x.trim()).filter(Boolean);
+        const isOn = (n) => picked.some((x) => x.toLowerCase() === n.toLowerCase());
+        const toggle = (n) =>
+          setBonus((st) => {
+            const cur = String(st.devastatingOnly || "").split(/[,;]/).map((x) => x.trim()).filter(Boolean);
+            const has = cur.some((x) => x.toLowerCase() === n.toLowerCase());
+            const next = has ? cur.filter((x) => x.toLowerCase() !== n.toLowerCase()) : [...cur, n];
+            return { ...st, devastatingOnly: next.join(", ") };
+          });
+        const chip = (active) => ({
+          fontSize: 11,
+          fontWeight: 700,
+          padding: "3px 9px",
+          borderRadius: 999,
+          cursor: "pointer",
+          border: `1px solid ${active ? "var(--accent)" : "var(--field-border)"}`,
+          background: active ? "var(--accent-dim)" : "transparent",
+          color: active ? "var(--accent-text)" : "var(--muted)",
+        });
+        return (
+          <div style={{ marginBottom: 8 }}>
+            <div style={{ fontSize: 11, color: "var(--label)", fontWeight: 600, marginBottom: 4 }}>Devastating jen u zbraní (klikni; nic = u všech)</div>
+            <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+              <button type="button" onClick={() => setBonus((st) => ({ ...st, devastatingOnly: "" }))} style={chip(picked.length === 0)}>
+                Všechny
+              </button>
+              {weaponNames.map((n) => (
+                <button key={n} type="button" onClick={() => toggle(n)} style={chip(isOn(n))}>
+                  {n}
+                </button>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
+      {bonus.devastatingWounds && !(weaponNames && weaponNames.length > 0) && (
         <Row cols={1}>
           <TextField
             label="Devastating jen u zbraní (části názvů, čárkou; prázdné = u všech)"
@@ -9571,10 +9620,10 @@ function BonusFieldsGroup({ bonus, setBonus, isRanged }) {
 // so either slot panel can hold both, letting values follow an army through
 // a "Prohodit útočníky a cíle" swap. `mod` is one type-slice (ranged/melee)
 // of a slot's modifiers (see emptyFullModifier).
-function FullModifierFields({ mod, setMod, isRanged }) {
+function FullModifierFields({ mod, setMod, isRanged, weaponNames }) {
   return (
     <>
-      <BonusFieldsGroup bonus={mod} setBonus={setMod} isRanged={isRanged} />
+      <BonusFieldsGroup bonus={mod} setBonus={setMod} isRanged={isRanged} weaponNames={weaponNames} />
       <Row cols={isRanged ? 4 : 3}>
         <NumberField label="FNP (0 = jen vlastní)" value={mod.fnp} onChange={(v) => setMod((s) => ({ ...s, fnp: Math.max(0, v) }))} min={0} small />
         <NumberField
@@ -9609,7 +9658,7 @@ function FullModifierFields({ mod, setMod, isRanged }) {
   );
 }
 
-function CheatSlotPanel({ title, hint, accent, slot, setSlot }) {
+function CheatSlotPanel({ title, hint, accent, slot, setSlot, rangedNames, meleeNames }) {
   const setType = (type) => (updater) => setSlot((s) => ({ ...s, [type]: typeof updater === "function" ? updater(s[type]) : updater }));
   return (
     <div style={{ background: "var(--field-bg)", border: "1px solid var(--field-border)", borderRadius: 10, padding: 12, marginBottom: 14 }}>
@@ -9636,13 +9685,13 @@ function CheatSlotPanel({ title, hint, accent, slot, setSlot }) {
         <div style={{ fontSize: 10, fontWeight: 700, color: "#a9c6e5", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6, display: "flex", alignItems: "center", gap: 4 }}>
           <Crosshair size={11} /> Na dálku
         </div>
-        <FullModifierFields mod={slot.ranged} setMod={setType("ranged")} isRanged />
+        <FullModifierFields mod={slot.ranged} setMod={setType("ranged")} isRanged weaponNames={rangedNames} />
       </div>
       <div style={{ background: "var(--panel)", border: "1px solid var(--field-border)", borderRadius: 8, padding: 8 }}>
         <div style={{ fontSize: 10, fontWeight: 700, color: accent, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6, display: "flex", alignItems: "center", gap: 4 }}>
           <Sword size={11} /> Na blízko
         </div>
-        <FullModifierFields mod={slot.melee} setMod={setType("melee")} isRanged={false} />
+        <FullModifierFields mod={slot.melee} setMod={setType("melee")} isRanged={false} weaponNames={meleeNames} />
       </div>
     </div>
   );
@@ -13190,6 +13239,7 @@ export default function Wh40kCalculator({ session }) {
                           bonus={attackerBonus.ranged}
                           setBonus={(updater) => setAttackerBonus((s) => ({ ...s, ranged: typeof updater === "function" ? updater(s.ranged) : updater }))}
                           isRanged
+                          weaponNames={unitsWeaponNames([effectiveAttackerUnit], "ranged")}
                         />
                       </div>
                       <div style={{ marginTop: 8, background: "var(--field-bg)", border: "1px solid var(--field-border)", borderRadius: 8, padding: 10 }}>
@@ -13199,6 +13249,7 @@ export default function Wh40kCalculator({ session }) {
                         <BonusFieldsGroup
                           bonus={attackerBonus.melee}
                           setBonus={(updater) => setAttackerBonus((s) => ({ ...s, melee: typeof updater === "function" ? updater(s.melee) : updater }))}
+                          weaponNames={unitsWeaponNames([effectiveAttackerUnit], "melee")}
                         />
                       </div>
                       <UnitComposition
@@ -13961,8 +14012,8 @@ export default function Wh40kCalculator({ session }) {
           </button>
           {cheatModifiersOpen && (
           <>
-            <CheatSlotPanel title="Bonusy útočníka" hint="navíc k vlastním schopnostem, drží se armády i po prohození" accent="var(--accent-text)" slot={cheatSlotA} setSlot={setCheatSlotA} />
-            <CheatSlotPanel title="Debuffy obránce" hint="navíc k vlastním hodnotám, drží se armády i po prohození" accent="var(--accent-text)" slot={cheatSlotB} setSlot={setCheatSlotB} />
+            <CheatSlotPanel title="Bonusy útočníka" hint="navíc k vlastním schopnostem, drží se armády i po prohození" accent="var(--accent-text)" slot={cheatSlotA} setSlot={setCheatSlotA} rangedNames={unitsWeaponNames(library.filter((u) => cheatAttackerIds.has(u.id)), "ranged")} meleeNames={unitsWeaponNames(library.filter((u) => cheatAttackerIds.has(u.id)), "melee")} />
+            <CheatSlotPanel title="Debuffy obránce" hint="navíc k vlastním hodnotám, drží se armády i po prohození" accent="var(--accent-text)" slot={cheatSlotB} setSlot={setCheatSlotB} rangedNames={unitsWeaponNames(library.filter((u) => cheatTargetIds.has(u.id)), "ranged")} meleeNames={unitsWeaponNames(library.filter((u) => cheatTargetIds.has(u.id)), "melee")} />
             <div style={{ fontSize: 10.5, color: "var(--muted)", marginTop: -6, marginBottom: 14 }}>
               Tabulka níže vždy ukáže obojí: "Základ" (jen vestavěné schopnosti) a "S bonusy" (základ + tohle nastavení), ať je vidět rozdíl.
             </div>
