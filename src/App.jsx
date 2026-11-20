@@ -4339,7 +4339,7 @@ function defenderModelTotal(unit) {
 // generated ids and fields that can legitimately differ between imports of the
 // same unit without it being a different unit (points cost, favorite flag) — so
 // re-importing the same unit from a different list doesn't create a duplicate.
-const SIGNATURE_IGNORE_KEYS = new Set(["id", "points", "isFavorite", "baseSize", "modelCount", "move", "scout", "deepStrike", "infiltrators"]);
+const SIGNATURE_IGNORE_KEYS = new Set(["id", "points", "isFavorite", "baseSize", "modelCount", "move", "scout", "deepStrike", "infiltrators", "devastatingWounds"]);
 function stripIds(value) {
   if (Array.isArray(value)) return value.map(stripIds);
   if (value && typeof value === "object") {
@@ -4369,6 +4369,8 @@ function betterReroll(a, b) {
 function emptyBonus() {
   return {
     lethalHits: false,
+    // Devastating Wounds: a critical wound skips saves and deals its damage as mortal wounds.
+    devastatingWounds: false,
     sustained: 0,
     rerollHit: "none",
     rerollWound: "none",
@@ -4406,6 +4408,7 @@ function autoDetectBonus(unit) {
     m.weapons.forEach((w) => {
       const key = w.type === "melee" ? "melee" : "ranged";
       if (w.lethalHits) result[key].lethalHits = true;
+      if (w.devastatingWounds) result[key].devastatingWounds = true;
       if (w.sustained > result[key].sustained) result[key].sustained = w.sustained;
       result[key].rerollHit = betterReroll(result[key].rerollHit, w.rerollHit || "none");
       result[key].rerollWound = betterReroll(result[key].rerollWound, w.rerollWound || "none");
@@ -4455,7 +4458,7 @@ function computeWeapon(weapon, modelCount, def, bonus) {
     // "better" (easier), so an unset weapon field just falls back to 6.
     critHitsOn: Math.max(2, Math.min(6, weapon.critHitsOn || 6)),
     critWoundOn: Math.max(2, Math.min(6, weapon.critWoundOn || 6)),
-    devastatingWounds: !!weapon.devastatingWounds,
+    devastatingWounds: !!weapon.devastatingWounds || !!b.devastatingWounds,
     antiKeyword: weapon.antiKeyword || "none",
     antiValue: weapon.antiValue || 0,
     rerollHit: betterReroll(betterReroll(weapon.rerollHit || "none", b.rerollHit), rerollKeywordActive ? "all" : "none"),
@@ -5096,6 +5099,7 @@ function parseIntSafe(text, fallback = 0) {
 function parseWeaponCharacteristics(wc) {
   const keywords = (wc && wc.Keywords) || "";
   const lethalHits = /lethal hits/i.test(keywords);
+  const devastatingWounds = /devastating wounds/i.test(keywords);
   let sustained = 0;
   const susMatch = keywords.match(/sustained hits\s*(d?\d*)/i);
   if (susMatch) sustained = susMatch[1] ? parseDiceAvg(susMatch[1]) : 1;
@@ -5144,6 +5148,7 @@ function parseWeaponCharacteristics(wc) {
     // exactly instead of just off the average.
     damageDice: wc && wc.D ? String(wc.D).trim() : "",
     lethalHits,
+    devastatingWounds,
     sustained,
     melta,
     rapidFire,
@@ -9457,6 +9462,10 @@ function BonusFieldsGroup({ bonus, setBonus, isRanged }) {
         <ToggleField label="Lethal Hits" value={bonus.lethalHits} onChange={(v) => setBonus((s) => ({ ...s, lethalHits: v }))} small />
         <NumberField label="Sustained (extra)" value={bonus.sustained} onChange={(v) => setBonus((s) => ({ ...s, sustained: v }))} min={0} small />
       </Row>
+      <Row cols={2}>
+        <ToggleField label="Devastating Wounds" value={bonus.devastatingWounds} onChange={(v) => setBonus((s) => ({ ...s, devastatingWounds: v }))} small />
+        <div />
+      </Row>
       {isRanged && (
         <Row cols={2}>
           <ToggleField
@@ -11048,6 +11057,7 @@ export default function Wh40kCalculator({ session }) {
     const modelsFromImport = new Map();
     const moveFromImport = new Map();
     const deployFromImport = new Map();
+    const membersFromImport = new Map();
     let skipped = 0;
     units.forEach((u) => {
       const sig = unitSignature(u);
@@ -11057,6 +11067,7 @@ export default function Wh40kCalculator({ session }) {
         if (u.baseSize && String(u.baseSize) !== "32") baseFromImport.set(existingSigToId.get(sig), String(u.baseSize));
         if (u.modelCount > 0) modelsFromImport.set(existingSigToId.get(sig), u.modelCount);
         if (u.move > 0) moveFromImport.set(existingSigToId.get(sig), u.move);
+        membersFromImport.set(existingSigToId.get(sig), u.members);
         deployFromImport.set(existingSigToId.get(sig), { scout: u.scout || 0, deepStrike: !!u.deepStrike, infiltrators: !!u.infiltrators });
       } else {
         existingSigToId.set(sig, u.id);
@@ -11079,6 +11090,22 @@ export default function Wh40kCalculator({ session }) {
         if (fixed !== next) {
           baseUpdated += 1;
           next = fixed;
+        }
+      }
+      // Weapons imported before Devastating Wounds was read get the flag from this import
+      // (same unit, so the member / weapon layout matches).
+      const im = membersFromImport.get(x.id);
+      if (im && next.members.some((m) => m.weapons.some((w) => w.devastatingWounds === undefined))) {
+        const same = im.length === next.members.length && im.every((m, i) => m.weapons.length === next.members[i].weapons.length);
+        if (same) {
+          baseUpdated += 1;
+          next = {
+            ...next,
+            members: next.members.map((m, i) => ({
+              ...m,
+              weapons: m.weapons.map((w, j) => (w.devastatingWounds === undefined ? { ...w, devastatingWounds: !!im[i].weapons[j].devastatingWounds } : w)),
+            })),
+          };
         }
       }
       const dp = deployFromImport.get(x.id);
