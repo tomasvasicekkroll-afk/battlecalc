@@ -4636,6 +4636,10 @@ function computeWeapon(weapon, modelCount, def, bonus) {
   const damageConvFactor = failProb * (1 - fnpProb) * effectiveDamage;
   const damageFromRerollHit = hitsFromRerollHit * pWoundAdj * damageConvFactor;
   const damageFromLethalHits = woundsFromLethalHits * damageConvFactor;
+  // Devastating Wounds, for the per-weapon breakdown: how many critical wounds skipped the
+  // save, the damage they dealt, and how much of it is EXTRA compared with rolling saves.
+  const damageFromDevastating = devWounds * (1 - fnpProb) * effectiveDamage;
+  const gainFromDevastating = devWounds * (1 - failProb) * (1 - fnpProb) * effectiveDamage;
 
   return {
     totalDamage,
@@ -4663,6 +4667,11 @@ function computeWeapon(weapon, modelCount, def, bonus) {
       woundsFromLethalHits,
       damageFromRerollHit,
       damageFromLethalHits,
+      devastating: !!att.devastatingWounds,
+      critWoundOn: att.critWoundOn,
+      devWounds,
+      damageFromDevastating,
+      gainFromDevastating,
     },
   };
 }
@@ -13609,14 +13618,20 @@ export default function Wh40kCalculator({ session }) {
                               {b.detail.woundsFromLethalHits > 0.005 && (
                                 <div style={{ fontSize: 9, color: "var(--accent-text)" }}>z toho Lethal Hits: +{fmt(b.detail.woundsFromLethalHits, 2)}</div>
                               )}
+                              {b.detail.devastating && (
+                                <div style={{ fontSize: 9, color: "var(--accent-text)" }}>
+                                  Devastating ({b.detail.critWoundOn}+): {fmt(b.detail.devWounds, 2)} krit. zranění mimo save
+                                </div>
+                              )}
                             </td>
                             <td style={{ padding: "4px 6px" }}>{b.detail.effSave >= 7 ? "neprojde" : b.detail.effSave + "+"}</td>
                             <td style={{ padding: "4px 6px", fontWeight: 700 }}>
                               {fmt(b.damage)}
-                              {(b.detail.damageFromRerollHit > 0.005 || b.detail.damageFromLethalHits > 0.005) && (
+                              {(b.detail.damageFromRerollHit > 0.005 || b.detail.damageFromLethalHits > 0.005 || b.detail.devastating) && (
                                 <div style={{ fontSize: 9, fontWeight: 400, color: "var(--accent-text)" }}>
                                   {b.detail.damageFromRerollHit > 0.005 && <>přehoz: +{fmt(b.detail.damageFromRerollHit, 2)} </>}
-                                  {b.detail.damageFromLethalHits > 0.005 && <>Lethal: +{fmt(b.detail.damageFromLethalHits, 2)}</>}
+                                  {b.detail.damageFromLethalHits > 0.005 && <>Lethal: +{fmt(b.detail.damageFromLethalHits, 2)} </>}
+                                  {b.detail.devastating && <>Devastating: {fmt(b.detail.damageFromDevastating, 2)} (+{fmt(b.detail.gainFromDevastating, 2)} oproti save)</>}
                                 </div>
                               )}
                             </td>
@@ -13637,7 +13652,7 @@ export default function Wh40kCalculator({ session }) {
                     <b style={{ color: "var(--text)" }}>2. Zranění:</b> Cíl na zranění dle S vs T tabulky, případný debuff -1 WR a modifikátory/přehoz.
                   </div>
                   <div>
-                    <b style={{ color: "var(--text)" }}>3. Save:</b> Efektivní save = Save + |AP|, nebo lepší invulnerable.
+                    <b style={{ color: "var(--text)" }}>3. Save:</b> Efektivní save = Save + |AP|, nebo lepší invulnerable. Devastating Wounds: kritická zranění (nehozená 6, nebo nižší nastavený práh) save přeskočí a dají damage jako mortal wounds; v rozpisu je u zbraně vidět, kolik jich bylo a o kolik damage jsou navíc.
                   </div>
                   <div>
                     <b style={{ color: "var(--text)" }}>4. FNP:</b> Hází se za každý bod damage po save.
