@@ -4371,6 +4371,8 @@ function emptyBonus() {
     lethalHits: false,
     // Devastating Wounds: a critical wound skips saves and deals its damage as mortal wounds.
     devastatingWounds: false,
+    // Critical Wound threshold for Devastating Wounds (unmodified wound roll of X+; 6 normally).
+    critWoundOn: 6,
     sustained: 0,
     rerollHit: "none",
     rerollWound: "none",
@@ -4408,7 +4410,10 @@ function autoDetectBonus(unit) {
     m.weapons.forEach((w) => {
       const key = w.type === "melee" ? "melee" : "ranged";
       if (w.lethalHits) result[key].lethalHits = true;
-      if (w.devastatingWounds) result[key].devastatingWounds = true;
+      if (w.devastatingWounds) {
+        result[key].devastatingWounds = true;
+        result[key].critWoundOn = Math.min(result[key].critWoundOn || 6, w.critWoundOn || 6);
+      }
       if (w.sustained > result[key].sustained) result[key].sustained = w.sustained;
       result[key].rerollHit = betterReroll(result[key].rerollHit, w.rerollHit || "none");
       result[key].rerollWound = betterReroll(result[key].rerollWound, w.rerollWound || "none");
@@ -4457,7 +4462,7 @@ function computeWeapon(weapon, modelCount, def, bonus) {
     // abilities lower it (e.g. "Critical Hits on 5+"). A lower number is
     // "better" (easier), so an unset weapon field just falls back to 6.
     critHitsOn: Math.max(2, Math.min(6, weapon.critHitsOn || 6)),
-    critWoundOn: Math.max(2, Math.min(6, weapon.critWoundOn || 6)),
+    critWoundOn: Math.max(2, Math.min(6, Math.min(weapon.critWoundOn || 6, b.critWoundOn || 6))),
     devastatingWounds: !!weapon.devastatingWounds || !!b.devastatingWounds,
     antiKeyword: weapon.antiKeyword || "none",
     antiValue: weapon.antiValue || 0,
@@ -4527,6 +4532,9 @@ function computeWeapon(weapon, modelCount, def, bonus) {
   if (att.antiKeyword !== "none" && att.antiValue > 0 && def.keywords && def.keywords[att.antiKeyword]) {
     woundNeed = Math.min(woundNeed, att.antiValue);
   }
+  // A Critical Wound is always a successful wound, so a lowered critical threshold
+  // (e.g. Devastating Wounds on 4+) can also make the wound roll itself easier.
+  woundNeed = Math.min(woundNeed, att.critWoundOn);
 
   const pWoundBase = (7 - woundNeed) / 6;
   const pWoundAdj =
@@ -9464,7 +9472,13 @@ function BonusFieldsGroup({ bonus, setBonus, isRanged }) {
       </Row>
       <Row cols={2}>
         <ToggleField label="Devastating Wounds" value={bonus.devastatingWounds} onChange={(v) => setBonus((s) => ({ ...s, devastatingWounds: v }))} small />
-        <div />
+        <SelectField
+          label="Devastating na (kritické zranění)"
+          value={String(bonus.critWoundOn || 6)}
+          onChange={(v) => setBonus((s) => ({ ...s, critWoundOn: Number(v) }))}
+          options={[2, 3, 4, 5, 6].map((n) => ({ value: String(n), label: `${n}+` }))}
+          small
+        />
       </Row>
       {isRanged && (
         <Row cols={2}>
